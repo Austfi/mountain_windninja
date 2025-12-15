@@ -210,25 +210,25 @@
 
         <div class="kml-section"
             style="background: #131a2b; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
-            <h2 style="margin-bottom: 1rem;">🌬️ Current Forecast</h2>
+            <h2 style="margin-bottom: 1rem;">Current Forecast</h2>
             <div id="forecast-info" style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
                 <p>Coverage: <span id="forecast-period">Loading...</span></p>
                 <p>Last Updated: <span id="forecast-updated">Loading...</span></p>
             </div>
             <div class="kml-links" style="display: flex; gap: 1rem; flex-wrap: wrap;">
                 <a href="HRRR_Forecast.kml" class="kml-link" download
-                    style="background: var(--accent); color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">📍
-                    Download Network Link (.kml)</a>
+                    style="background: var(--accent); color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">Download
+                    Network Link (.kml)</a>
                 <a href="latest_forecast.kmz" class="kml-link" download
-                    style="background: #22c55e; color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">📦
-                    Download Data (.kmz)</a>
+                    style="background: #22c55e; color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">Download
+                    Data (.kmz)</a>
             </div>
         </div>
 
         <div class="status-row" id="status-row"></div>
 
         <section style="margin-top: 1.5rem;">
-            <h2 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--muted);">📁 Recent Forecasts</h2>
+            <h2 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--muted);">Recent Forecasts</h2>
             <div id="recent-forecasts" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
         </section>
     </div>
@@ -271,7 +271,7 @@
                 const forecasts = (d.forecasts || []).filter(f => f.run_type && f.run_type.includes('forecast')).slice(-5).reverse();
                 recentForecasts.innerHTML = forecasts.map(f => `
                     <a href="${f.url}" style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #1e293b; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.875rem;">
-                        <span>📦 ${f.filename}</span>
+                        <span>${f.filename}</span>
                         <span style="color: var(--muted); font-size: 0.75rem;">${f.date || 'N/A'}</span>
                     </a>
                 `).join('') || '<p style="color:var(--muted); font-size: 0.875rem;">No recent forecasts</p>';
