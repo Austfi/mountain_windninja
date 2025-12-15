@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keystone WindNinja Forecasts</title>
+    <style>
+        :root {
+            --bg: #0a0f1a;
+            --card: #131a2b;
+            --accent: #38bdf8;
+            --text: #e2e8f0;
+            --muted: #64748b;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 1.5rem;
+            line-height: 1.4;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: 0.875rem;
+        }
+
+        .timestamp {
+            color: var(--muted);
+            font-size: 0.75rem;
+        }
+
+        /* KML Links - Top Priority */
+        .kml-section {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .kml-section h2 {
+            font-size: 0.875rem;
+            color: var(--accent);
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+
+        .kml-links {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .kml-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--card);
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            text-decoration: none;
+            color: var(--accent);
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: background 0.2s;
+        }
+
+        .kml-link:hover {
+            background: #1e293b;
+        }
+
+        /* Status Row - Compact */
+        .status-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: var(--card);
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .dot-success {
+            background: var(--success);
+        }
+
+        .dot-warning {
+            background: var(--warning);
+        }
+
+        .dot-error {
+            background: var(--error);
+        }
+
+        /* File List - Clean Table */
+        section {
+            margin-bottom: 1.5rem;
+        }
+
+        h2 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+
+        .file-list {
+            background: var(--card);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid #1e293b;
+            font-size: 0.8rem;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-item a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .file-item a:hover {
+            text-decoration: underline;
+        }
+
+        .file-date {
+            color: var(--muted);
+            font-size: 0.75rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Keystone WindNinja</h1>
+                <p class="subtitle">Automated Wind Forecasts</p>
+            </div>
+            <span id="timestamp" class="timestamp"></span>
+        </header>
+
+        <div class="info-section"
+            style="background: #1e293b; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.875rem;">
+            <p style="margin-bottom: 0.5rem;">
+                <strong>WindNinja</strong> is a high-resolution wind modeling tool developed by the
+                <a href="https://www.fs.usda.gov/rmrs/projects/windninja" target="_blank"
+                    style="color: var(--accent);">USDA Forest Service</a>
+                for fire behavior prediction. It uses terrain data and weather forecasts to compute localized wind
+                fields.
+            </p>
+            <p style="color: var(--muted);">
+                Data source: <a href="https://www.nco.ncep.noaa.gov/pmb/products/hrrr/" target="_blank"
+                    style="color: var(--accent);">NOAA HRRR (High-Resolution Rapid Refresh)</a>
+                | Model resolution: 30m | Output height: 10m AGL
+            </p>
+        </div>
+
+        <div class="kml-section"
+            style="background: #131a2b; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem;">
+            <h2 style="margin-bottom: 1rem;">🌬️ Current Forecast</h2>
+            <div id="forecast-info" style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
+                <p>Coverage: <span id="forecast-period">Loading...</span></p>
+                <p>Last Updated: <span id="forecast-updated">Loading...</span></p>
+            </div>
+            <div class="kml-links" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <a href="HRRR_Forecast.kml" class="kml-link" download
+                    style="background: var(--accent); color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">📍
+                    Download Network Link (.kml)</a>
+                <a href="latest_forecast.kmz" class="kml-link" download
+                    style="background: #22c55e; color: #000; padding: 0.75rem 1.5rem; border-radius: 6px; text-decoration: none; font-weight: 600;">📦
+                    Download Data (.kmz)</a>
+            </div>
+        </div>
+
+        <div class="status-row" id="status-row"></div>
+
+        <section style="margin-top: 1.5rem;">
+            <h2 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--muted);">📁 Recent Forecasts</h2>
+            <div id="recent-forecasts" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+        </section>
+    </div>
+
+    <script>
+        async function load() {
+            try {
+                const r = await fetch('index.json?t=' + Date.now());
+                const d = await r.json();
+
+                // Timestamp
+                document.getElementById('timestamp').textContent = 'Updated: ' + new Date(d.updated).toLocaleString();
+
+                // Forecast time period info
+                const forecastPeriod = document.getElementById('forecast-period');
+                const forecastUpdated = document.getElementById('forecast-updated');
+                if (forecastPeriod && forecastUpdated) {
+                    const forecasts = (d.forecasts || []).filter(f => f.run_type && f.run_type.includes('forecast'));
+                    if (forecasts.length > 0) {
+                        const latest = forecasts[forecasts.length - 1];
+                        forecastPeriod.textContent = '18 hours starting from last cycle';
+                        forecastUpdated.textContent = latest.date || new Date(d.updated).toLocaleString();
+                    } else {
+                        forecastPeriod.textContent = '18-hour forecast (updates hourly)';
+                        forecastUpdated.textContent = new Date(d.updated).toLocaleString();
+                    }
+                }
+
+                // Status chips (last 3 only)
+                const statusRow = document.getElementById('status-row');
+                statusRow.innerHTML = '';
+                const statuses = Object.entries(d.statuses || {}).slice(-3);
+                statuses.forEach(([k, v]) => {
+                    const dotClass = v.status === 'success' ? 'dot-success' : v.status === 'running' ? 'dot-warning' : 'dot-error';
+                    statusRow.innerHTML += `<div class="status-chip"><span class="dot ${dotClass}"></span>${v.model} ${v.run_type}</div>`;
+                });
+
+                // Recent Forecasts list
+                const recentForecasts = document.getElementById('recent-forecasts');
+                const forecasts = (d.forecasts || []).filter(f => f.run_type && f.run_type.includes('forecast')).slice(-5).reverse();
+                recentForecasts.innerHTML = forecasts.map(f => `
+                    <a href="${f.url}" style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; background: #1e293b; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 0.875rem;">
+                        <span>📦 ${f.filename}</span>
+                        <span style="color: var(--muted); font-size: 0.75rem;">${f.date || 'N/A'}</span>
+                    </a>
+                `).join('') || '<p style="color:var(--muted); font-size: 0.875rem;">No recent forecasts</p>';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        load();
+        setInterval(load, 300000);
+    </script>
+</body>
+
+</html>

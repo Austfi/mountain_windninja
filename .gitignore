@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+
+# Virtual environments
+venv/
+ENV/
+.venv/
+
+# Logs and temp files
+logs/*.log
+*.log
+nohup.out
+temp/
+*.tmp
+
+# Archives (generated output)
+archives/
+
+# Data files
+*.csv
+*.grib2
+*.nc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Credentials (never commit)
+*.json
+!package.json
+
+# Backup files
+*.bak
+*.backup
+crontab.bak
+new_crontab*
+
+# Debug files
+*debug*.cfg
+*debug*.py
+*debug*.log
+manual_update*.log
+windninja_help.txt
+
+# Static data (too large for git - download separately)
+static_data/

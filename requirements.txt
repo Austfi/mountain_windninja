@@ -1,0 +1,10 @@
+requests>=2.31.0
+google-cloud-storage>=2.14.0
+python-dotenv>=1.0.0
+gdal==3.4.1  # Matches typical system GDAL, advisory only as usually installed via conda/apt
+
+# Development
+flake8>=7.0.0
+black>=24.0.0
+pytest>=8.0.0
+pytest-mock>=3.12.0

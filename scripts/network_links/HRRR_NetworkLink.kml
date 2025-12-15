@@ -1,0 +1,12 @@
+<?xml version="1.0" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <NetworkLink>
+    <name>HRRR Latest Forecast</name>
+    <description>Latest High Resolution Rapid Refresh Forecast</description>
+    <Link>
+      <href>https://storage.googleapis.com/wrf-austin-bucket/latest/HRRR_latest.kmz</href>
+      <refreshMode>onInterval</refreshMode>
+      <refreshInterval>300</refreshInterval>
+    </Link>
+  </NetworkLink>
+</kml>
