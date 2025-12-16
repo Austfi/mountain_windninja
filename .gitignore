@@ -42,6 +42,11 @@ Thumbs.db
 # Credentials (never commit)
 *.json
 !package.json
+.ssh/
+.config/
+*.key
+*.pem
+*credentials*.json
 
 # Backup files
 *.bak
@@ -58,3 +63,4 @@ windninja_help.txt
 
 # Static data (too large for git - download separately)
 static_data/
+logs/
