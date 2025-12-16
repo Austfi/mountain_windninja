@@ -237,11 +237,17 @@ def run_windninja(config_path, extra_args=None):
     logger.info(f"Running WindNinja: {' '.join(cmd)}")
     config_basename = os.path.splitext(os.path.basename(config_path))[0]
     output_dir = os.path.dirname(config_path)
-    wn_output_vel = os.path.join(output_dir, f"{config_basename}_vel.asc")
     
-    if os.path.exists(wn_output_vel):
-        logger.info(f"Skipping WindNinja: Output {wn_output_vel} already exists.")
-        return
+# --- HARD RESET OpenFOAM case before every run ---
+    case_dir = os.path.join(
+    	config_loader.BASE_DIR,
+	"static_data",
+    	f"NINJAFOAM_{config_basename}"
+    )
+
+    if os.path.exists(case_dir):
+    	logger.warning(f"Removing existing WindNinja case directory: {case_dir}")
+    	shutil.rmtree(case_dir)
 
     try:
         subprocess.run(cmd, check=True)
