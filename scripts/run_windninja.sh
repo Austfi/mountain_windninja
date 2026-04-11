@@ -14,10 +14,10 @@ OPENFOAM_BASHRC="${MWN_OPENFOAM_BASHRC:-/opt/openfoam9/etc/bashrc}"
 PYTHON_BIN="${MWN_PYTHON_BIN:-$BASE_DIR/.venv/bin/python}"
 
 if [ -f "$OPENFOAM_BASHRC" ]; then
-  set +u
+  set +eu
   # shellcheck disable=SC1090
-  source "$OPENFOAM_BASHRC"
-  set -u
+  source "$OPENFOAM_BASHRC" || true
+  set -eu
   export FOAM_USER_LIBBIN=/usr/local/lib/
 fi
 

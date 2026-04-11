@@ -24,7 +24,7 @@ pick_docker() {
 
 compose() {
   if "${DOCKER_PREFIX[@]}" compose version >/dev/null 2>&1; then
-    "${DOCKER_PREFIX[@]}" compose "$@"
+    "${DOCKER_PREFIX[@]}" compose --profile tools "$@"
   else
     echo "Docker Compose not found. Run ./deploy/gcp/bootstrap_repo.sh"
     exit 1
@@ -44,7 +44,7 @@ Commands:
   check                Run preflight checks (WindNinja, DEM/LCP, dirs)
   run [flags]          Run a WindNinja simulation inside the container
   shell                Open a bash shell inside the container
-  fetch-dem [flags]    Download DEM (source: us/world/gmted) into static_data/
+  fetch-dem [flags]    Download DEM (source: us, world, gmted) into static_data/
   fetch-lcp [flags]    Download LCP from LANDFIRE into static_data/ (US only)
   lcp-build <tif>      Convert a LANDFIRE GeoTIFF to LCP format
   upload               Upload latest results to GCS bucket
@@ -153,12 +153,24 @@ USAGE
     exit 1
   fi
 
+  # Map user-friendly source names to fetch_dem's --src values
+  local fetch_src="$src"
+  case "$src" in
+    us|srtm)   fetch_src="srtm" ;;
+    world)     fetch_src="srtm" ;;
+    gmted)     fetch_src="gmted" ;;
+    *)
+      echo "Unknown source: $src (use: us, world, or gmted)"
+      exit 1
+      ;;
+  esac
+
   pick_docker
   echo "Downloading DEM: north=$north east=$east south=$south west=$west"
-  echo "Source: $src | Output: $output | Resolution: ${resolution}m"
+  echo "Source: $src ($fetch_src) | Output: $output | Resolution: ${resolution}m"
   compose run --rm shell fetch_dem \
     --bbox "$north" "$east" "$south" "$west" \
-    --src "$src" \
+    --src "$fetch_src" \
     --out_res "$resolution" \
     "$output"
   echo ""
@@ -202,6 +214,12 @@ USAGE
     --bbox "$north" "$east" "$south" "$west" \
     --src lcp \
     "$output"
+
+  # Generate .prj sidecar (required by WindNinja for LCP files)
+  local prj_path="${output%.lcp}.prj"
+  echo "Generating projection file: $prj_path"
+  compose run --rm shell bash -c "gdalsrsinfo -o wkt '$output' > '$prj_path'"
+
   echo ""
   echo "LCP saved to $output"
   echo "Next: add it to config/domains.json and run ./deploy/gcp/mwn.sh check"

@@ -34,10 +34,10 @@ cd "$BASE_DIR"
 
 if [ -f "$OPENFOAM_BASHRC" ]; then
   export ZSH_NAME=""
-  set +u
+  set +eu
   # shellcheck disable=SC1090
-  source "$OPENFOAM_BASHRC"
-  set -u
+  source "$OPENFOAM_BASHRC" || true
+  set -eu
 fi
 
 {
