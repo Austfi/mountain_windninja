@@ -183,18 +183,15 @@ USAGE
     local vrt="/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/USGS_Seamless_DEM_13.vrt"
 
     # Auto-detect UTM zone from center of bounding box
-    local center_lon
-    center_lon=$(echo "($east + ($west)) / 2" | bc -l)
-    local center_lat
-    center_lat=$(echo "($north + $south) / 2" | bc -l)
-    local utm_zone
-    utm_zone=$(echo "($center_lon + 180) / 6 + 1" | bc | cut -d. -f1)
     local epsg
-    if (( $(echo "$center_lat >= 0" | bc -l) )); then
-      epsg=$((32600 + utm_zone))
-    else
-      epsg=$((32700 + utm_zone))
-    fi
+    epsg=$(awk -v n="$north" -v s="$south" -v e="$east" -v w="$west" \
+      'BEGIN {
+        lat = (n + s) / 2
+        lon = (e + w) / 2
+        zone = int((lon + 180) / 6) + 1
+        if (lat >= 0) print 32600 + zone
+        else print 32700 + zone
+      }')
 
     echo "Downloading DEM: north=$north east=$east south=$south west=$west"
     echo "Source: USGS 3DEP 1/3 arc-second | Output: $output | Resolution: ${res}m | CRS: EPSG:${epsg}"
