@@ -109,7 +109,10 @@ cmd_run() {
     echo "Run ./deploy/gcp/mwn.sh check for details."
     exit 1
   fi
-  compose run --rm shell ./scripts/run_windninja.sh "$@"
+  compose run --rm shell bash -c \
+    "source /opt/openfoam9/etc/bashrc 2>/dev/null || true; \
+     export FOAM_USER_LIBBIN=/usr/local/lib/; \
+     /opt/venv/bin/python ./scripts/daily_run.py $*"
 }
 
 cmd_shell() {
