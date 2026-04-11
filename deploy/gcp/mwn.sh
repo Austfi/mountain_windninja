@@ -47,6 +47,7 @@ Commands:
   fetch-dem [flags]    Download DEM (source: us, world, gmted) into static_data/
   fetch-lcp [flags]    Download LCP from LANDFIRE into static_data/ (US only)
   lcp-build <tif>      Convert a LANDFIRE GeoTIFF to LCP format
+  clean                Clear cached mesh and temp files (fixes most errors)
   upload               Upload latest results to GCS bucket
   schedule             Start the automatic hourly scheduler
   stop                 Stop the scheduler
@@ -103,6 +104,14 @@ cmd_check() {
   compose run --rm shell python ./scripts/preflight_check.py "$@"
 }
 
+cmd_clean() {
+  echo "Clearing cached mesh data..."
+  sudo rm -rf static_data/NINJAFOAM_* 2>/dev/null || true
+  echo "Clearing temp run output..."
+  sudo rm -rf runtime/temp/* 2>/dev/null || true
+  echo "Clean. Ready to run."
+}
+
 cmd_run() {
   pick_docker
   echo "Running preflight check..."
@@ -112,10 +121,18 @@ cmd_run() {
     echo "Run ./deploy/gcp/mwn.sh check for details."
     exit 1
   fi
-  compose run --rm shell bash -c \
+  if ! compose run --rm shell bash -c \
     "source /opt/openfoam9/etc/bashrc 2>/dev/null || true; \
      export FOAM_USER_LIBBIN=/usr/local/lib/; \
-     /opt/venv/bin/python ./scripts/daily_run.py $*"
+     cd /opt/mountain_windninja/runtime; \
+     /opt/venv/bin/python /opt/mountain_windninja/scripts/daily_run.py $*"; then
+    echo ""
+    echo "Run failed. Cleaning corrupted mesh cache..."
+    sudo rm -rf static_data/NINJAFOAM_* 2>/dev/null || true
+    sudo rm -rf runtime/temp/* 2>/dev/null || true
+    echo "Cache cleared. Fix the issue and re-run."
+    exit 1
+  fi
 }
 
 cmd_shell() {
@@ -289,6 +306,7 @@ case "$COMMAND" in
   check)           cmd_check "$@" ;;
   run)             cmd_run "$@" ;;
   shell)           cmd_shell ;;
+  clean)           cmd_clean ;;
   fetch-dem)       cmd_fetch_dem "$@" ;;
   fetch-lcp)       cmd_fetch_lcp "$@" ;;
   lcp-build)       cmd_lcp_build "$@" ;;
