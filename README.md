@@ -20,12 +20,12 @@ cd /opt/mountain_windninja
 ./deploy/gcp/mwn.sh build
 
 # 3. Download terrain data for your area
-#    Option A: USGS 3DEP (high-res lidar, US only, no API key needed)
+#    Option A: USGS 3DEP 10m (US only, no API key needed)
 ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
 
-#    Option B: SRTM via OpenTopography (30m, global -- needs free API key)
+#    Option B: SRTM 30m via OpenTopography (global, needs free API key)
 #    Set CUSTOM_SRTM_API_KEY in config/runtime.env first
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif world 30
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
 
 #    Option C: LANDFIRE LCP (US only, includes vegetation/fuel data)
 ./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
@@ -70,7 +70,8 @@ Output goes to `runtime/archives/` (KMZ files for Google Earth). Full walkthroug
 | `mwn.sh check`                               | Verify setup                                  |
 | `mwn.sh run [flags]`                         | Run simulation                                |
 | `mwn.sh shell`                               | Open container shell                          |
-| `mwn.sh fetch-dem N E S W [out] [src] [res]` | Download DEM (source: `us`, `world`, `gmted`) |
+| `mwn.sh fetch-dem N E S W [out] [src] [res]` | Download DEM (source: `us`, `srtm`, `gmted`) |
+| `mwn.sh clean`                               | Clear cached mesh and temp files              |
 | `mwn.sh fetch-lcp N E S W [out]`             | Download LCP from LANDFIRE (US only)          |
 | `mwn.sh lcp-build input.tif [out.lcp]`       | Convert LANDFIRE GeoTIFF to LCP               |
 | `mwn.sh schedule`                            | Start hourly auto-forecasts                   |
@@ -88,11 +89,11 @@ WindNinja needs elevation data for your area. Three ways to get it:
 ### Option 1: DEM (elevation only)
 
 ```bash
-# USGS 3DEP -- highest resolution (1-10m lidar), US only, no API key needed
+# USGS 3DEP -- true 10m resolution, US only, no API key needed
 ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
 
 # SRTM -- 30m resolution, global coverage, needs free OpenTopography API key
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif world 30
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
 
 # GMTED -- coarser (~250m), global, good for large areas
 ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif gmted
@@ -145,7 +146,7 @@ Make sure `MWN_DOMAIN_ID` in `config/runtime.env` matches the domain key. Run `.
 | ---------------- | ----------------------------------------- | ------------------------------------------- |
 | **Data**         | Elevation only                            | Elevation + vegetation/fuel (8 bands)       |
 | **Accuracy**     | Good (uniform vegetation assumption)      | Best (real vegetation data)                 |
-| **Availability** | Global (USGS 3DEP for US, SRTM worldwide) | US only (LANDFIRE)                          |
+| **Availability** | US (3DEP 10m), global (SRTM 30m)          | US only (LANDFIRE)                          |
 | **Best for**     | Quick runs, non-US areas                  | Fire modeling, forested terrain, production |
 
 
@@ -192,6 +193,7 @@ Edit `config/template.cfg` to tune WindNinja behavior:
 | `num_threads`          | CPU threads                                              | `4`     |
 | `number_of_iterations` | Solver iterations                                        | `300`   |
 | `diurnal_winds`        | Thermal slope winds                                      | `true`  |
+| `output_wind_height`   | Height above ground for output (set via `--height` flag) | `10.0`  |
 
 
 ## Docs
