@@ -112,12 +112,12 @@ RUN source /opt/openfoam9/etc/bashrc && \
     wmake libso && \
     cd utility/applyInit && \
     wmake && \
-    cp "$FOAM_RUN/../platforms/linux64GccDPOpt/lib/libWindNinja.so" \
-       /opt/openfoam9/platforms/linux64GccDPOpt/lib/ && \
-    cp "$FOAM_RUN/../platforms/linux64GccDPOpt/bin/applyInit" \
-       /opt/openfoam9/platforms/linux64GccDPOpt/bin/ && \
-    chmod 644 /opt/openfoam9/platforms/linux64GccDPOpt/lib/libWindNinja.so && \
-    chmod 755 /opt/openfoam9/platforms/linux64GccDPOpt/bin/applyInit
+    cp "$FOAM_RUN/../platforms/linux64GccDPInt32Opt/lib/libWindNinja.so" \
+       /opt/openfoam9/platforms/linux64GccDPInt32Opt/lib/ && \
+    cp "$FOAM_RUN/../platforms/linux64GccDPInt32Opt/bin/applyInit" \
+       /opt/openfoam9/platforms/linux64GccDPInt32Opt/bin/ && \
+    chmod 644 /opt/openfoam9/platforms/linux64GccDPInt32Opt/lib/libWindNinja.so && \
+    chmod 755 /opt/openfoam9/platforms/linux64GccDPInt32Opt/bin/applyInit
 
 COPY requirements.txt /opt/mountain_windninja/requirements.txt
 
