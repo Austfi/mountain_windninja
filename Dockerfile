@@ -90,9 +90,7 @@ RUN apt-get update && \
     ldconfig && \
     rm -rf /var/lib/apt/lists/*
 
-RUN sed -i 's/find_package(Qt4 REQUIRED)/find_package(Qt4 QUIET)/' \
-        /opt/src/windninja/CMakeLists.txt && \
-    mkdir -p /opt/src/windninja/build && \
+RUN mkdir -p /opt/src/windninja/build && \
     cd /opt/src/windninja/build && \
     cmake \
       -D SUPRESS_WARNINGS=ON \
@@ -101,6 +99,7 @@ RUN sed -i 's/find_package(Qt4 REQUIRED)/find_package(Qt4 QUIET)/' \
       -D BUILD_SLOPE_ASPECT_GRID=ON \
       -D BUILD_FLOW_SEPARATION_GRID=ON \
       -D NINJA_GUI=OFF \
+      -D NINJA_QTGUI=OFF \
       .. && \
     make -j"$(nproc)" && \
     make install && \
