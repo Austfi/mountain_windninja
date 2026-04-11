@@ -90,7 +90,9 @@ RUN apt-get update && \
     ldconfig && \
     rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/src/windninja/build && \
+RUN sed -i 's/find_package(Qt4 REQUIRED)/find_package(Qt4 QUIET)/' \
+        /opt/src/windninja/CMakeLists.txt && \
+    mkdir -p /opt/src/windninja/build && \
     cd /opt/src/windninja/build && \
     cmake \
       -D SUPRESS_WARNINGS=ON \
