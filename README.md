@@ -196,6 +196,7 @@ Edit `config/template.cfg` to tune WindNinja behavior:
 
 ## Docs
 
+- **[Beginner Tutorial](docs/tutorial.md)** -- start here. Step-by-step walkthrough from zero to your first forecast.
 - **[GCP Setup Guide](docs/gcp_setup.md)** -- VM creation, costs, terrain data, troubleshooting
 - **[Command Reference](docs/commands.md)** -- all flags, weather models, examples
 - **[WindNinja Reference](docs/windninja_reference.md)** -- internals, config options, upstream docs

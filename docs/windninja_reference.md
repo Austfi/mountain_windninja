@@ -356,8 +356,10 @@ Output CSV columns: `ID,lat,lon,height,datetime,u,v,w,wx_u,wx_v`
 
 ## Docker Build (Official)
 
-The official Dockerfile (from `firelab/windninja/Dockerfile`) uses:
-- Base: `ubuntu:20.04`
+The official Dockerfile (from `firelab/windninja/Dockerfile`) uses Ubuntu 20.04 and
+OpenFOAM 8. Our project Dockerfile follows the
+[22.04 wiki build instructions](https://github.com/firelab/windninja/wiki/Building-WindNinja-on-Linux-22.04):
+- Base: `ubuntu:22.04`
 - CMake flags:
   - `-D SUPRESS_WARNINGS=ON`
   - `-D NINJAFOAM=ON` (momentum solver)
@@ -365,8 +367,8 @@ The official Dockerfile (from `firelab/windninja/Dockerfile`) uses:
   - `-D BUILD_SLOPE_ASPECT_GRID=ON`
   - `-D BUILD_FLOW_SEPARATION_GRID=ON`
   - `-D NINJA_GUI=OFF` (CLI only)
-- OpenFOAM 8 from `dl.openfoam.org/ubuntu`
-- OpenMPI 4.0.4
+- OpenFOAM 9 from `dl.openfoam.org/ubuntu`
+- Poppler 22.02.0, PROJ 8.2.1, GDAL 3.4.1
 
 ### Critical OpenFOAM Environment Setup
 
@@ -391,12 +393,12 @@ export ${SLURM_ENV}
 
 ### Our Dockerfile vs Official
 
-Our Dockerfile (`/Dockerfile`) is based on the official one with these additions:
+Our Dockerfile (`/Dockerfile`) follows the 22.04 wiki instructions with these additions:
 - Python venv with project dependencies (google-cloud-storage, python-dotenv, pytest)
 - Cron support for scheduled forecasts
 - Project files copied into `/opt/mountain_windninja`
-- OpenMPI, Poppler, PROJ, and GDAL built from source (same as official `build_deps_docker.sh`)
-- OpenFOAM sourced in `/etc/bash.bashrc` for all shells
+- Poppler, PROJ, and GDAL built from source (per `build_deps_ubuntu_2204.sh`)
+- OpenFOAM 9 sourced in `/etc/bash.bashrc` for all shells
 
 ---
 
