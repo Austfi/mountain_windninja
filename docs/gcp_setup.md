@@ -27,12 +27,14 @@ New accounts get **$300 in free credits** for 90 days. This is enough to run Win
 
 WindNinja is CPU-intensive (especially with the momentum/OpenFOAM solver). Here are the best options, all priced for the `us-central1` (Iowa) region:
 
-| Machine Type | vCPUs | RAM | Cost/Hour (On-Demand) | Cost/Hour (Spot) | Best For |
-|-------------|-------|-----|----------------------|-----------------|----------|
-| `e2-standard-4` | 4 | 16 GB | **$0.134** | $0.065 | Starting out, small domains, tight budget |
-| `e2-standard-8` | 8 | 32 GB | $0.268 | $0.130 | Medium domains, faster runs |
-| `c2-standard-4` | 4 | 16 GB | $0.209 | $0.068 | Better CPU performance per core |
-| `c2-standard-8` | 8 | 32 GB | $0.418 | $0.136 | Large domains, production runs |
+
+| Machine Type    | vCPUs | RAM   | Cost/Hour (On-Demand) | Cost/Hour (Spot) | Best For                                  |
+| --------------- | ----- | ----- | --------------------- | ---------------- | ----------------------------------------- |
+| `e2-standard-4` | 4     | 16 GB | **$0.134**            | $0.065           | Starting out, small domains, tight budget |
+| `e2-standard-8` | 8     | 32 GB | $0.268                | $0.130           | Medium domains, faster runs               |
+| `c2-standard-4` | 4     | 16 GB | $0.209                | $0.068           | Better CPU performance per core           |
+| `c2-standard-8` | 8     | 32 GB | $0.418                | $0.136           | Large domains, production runs            |
+
 
 **Recommendation for beginners: `e2-standard-4`** -- cheapest option that works well. At $0.134/hour, running it 4 hours a day for a month costs about $16. With the $300 free credit, you can run it for ~2,200 hours before paying anything.
 
@@ -51,14 +53,16 @@ To create a Spot VM, check **"Spot"** under "VM provisioning model" when creatin
 
 These assume you **stop the VM when not in use** (which you should always do):
 
-| Usage Pattern | Machine Type | Monthly Cost |
-|-------------|-------------|-------------|
-| Occasional (2 hours/week) | e2-standard-4 | ~$1.07 |
-| Regular manual runs (2 hours/day) | e2-standard-4 | ~$8.04 |
-| Heavy use (8 hours/day) | e2-standard-4 | ~$32.16 |
-| 24/7 automated scheduler | e2-standard-4 | ~$97.84 |
-| Occasional with Spot | e2-standard-4 (Spot) | ~$0.52 |
-| Heavy use with C2 | c2-standard-8 | ~$100.32 |
+
+| Usage Pattern                     | Machine Type         | Monthly Cost |
+| --------------------------------- | -------------------- | ------------ |
+| Occasional (2 hours/week)         | e2-standard-4        | ~$1.07       |
+| Regular manual runs (2 hours/day) | e2-standard-4        | ~$8.04       |
+| Heavy use (8 hours/day)           | e2-standard-4        | ~$32.16      |
+| 24/7 automated scheduler          | e2-standard-4        | ~$97.84      |
+| Occasional with Spot              | e2-standard-4 (Spot) | ~$0.52       |
+| Heavy use with C2                 | c2-standard-8        | ~$100.32     |
+
 
 All estimates plus ~$5/month for 50 GB disk storage.
 
@@ -66,13 +70,15 @@ All estimates plus ~$5/month for 50 GB disk storage.
 
 Pick a region close to you for lower latency when SSH-ing in. The cheapest US regions are:
 
-| Region | Location | Notes |
-|--------|----------|-------|
-| `us-central1` | Iowa | Cheapest, most availability, recommended |
-| `us-east1` | South Carolina | Same price as Iowa |
-| `us-west1` | Oregon | Same price, free-tier eligible |
-| `us-east4` | Virginia | ~10% more expensive |
-| `us-west4` | Las Vegas | ~10% more expensive |
+
+| Region        | Location       | Notes                                    |
+| ------------- | -------------- | ---------------------------------------- |
+| `us-central1` | Iowa           | Cheapest, most availability, recommended |
+| `us-east1`    | South Carolina | Same price as Iowa                       |
+| `us-west1`    | Oregon         | Same price, free-tier eligible           |
+| `us-east4`    | Virginia       | ~10% more expensive                      |
+| `us-west4`    | Las Vegas      | ~10% more expensive                      |
+
 
 **Use `us-central1` unless you have a reason not to.** It has the most machine type availability and is the cheapest.
 
@@ -81,19 +87,19 @@ Pick a region close to you for lower latency when SSH-ing in. The cheapest US re
 1. Go to **Compute Engine > VM instances** (it may take a minute to enable the API the first time)
 2. Click **Create Instance**
 3. Settings:
-   - **Name:** `windninja`
-   - **Region:** `us-central1 (Iowa)` -- cheapest and most available
-   - **Zone:** Any (e.g., `us-central1-a`)
-   - **Machine configuration:**
-     - Series: **E2** (or C2 if you want faster runs)
-     - Machine type: **e2-standard-4** (4 vCPU, 16 GB RAM)
-   - **VM provisioning model:** **Standard** (or Spot for cheaper one-off runs)
-   - **Boot disk:** Click **"Change"**
-     - OS: **Ubuntu 22.04 LTS**
-     - Size: **50 GB** (Docker image is large)
-     - Type: **Balanced persistent disk** (cheapest SSD option)
-   - **Firewall:** Leave both unchecked (you don't need web access)
-   - **Networking > Network interfaces:** Leave defaults (you only need SSH)
+  - **Name:** `windninja`
+  - **Region:** `us-central1 (Iowa)` -- cheapest and most available
+  - **Zone:** Any (e.g., `us-central1-a`)
+  - **Machine configuration:**
+    - Series: **E2** (or C2 if you want faster runs)
+    - Machine type: **e2-standard-4** (4 vCPU, 16 GB RAM)
+  - **VM provisioning model:** **Standard** (or Spot for cheaper one-off runs)
+  - **Boot disk:** Click **"Change"**
+    - OS: **Ubuntu 22.04 LTS**
+    - Size: **50 GB** (Docker image is large)
+    - Type: **Balanced persistent disk** (cheapest SSD option)
+  - **Firewall:** Leave both unchecked (you don't need web access)
+  - **Networking > Network interfaces:** Leave defaults (you only need SSH)
 4. Click **Create**
 
 The VM will be ready in about 30 seconds. You'll see it listed with a green checkmark.
@@ -230,13 +236,15 @@ Install with `pip install landfire`. See [landfire-python.firesci.io](https://la
 
 ### DEM vs LCP: Which Should I Use?
 
-| | DEM | LCP |
-|---|-----|-----|
-| Data included | Elevation only | Elevation + 7 vegetation/fuel bands |
-| Accuracy | Good (uses uniform vegetation assumption) | Best (uses real vegetation data) |
-| Availability | Global (SRTM, 3DEP, COP30) | US only (LANDFIRE) |
-| Best for | Quick tests, non-US areas, simple terrain | Production runs, fire modeling, forested areas |
-| File size | Smaller | Larger |
+
+|               | DEM                                       | LCP                                            |
+| ------------- | ----------------------------------------- | ---------------------------------------------- |
+| Data included | Elevation only                            | Elevation + 7 vegetation/fuel bands            |
+| Accuracy      | Good (uses uniform vegetation assumption) | Best (uses real vegetation data)               |
+| Availability  | Global (SRTM, 3DEP, COP30)                | US only (LANDFIRE)                             |
+| Best for      | Quick tests, non-US areas, simple terrain | Production runs, fire modeling, forested areas |
+| File size     | Smaller                                   | Larger                                         |
+
 
 ### Terrain Data Requirements
 
@@ -292,13 +300,15 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 
 ### Key Settings in runtime.env
 
-| Setting | What it means | Default |
-|---------|--------------|---------|
-| `MWN_DOMAIN_ID` | Which domain to run (must match a key in `domains.json`) | `small` |
+
+| Setting                  | What it means                                                 | Default |
+| ------------------------ | ------------------------------------------------------------- | ------- |
+| `MWN_DOMAIN_ID`          | Which domain to run (must match a key in `domains.json`)      | `small` |
 | `MWN_SURFACE_VEGETATION` | Default vegetation for DEM runs: `grass`, `brush`, or `trees` | `trees` |
-| `MWN_GCS_UPLOAD_ENABLED` | Upload results to a GCS bucket | `false` |
-| `MWN_GCS_BUCKET` | Your GCS bucket name (if uploading) | empty |
-| `CUSTOM_SRTM_API_KEY` | OpenTopography API key for `fetch-dem` | empty |
+| `MWN_GCS_UPLOAD_ENABLED` | Upload results to a GCS bucket                                | `false` |
+| `MWN_GCS_BUCKET`         | Your GCS bucket name (if uploading)                           | empty   |
+| `CUSTOM_SRTM_API_KEY`    | OpenTopography API key for `fetch-dem`                        | empty   |
+
 
 ## Step 8: Run Your First Simulation
 
@@ -335,6 +345,7 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 ## Step 9: Get Your Output
 
 Output files are in `runtime/` on the VM:
+
 - `runtime/archives/` -- zipped KMZ files
 - `runtime/temp/` -- raw output if you used `--keep-temp`
 
@@ -360,7 +371,7 @@ MWN_GCS_BUCKET=your-bucket-name
 MWN_GCS_UPLOAD_ENABLED=true
 ```
 
-4. Run a forecast -- results upload automatically
+1. Run a forecast -- results upload automatically
 
 ## Optional: Automatic Scheduling
 
@@ -447,16 +458,15 @@ gdalwarp -t_srs EPSG:32613 static_data/your_file.tif static_data/your_file_utm.t
 
 Replace `32613` with the correct UTM zone for your area. Google "UTM zone map" to find yours.
 
-2. **Not north-up.** The DEM must be oriented north-up. Most downloads are, but if yours was rotated, reproject it with `gdalwarp`.
-
-3. **No-data gaps.** Holes in the terrain data cause crashes. Fill them with:
+1. **Not north-up.** The DEM must be oriented north-up. Most downloads are, but if yours was rotated, reproject it with `gdalwarp`.
+2. **No-data gaps.** Holes in the terrain data cause crashes. Fill them with:
 
 ```bash
 ./deploy/gcp/mwn.sh shell
 gdal_fillnodata.py static_data/your_file.tif static_data/your_file_filled.tif
 ```
 
-4. **Elevation not in meters.** Some DEMs use feet. Convert with:
+1. **Elevation not in meters.** Some DEMs use feet. Convert with:
 
 ```bash
 gdal_calc.py -A static_data/your_file.tif --outfile=static_data/your_file_m.tif --calc="A*0.3048"
@@ -477,7 +487,7 @@ NOAA's NOMADS servers go down occasionally for maintenance or high load. Steps t
 ./deploy/gcp/mwn.sh run --model GFS --hours 6
 ```
 
-3. **Increase download timeout.** Add to `config/runtime.container.env`:
+1. **Increase download timeout.** Add to `config/runtime.container.env`:
 
 ```
 NOMADS_HTTP_TIMEOUT=60
@@ -485,7 +495,7 @@ NOMADS_HTTP_TIMEOUT=60
 
 Default is 20 seconds, which can be too short on slow connections.
 
-4. **Check NOAA status.** NOAA posts outage notices at: [lstsrv.ncep.noaa.gov/mailman/listinfo/ncep.list.nomads-ftpprd](https://lstsrv.ncep.noaa.gov/mailman/listinfo/ncep.list.nomads-ftpprd)
+1. **Check NOAA status.** NOAA posts outage notices at: [lstsrv.ncep.noaa.gov/mailman/listinfo/ncep.list.nomads-ftpprd](https://lstsrv.ncep.noaa.gov/mailman/listinfo/ncep.list.nomads-ftpprd)
 
 **Reanalysis mode fails:**
 Historical (pastcast) data is only available for HRRR and only goes back to ~2014. Make sure you're using `--model HRRR` with reanalysis mode. Other models don't have pastcast archives.
@@ -538,13 +548,9 @@ Usually caused by a rough or noisy DEM. WindNinja v3.11+ has a built-in DEM smoo
 Several levers to speed things up, ordered by impact:
 
 1. **Turn off momentum solver:** Set `momentum_flag = false` in your `.cfg` template. Mass-only solver runs in seconds instead of minutes. Less accurate for complex terrain but fine for gentle topography.
-
 2. **Increase mesh resolution number:** Counter-intuitively, a larger `mesh_resolution` value means coarser (faster) grid. Change from `80.0` to `200.0` in the template.
-
 3. **Reduce forecast hours:** `--hours 6` instead of `--hours 18`.
-
 4. **Use fewer threads on small domains:** For small DEMs, `num_threads = 2` can be faster than 4 due to MPI overhead.
-
 5. **Shrink your DEM:** Crop to only the area you need:
 
 ```bash
@@ -554,13 +560,15 @@ gdal_translate -projwin west north east south static_data/big.tif static_data/sm
 
 **Expected run times** (rough guide for e2-standard-4, 4 vCPUs):
 
-| Domain Size | Solver | Per Forecast Hour |
-|------------|--------|-------------------|
-| Small (10x10 km) | Mass only | ~5 seconds |
-| Small (10x10 km) | Momentum | ~2-3 minutes |
-| Medium (30x30 km) | Mass only | ~15 seconds |
-| Medium (30x30 km) | Momentum | ~8-15 minutes |
-| Large (50x50 km) | Momentum | ~20-40 minutes |
+
+| Domain Size       | Solver    | Per Forecast Hour |
+| ----------------- | --------- | ----------------- |
+| Small (10x10 km)  | Mass only | ~5 seconds        |
+| Small (10x10 km)  | Momentum  | ~2-3 minutes      |
+| Medium (30x30 km) | Mass only | ~15 seconds       |
+| Medium (30x30 km) | Momentum  | ~8-15 minutes     |
+| Large (50x50 km)  | Momentum  | ~20-40 minutes    |
+
 
 An 18-hour HRRR forecast on a medium domain with momentum solver takes roughly 2.5-4.5 hours on e2-standard-4.
 
@@ -648,11 +656,13 @@ This way, even if you forget, the VM shuts down at 11 PM Mountain time every nig
 
 New GCP accounts get $300 in free credits for 90 days. Here's how to stretch them:
 
-| What | Cost | Hours You Can Run |
-|------|------|------------------|
+
+| What                      | Cost      | Hours You Can Run            |
+| ------------------------- | --------- | ---------------------------- |
 | e2-standard-4 (on-demand) | $0.134/hr | ~2,238 hours ($300 / $0.134) |
-| e2-standard-4 (Spot) | $0.065/hr | ~4,615 hours |
-| c2-standard-8 (on-demand) | $0.418/hr | ~717 hours |
+| e2-standard-4 (Spot)      | $0.065/hr | ~4,615 hours                 |
+| c2-standard-8 (on-demand) | $0.418/hr | ~717 hours                   |
+
 
 At 2 hours of runtime per day on e2-standard-4, your $300 lasts about **3 years** of daily use (well beyond the 90-day credit window). In practice, a typical WindNinja forecast run takes 15-60 minutes depending on domain size.
 
@@ -668,13 +678,15 @@ The free tier won't run WindNinja directly, but you can keep your results in Clo
 
 ### Cost Comparison: GCP vs. Other Options
 
-| Option | Cost for 4-CPU, 16 GB | Notes |
-|--------|----------------------|-------|
-| GCP e2-standard-4 | $0.134/hr (~$16/mo at 4hr/day) | Easy setup, free credits |
-| GCP e2-standard-4 Spot | $0.065/hr (~$8/mo at 4hr/day) | 50% cheaper, can be interrupted |
-| AWS EC2 t3.xlarge | $0.166/hr | Similar, no free $300 credit |
-| Hetzner CPX31 | ~$0.03/hr (flat rate) | Cheapest but requires more setup |
-| Local desktop (existing) | $0 (electricity only) | No cloud cost; Linux/Docker required |
+
+| Option                   | Cost for 4-CPU, 16 GB          | Notes                                |
+| ------------------------ | ------------------------------ | ------------------------------------ |
+| GCP e2-standard-4        | $0.134/hr (~$16/mo at 4hr/day) | Easy setup, free credits             |
+| GCP e2-standard-4 Spot   | $0.065/hr (~$8/mo at 4hr/day)  | 50% cheaper, can be interrupted      |
+| AWS EC2 t3.xlarge        | $0.166/hr                      | Similar, no free $300 credit         |
+| Hetzner CPX31            | ~$0.03/hr (flat rate)          | Cheapest but requires more setup     |
+| Local desktop (existing) | $0 (electricity only)          | No cloud cost; Linux/Docker required |
+
 
 GCP's $300 free credit makes it the best starting point. Hetzner is cheapest long-term but has no managed SSH or console.
 
@@ -722,3 +734,4 @@ gcloud compute instances start windninja --zone=us-central1-a
 # Download results
 gcloud compute scp windninja:/opt/mountain_windninja/runtime/archives/*.zip ~/Downloads/
 ```
+
