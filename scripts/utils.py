@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 def setup_logging(name, log_level=logging.INFO):
     """
@@ -25,7 +25,7 @@ def setup_logging(name, log_level=logging.INFO):
 
 def get_timestamp_str():
     """Returns current UTC timestamp as YYYYMMDD_HHMM."""
-    return datetime.utcnow().strftime("%Y%m%d_%H%M")
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
 
 def ensure_dir(path):
     """Ensures a directory exists."""

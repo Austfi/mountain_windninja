@@ -1,57 +1,205 @@
-# mountain_windninja
+# Mountain WindNinja
 
-Automated WindNinja HRRR wind forecasting system for mountain terrain.
+Run [WindNinja](https://research.fs.usda.gov/firelab/products/dataandtools/windninja) on a cloud server with simple terminal commands. WindNinja simulates how wind flows over complex terrain. This project packages it inside Docker so you can run it on a Google Cloud VM (or any Linux server) without installing anything manually.
 
-## Overview
+**Output:** KMZ files for Google Earth (animated wind vectors over terrain) + ASCII grids (raw speed/direction data).
 
-This system automatically runs [WindNinja](https://www.fs.usda.gov/rmrs/projects/windninja) hourly to generate high-resolution wind forecasts using NOAA HRRR data. Results are uploaded to Google Cloud Storage and made available via Google Earth network links.
+**New to Google Cloud?** New accounts get **$300 free credits** (90 days). An `e2-standard-4` VM costs ~$0.13/hour. See the [GCP setup guide](docs/gcp_setup.md) for VM sizing, cost tips, and step-by-step instructions.
 
-## Features
+## Quick Start
 
-- **Hourly automated runs** via cron at :15 past each hour
-- **18-hour forecast window** using HRRR model data
-- **30m resolution** terrain-following wind fields
-- **10m AGL output** wind speed and direction
-- **Google Earth KMZ output** with time-slider animation
-- **Auto-updating network links** for live Google Earth visualization
+**You need:** The lat/lon bounding box for your area of interest.
 
-## Architecture
-
-```
-scripts/
-├── daily_run.py         # Main forecast execution script
-├── hourly_run.py        # Cron entry point (runs forecasts)
-├── run_cron.sh          # Wrapper script with OpenFOAM environment
-├── create_time_series.py # KMZ bundling and time-series generation
-├── gcs_manager.py       # Google Cloud Storage upload management
-├── config_loader.py     # Configuration loading
-└── utils.py             # Logging and utilities
-
-config/
-├── keystone_template.cfg # WindNinja configuration template
-└── keystone_template_large.cfg # Large domain template
-```
-
-## Setup
-
-1. Install WindNinja with OpenFOAM momentum solver
-2. Configure GCS bucket and credentials
-3. Set up cron job:
 ```bash
-15 * * * * /path/to/scripts/run_cron.sh
+# 1. Clone and set up
+git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
+cd /opt/mountain_windninja
+./deploy/gcp/bootstrap_repo.sh
+
+# 2. Build Docker image (~30 min first time, needs 50 GB disk)
+./deploy/gcp/mwn.sh build
+
+# 3. Download terrain data for your area
+#    Option A: USGS 3DEP (high-res lidar, US only, no API key needed)
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
+
+#    Option B: SRTM via OpenTopography (30m, global -- needs free API key)
+#    Set CUSTOM_SRTM_API_KEY in config/runtime.env first
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif world 30
+
+#    Option C: LANDFIRE LCP (US only, includes vegetation/fuel data)
+./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
+
+# 4. Edit config/domains.json -- set elevation_file to your filename
+nano config/domains.json
+
+# 5. Verify setup and run
+./deploy/gcp/mwn.sh check
+./deploy/gcp/mwn.sh run --hours 6
 ```
 
-## Output
+Output goes to `runtime/archives/` (KMZ files for Google Earth). Full walkthrough: [docs/gcp_setup.md](docs/gcp_setup.md).
 
-- **Portal:** https://storage.googleapis.com/wrf-austin-bucket/index.html
-- **Network Link:** Download `HRRR_Forecast.kml` for auto-updating Google Earth visualization
-- **Direct Download:** `latest_forecast.kmz` contains bundled 18-hour forecast
+## How It Works
 
-## Data Sources
+1. You provide a terrain file (DEM `.tif` or LCP `.lcp`) in `static_data/`
+2. You define a domain in `config/domains.json` pointing to your terrain + the config template
+3. `mwn.sh run` starts a Docker container with WindNinja + OpenFOAM, generates config, runs simulation
+4. WindNinja downloads weather data from NOAA automatically
+5. Output files (KMZ, ASCII grids) go to `runtime/`
 
-- **HRRR:** [NOAA High-Resolution Rapid Refresh](https://www.nco.ncep.noaa.gov/pmb/products/hrrr/)
-- **Terrain:** USGS 30m DEM
+## Three Run Modes
+
+```bash
+# Forecast: live weather data from NOAA (default)
+./deploy/gcp/mwn.sh run --hours 18 --model HRRR
+
+# Reanalysis: archived past weather (HRRR only, back to 2014)
+./deploy/gcp/mwn.sh run --mode reanalysis --hours 12
+
+# Domain-average: manual wind input, no internet needed
+./deploy/gcp/mwn.sh run --mode domain-average --speed 20 --direction 270
+```
+
+## Commands
+
+
+| Command                                      | What it does                                  |
+| -------------------------------------------- | --------------------------------------------- |
+| `mwn.sh build`                               | Build Docker image                            |
+| `mwn.sh check`                               | Verify setup                                  |
+| `mwn.sh run [flags]`                         | Run simulation                                |
+| `mwn.sh shell`                               | Open container shell                          |
+| `mwn.sh fetch-dem N E S W [out] [src] [res]` | Download DEM (source: `us`, `world`, `gmted`) |
+| `mwn.sh fetch-lcp N E S W [out]`             | Download LCP from LANDFIRE (US only)          |
+| `mwn.sh lcp-build input.tif [out.lcp]`       | Convert LANDFIRE GeoTIFF to LCP               |
+| `mwn.sh schedule`                            | Start hourly auto-forecasts                   |
+| `mwn.sh stop`                                | Stop scheduler                                |
+| `mwn.sh logs`                                | View scheduler logs                           |
+| `mwn.sh update`                              | Pull code + rebuild                           |
+
+
+Full flags, weather models, and examples: [docs/commands.md](docs/commands.md).
+
+## Terrain Data
+
+WindNinja needs elevation data for your area. Three ways to get it:
+
+### Option 1: DEM (elevation only)
+
+```bash
+# USGS 3DEP -- highest resolution (1-10m lidar), US only, no API key needed
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
+
+# SRTM -- 30m resolution, global coverage, needs free OpenTopography API key
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif world 30
+
+# GMTED -- coarser (~250m), global, good for large areas
+./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif gmted
+```
+
+WindNinja applies a uniform vegetation type (`grass`, `brush`, or `trees` -- set via `MWN_SURFACE_VEGETATION` in `config/runtime.env`).
+
+### Option 2: LCP from LANDFIRE (elevation + vegetation)
+
+LCP files include elevation plus 7 bands of vegetation/fuel data. More accurate than DEM + uniform vegetation. US only.
+
+```bash
+# Download directly from LANDFIRE (may take several minutes)
+./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
+```
+
+### Option 3: Convert a LANDFIRE GeoTIFF to LCP
+
+If you downloaded a landscape GeoTIFF from [LANDFIRE](https://www.landfire.gov/viewer/) or [IFTDSS](https://iftdss.firenet.gov/), convert it to LCP format:
+
+```bash
+./deploy/gcp/mwn.sh lcp-build static_data/landscape_download.tif static_data/my_area.lcp
+```
+
+This creates both the `.lcp` file and its required `.prj` sidecar.
+
+### After downloading terrain
+
+Edit `config/domains.json` to point to your file:
+
+```json
+{
+  "default_domain": "my_area",
+  "domains": {
+    "my_area": {
+      "label": "My Area",
+      "template": "config/template.cfg",
+      "elevation_file": "my_area.tif"
+    }
+  }
+}
+```
+
+Make sure `MWN_DOMAIN_ID` in `config/runtime.env` matches the domain key. Run `./deploy/gcp/mwn.sh check` to verify.
+
+### DEM vs LCP
+
+
+|                  | DEM (.tif)                                | LCP (.lcp)                                  |
+| ---------------- | ----------------------------------------- | ------------------------------------------- |
+| **Data**         | Elevation only                            | Elevation + vegetation/fuel (8 bands)       |
+| **Accuracy**     | Good (uniform vegetation assumption)      | Best (real vegetation data)                 |
+| **Availability** | Global (USGS 3DEP for US, SRTM worldwide) | US only (LANDFIRE)                          |
+| **Best for**     | Quick runs, non-US areas                  | Fire modeling, forested terrain, production |
+
+
+For detailed terrain instructions, see the [terrain data guide](docs/gcp_setup.md#step-6-get-your-terrain-data).
+
+## Project Layout
+
+```
+config/
+  domains.json         # Domain catalog (name → terrain file + template)
+  template.cfg         # WindNinja config template (shared by all domains)
+  runtime.env          # Your settings (created from .example)
+
+static_data/           # Terrain files (DEM .tif or LCP .lcp)
+runtime/               # Output (auto-created): archives/, temp/, logs/
+
+scripts/
+  daily_run.py         # Core: generates config, runs WindNinja, archives output
+  config_loader.py     # Loads settings from runtime.env + domains.json
+  run_windninja.sh     # Entry wrapper (sources OpenFOAM env)
+  gcs_manager.py       # Optional GCS upload
+  preflight_check.py   # Readiness checks
+  build_lcp_from_geotiff.py  # GeoTIFF → LCP converter
+
+deploy/gcp/
+  mwn.sh               # Main CLI
+  bootstrap_repo.sh    # One-time server setup
+
+docs/
+  gcp_setup.md         # Full GCP walkthrough + cost guide + troubleshooting
+  commands.md          # Detailed command reference
+  windninja_reference.md  # WindNinja internals reference
+```
+
+## Key Config Settings
+
+Edit `config/template.cfg` to tune WindNinja behavior:
+
+
+| Setting                | What it controls                                         | Default |
+| ---------------------- | -------------------------------------------------------- | ------- |
+| `mesh_resolution`      | Grid cell size in meters (smaller = more detail, slower) | `100.0` |
+| `momentum_flag`        | OpenFOAM solver (`true` = better accuracy, slower)       | `true`  |
+| `num_threads`          | CPU threads                                              | `4`     |
+| `number_of_iterations` | Solver iterations                                        | `300`   |
+| `diurnal_winds`        | Thermal slope winds                                      | `true`  |
+
+
+## Docs
+
+- **[GCP Setup Guide](docs/gcp_setup.md)** -- VM creation, costs, terrain data, troubleshooting
+- **[Command Reference](docs/commands.md)** -- all flags, weather models, examples
+- **[WindNinja Reference](docs/windninja_reference.md)** -- internals, config options, upstream docs
 
 ## License
 
-WindNinja is developed by the USDA Forest Service Rocky Mountain Research Station.
+WindNinja is developed by the USDA Forest Service, Rocky Mountain Research Station, Missoula Fire Sciences Laboratory. This project wraps WindNinja for cloud deployment and is not affiliated with or endorsed by the USDA.

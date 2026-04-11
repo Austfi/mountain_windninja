@@ -15,14 +15,13 @@ ENV/
 .venv/
 
 # Logs and temp files
-logs/*.log
 *.log
 nohup.out
 temp/
 *.tmp
 
-# Archives (generated output)
-archives/
+# Runtime output (generated, not committed)
+runtime/
 
 # Data files
 *.csv
@@ -41,12 +40,10 @@ Thumbs.db
 
 # Credentials (never commit)
 *.json
-!package.json
-.ssh/
-.config/
+!config/domains.json
 *.key
 *.pem
-*credentials*.json
+*credentials*
 
 # Backup files
 *.bak
@@ -54,13 +51,8 @@ Thumbs.db
 crontab.bak
 new_crontab*
 
-# Debug files
-*debug*.cfg
-*debug*.py
-*debug*.log
-manual_update*.log
-windninja_help.txt
-
-# Static data (too large for git - download separately)
+# Static data (terrain files downloaded per-user, not committed)
 static_data/
-logs/
+
+# Runtime config (created from .example, contains local settings)
+config/runtime.env

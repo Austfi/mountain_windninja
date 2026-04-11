@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Keystone WindNinja Forecasts</title>
+    <title>Mountain WindNinja Forecasts</title>
     <style>
         :root {
             --bg: #0a0f1a;
@@ -186,8 +186,8 @@
     <div class="container">
         <header>
             <div>
-                <h1>Keystone WindNinja</h1>
-                <p class="subtitle">Automated Wind Forecasts</p>
+                <h1>Mountain WindNinja</h1>
+                <p class="subtitle">Operational Wind Forecasts</p>
             </div>
             <span id="timestamp" class="timestamp"></span>
         </header>
@@ -246,11 +246,11 @@
                 const forecastPeriod = document.getElementById('forecast-period');
                 const forecastUpdated = document.getElementById('forecast-updated');
                 if (forecastPeriod && forecastUpdated) {
-                    const forecasts = (d.forecasts || []).filter(f => f.run_type && f.run_type.includes('forecast'));
-                    if (forecasts.length > 0) {
-                        const latest = forecasts[forecasts.length - 1];
-                        forecastPeriod.textContent = '18 hours starting from last cycle';
-                        forecastUpdated.textContent = latest.date || new Date(d.updated).toLocaleString();
+                    if (d.latest) {
+                        const start = d.latest.valid_start ? new Date(d.latest.valid_start).toLocaleString() : 'Unknown';
+                        const end = d.latest.valid_end ? new Date(d.latest.valid_end).toLocaleString() : 'Unknown';
+                        forecastPeriod.textContent = `${start} to ${end}`;
+                        forecastUpdated.textContent = new Date(d.updated).toLocaleString();
                     } else {
                         forecastPeriod.textContent = '18-hour forecast (updates hourly)';
                         forecastUpdated.textContent = new Date(d.updated).toLocaleString();

@@ -1,35 +1,40 @@
-#!/bin/bash
-# Maintenance script to clean up old artifacts and temporary files.
+#!/usr/bin/env bash
+set -euo pipefail
 
-BASE_DIR="/home/austin_finnell/keystone_automation"
-ARCHIVE_DIR="$BASE_DIR/archives"
-TEMP_DIR="$BASE_DIR/temp"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -f "$BASE_DIR/config/runtime.env" ]; then
+  set -a
+  . "$BASE_DIR/config/runtime.env"
+  set +a
+fi
+
+resolve_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$BASE_DIR/$1" ;;
+  esac
+}
+
+RUNTIME_ROOT="$(resolve_path "${MWN_RUNTIME_ROOT:-runtime}")"
+ARCHIVE_DIR="$RUNTIME_ROOT/archives"
+TEMP_DIR="$RUNTIME_ROOT/temp"
 GRIB_CACHE="$TEMP_DIR/grib_cache"
 
-echo "=== Starting Cleanup: $(date) ==="
+mkdir -p "$ARCHIVE_DIR" "$TEMP_DIR" "$GRIB_CACHE"
 
-# 1. Archive Retention:
-# - Forecasts: Keep 3 days
-echo "Cleaning Forecast Archives (older than 3 days)..."
-find "$ARCHIVE_DIR" -name "*forecast*.zip" -type f -mtime +3 -print -delete
+echo "=== Starting Cleanup: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
-# - Reanalysis: Keep 7 days
-echo "Cleaning Reanalysis Archives (older than 7 days)..."
-find "$ARCHIVE_DIR" -name "*reanalysis*.zip" -type f -mtime +7 -print -delete
+echo "Cleaning archive files older than 7 days..."
+find "$ARCHIVE_DIR" -name "*.zip" -type f -mtime +7 -print -delete
 
-# 2. Temp Directory: Remove run directories older than 1 day
-# Be careful not to delete grib_cache or the temp dir itself
-echo "Cleaning Temp Run Directories (older than 1 day)..."
+echo "Cleaning temp run directories older than 1 day..."
 find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d -not -name "grib_cache" -mtime +1 -print -exec rm -rf {} +
 
-# 3. GRIB Cache: Remove GRIB files older than 2 days
-echo "Pruning GRIB Cache (older than 2 days)..."
+echo "Pruning GRIB cache older than 2 days..."
 find "$GRIB_CACHE" -name "*.grib2" -type f -mtime +2 -print -delete
 
-# 4. Check Disk Usage
 echo "Current Disk Usage:"
-du -sh "$BASE_DIR"
-du -sh "$TEMP_DIR"
-du -sh "$ARCHIVE_DIR"
-
+du -sh "$RUNTIME_ROOT" "$TEMP_DIR" "$ARCHIVE_DIR"
 echo "=== Cleanup Completed ==="

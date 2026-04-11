@@ -1,0 +1,26 @@
+services:
+  # Interactive shell for manual runs: mwn.sh run, mwn.sh shell, mwn.sh check
+  shell:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mountain-windninja:local
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./config:/opt/mountain_windninja/config:ro
+      - ./runtime:/opt/mountain_windninja/runtime
+      - ./static_data:/opt/mountain_windninja/static_data
+    command: ["/bin/bash"]
+
+  # Automatic hourly scheduler: mwn.sh schedule
+  scheduler:
+    image: mountain-windninja:local
+    container_name: mountain-windninja-scheduler
+    restart: unless-stopped
+    volumes:
+      - ./config:/opt/mountain_windninja/config:ro
+      - ./runtime:/opt/mountain_windninja/runtime
+      - ./static_data:/opt/mountain_windninja/static_data
+    command: ["./docker/start_scheduler.sh"]

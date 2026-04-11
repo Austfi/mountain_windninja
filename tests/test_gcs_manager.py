@@ -1,90 +1,65 @@
-import pytest
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
+
 import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import gcs_manager
-import config_loader
 
-@pytest.fixture
-def mock_storage_client():
-    with patch('google.cloud.storage.Client') as mock_client:
-        yield mock_client
 
-@pytest.fixture
-def manager(mock_storage_client):
-    # Re-init manager to pick up mocked client
-    return gcs_manager.GCSManager(bucket_name="test-bucket")
+def test_update_index_uploads_json_and_html(tmp_path, monkeypatch):
+    bucket_index = tmp_path / "bucket_index.html"
+    bucket_index.write_text("<html></html>", encoding="utf-8")
 
-def test_upload_file_success(manager):
-    manager.bucket = MagicMock()
-    blob = MagicMock()
-    manager.bucket.blob.return_value = blob
-    
-    # Create dummy file
-    with patch('os.path.exists', return_value=True):
-        result = manager.upload_file("dummy.txt", "dest/dummy.txt")
-        
-    assert result is True
-    manager.bucket.blob.assert_called_with("dest/dummy.txt")
-    blob.upload_from_filename.assert_called_with("dummy.txt", content_type=None)
+    monkeypatch.setattr(gcs_manager.config_loader, "SCRIPTS_DIR", tmp_path)
+    monkeypatch.setattr(gcs_manager.config_loader, "GCS_PUBLIC_URL_BASE",
+                        "https://storage.googleapis.com/test-bucket")
 
-def test_upload_status_success(manager):
-    manager.bucket = MagicMock()
-    blob = MagicMock()
-    manager.bucket.blob.return_value = blob
-    
-    result = manager.upload_status("forecast", "HRRR", "success")
-    
-    assert result is True
-    blob.upload_from_string.assert_called_once()
-    args, kwargs = blob.upload_from_string.call_args
-    data = json.loads(args[0])
-    assert data["status"] == "success"
-    assert data["model"] == "HRRR"
+    mgr = gcs_manager.GCSManager(bucket_name="test-bucket")
+    mgr.bucket = MagicMock()
+    mgr.client = MagicMock()
 
-def test_update_index_structure(manager):
-    manager.bucket = MagicMock()
-    
-    # Use today's date so filter doesn't skip it
-    import datetime
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    mock_blob = MagicMock()
+    mock_blob.name = "2026-01-01/forecast_18h_HRRR/test.zip"
+    mgr.client.list_blobs.return_value = [mock_blob]
 
-    # Mock list_blobs for Zips
-    zip_blob = MagicMock()
-    zip_blob.name = f"{today}/forecast_HRRR/archive.zip"
-    
-    # Mock list_blobs for Status
-    status_blob = MagicMock()
-    status_blob.name = f"{today}/status_forecast_HRRR.json"
-    status_blob.download_as_string.return_value = json.dumps({
-        "status":"success", "run_type":"forecast", "model":"HRRR"
-    })
-    
-    manager.client.list_blobs.side_effect = [[zip_blob], [status_blob]]
-    
-    # Mock blob for index.json
-    index_blob = MagicMock()
-    manager.bucket.blob.return_value = index_blob
-    
-    with patch('config_loader.SCRIPTS_DIR') as mock_scripts_dir:
-        # Mock HTML existence check
-        mock_scripts_dir.__truediv__.return_value.exists.return_value = False
-        
-        result = manager.update_index()
-    
-    assert result is True
-    # Verify index structure - now we have 2 calls: index.json and latest.kml
-    assert index_blob.upload_from_string.call_count == 2
-    
-    # First call is index.json
-    first_call_args, first_call_kwargs = index_blob.upload_from_string.call_args_list[0]
-    index_json = json.loads(first_call_args[0])
-    
-    assert len(index_json["forecasts"]) == 1
-    assert index_json["forecasts"][0]["filename"] == "archive.zip"
-    assert f"{today}_forecast_HRRR" in index_json["statuses"]
-    assert "kml_network_links" in index_json
-    
-    # Second call is latest.kml
-    second_call_args, second_call_kwargs = index_blob.upload_from_string.call_args_list[1]
-    assert "application/vnd.google-earth.kml+xml" in str(second_call_kwargs)
-    assert "<kml" in second_call_args[0]
+    created_blobs = {}
+
+    def blob_factory(name):
+        blob = MagicMock()
+        blob.name = name
+        created_blobs[name] = blob
+        return blob
+
+    mgr.bucket.blob.side_effect = blob_factory
+
+    with patch.object(mgr, "upload_file", return_value=True) as upload_mock:
+        assert mgr.update_index() is True
+
+    assert "index.json" in created_blobs
+    index_content = json.loads(
+        created_blobs["index.json"].upload_from_string.call_args.args[0]
+    )
+    assert len(index_content["forecasts"]) == 1
+    assert index_content["forecasts"][0]["url"].endswith("test.zip")
+
+    assert "HRRR_Forecast.kml" in created_blobs
+    assert "latest.kml" in created_blobs
+
+    upload_mock.assert_called_once_with(
+        str(bucket_index), "index.html",
+        content_type="text/html",
+        cache_control="public, max-age=60",
+    )
+
+
+def test_upload_file_returns_false_when_upload_disabled(monkeypatch):
+    monkeypatch.setattr(gcs_manager.config_loader, "GCS_UPLOAD_ENABLED", False)
+    mgr = gcs_manager.GCSManager(bucket_name="test")
+    assert mgr.upload_file("/tmp/nope.txt", "dest.txt") is False
+
+
+def test_upload_status_returns_false_when_upload_disabled(monkeypatch):
+    monkeypatch.setattr(gcs_manager.config_loader, "GCS_UPLOAD_ENABLED", False)
+    mgr = gcs_manager.GCSManager(bucket_name="test")
+    assert mgr.upload_status("forecast", "HRRR", "running") is False

@@ -1,0 +1,10 @@
+{
+  "default_domain": "my_area",
+  "domains": {
+    "my_area": {
+      "label": "My Area",
+      "template": "config/template.cfg",
+      "elevation_file": "my_area.tif"
+    }
+  }
+}

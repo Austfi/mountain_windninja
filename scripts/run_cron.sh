@@ -1,32 +1,48 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 umask 002
 
-# ---- prevent overlapping runs ----
-LOCKFILE=/tmp/windninja.lock
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -f "$BASE_DIR/config/runtime.env" ]; then
+  set -a
+  . "$BASE_DIR/config/runtime.env"
+  set +a
+fi
+
+resolve_path() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$BASE_DIR/$1" ;;
+  esac
+}
+
+RUNTIME_ROOT="$(resolve_path "${MWN_RUNTIME_ROOT:-runtime}")"
+LOG_DIR="$RUNTIME_ROOT/logs"
+LOCKFILE="${MWN_LOCKFILE:-/tmp/mountain_windninja.lock}"
+PYTHON_BIN="${MWN_PYTHON_BIN:-$BASE_DIR/.venv/bin/python}"
+OPENFOAM_BASHRC="${MWN_OPENFOAM_BASHRC:-/opt/openfoam9/etc/bashrc}"
+
+mkdir -p "$LOG_DIR"
+
 exec 9>"$LOCKFILE" || exit 1
 flock -n 9 || exit 0
 
-# ---- explicit cron-safe environment ----
-export HOME=/home/austin_finnell
-export PATH=/home/austin_finnell/bin:/usr/local/bin:/usr/bin:/bin:/home/austin_finnell/.local/bin
-export PYTHONPATH=/home/austin_finnell/keystone_automation
+export PATH="/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+cd "$BASE_DIR"
 
-cd /home/austin_finnell/keystone_automation
+if [ -f "$OPENFOAM_BASHRC" ]; then
+  export ZSH_NAME=""
+  set +u
+  # shellcheck disable=SC1090
+  source "$OPENFOAM_BASHRC"
+  set -u
+fi
 
-# ---- OpenFOAM environment (guard for strict shell) ----
-export ZSH_NAME=""
-set +u
-source /opt/openfoam9/etc/bashrc
-set -u
-
-# HARD disable renumberMesh (WindNinja/OpenFOAM instability)
-export PATH=$(echo "$PATH" | sed 's#[^:]*renumberMesh[^:]*:##g')
-
-# ---- logging ----
 {
-  echo "Starting Cron Run: $(date -u)"
-  /usr/bin/python3 scripts/hourly_run.py
-  echo "Finished Cron Run: $(date -u)"
+  echo "Starting cron forecast run: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "$PYTHON_BIN" scripts/hourly_run.py
+  echo "Finished cron forecast run: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "---------------------------------------------------"
-} >> logs/cron_combined.log 2>&1
+} >> "$LOG_DIR/cron_combined.log" 2>&1

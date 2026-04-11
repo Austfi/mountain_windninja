@@ -83,7 +83,7 @@ def add_global_overlays(doc_element, legend_files, gcs_base_url):
         rotationXY = SubElement(overlay, 'rotationXY', x="0", y="0", xunits="fraction", yunits="fraction")
         size = SubElement(overlay, 'size', x="0", y="0", xunits="fraction", yunits="fraction")
 
-def create_timeseries_kml(run_dir, gcs_base_url, run_label):
+def create_timeseries_kml(run_dir, gcs_base_url, run_label, domain_label="WindNinja"):
     """
     Generates a master KML file containing NetworkLinks to hourly KMZs on GCS.
     """
@@ -119,7 +119,7 @@ def create_timeseries_kml(run_dir, gcs_base_url, run_label):
     kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
     document = SubElement(kml, 'Document')
     name_tag = SubElement(document, 'name')
-    name_tag.text = f"Keystone {run_label}"
+    name_tag.text = f"{domain_label} {run_label}"
     
     open_tag = SubElement(document, 'open')
     open_tag.text = "1"
@@ -188,7 +188,7 @@ def create_timeseries_kml(run_dir, gcs_base_url, run_label):
     print(f"Created Time-Series KML: {output_filename}")
     return output_filename
 
-def create_playable_kmz(run_dir, output_name):
+def create_playable_kmz(run_dir, output_name, domain_label="WindNinja"):
     """
     Bundles all hourly KMZ files from run_dir into a single playable KMZ.
     Creates a master KML with TimeSpan for each hour and embeds all data.
@@ -223,7 +223,7 @@ def create_playable_kmz(run_dir, output_name):
     kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
     document = SubElement(kml, 'Document')
     name_tag = SubElement(document, 'name')
-    name_tag.text = f"Keystone WindNinja Forecast"
+    name_tag.text = f"{domain_label} WindNinja Forecast"
     
     open_tag = SubElement(document, 'open')
     open_tag.text = "1"
