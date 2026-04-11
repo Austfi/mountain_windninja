@@ -44,7 +44,7 @@ Commands:
   check                Run preflight checks (WindNinja, DEM/LCP, dirs)
   run [flags]          Run a WindNinja simulation inside the container
   shell                Open a bash shell inside the container
-  fetch-dem [flags]    Download DEM (source: srtm, gmted) into static_data/
+  fetch-dem [flags]    Download DEM (source: us, srtm, gmted) into static_data/
   fetch-lcp [flags]    Download LCP from LANDFIRE into static_data/ (US only)
   lcp-build <tif>      Convert a LANDFIRE GeoTIFF to LCP format
   clean                Clear cached mesh and temp files (fixes most errors)
@@ -86,7 +86,7 @@ Examples:
   ./deploy/gcp/mwn.sh run --hours 6 --height 2        # 2m felt wind
   ./deploy/gcp/mwn.sh run --model GFS --hours 48
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif
-  ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
+  ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
   ./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
   ./deploy/gcp/mwn.sh lcp-build static_data/landscape.tif static_data/my_area.lcp
   ./deploy/gcp/mwn.sh shell
@@ -146,8 +146,8 @@ cmd_fetch_dem() {
   local south="${3:-}"
   local west="${4:-}"
   local output="${5:-static_data/dem_download.tif}"
-  local src="${6:-srtm}"
-  local resolution="${7:-30}"
+  local src="${6:-us}"
+  local resolution="${7:-}"
 
   if [ -z "$north" ] || [ -z "$east" ] || [ -z "$south" ] || [ -z "$west" ]; then
     cat <<'USAGE'
@@ -158,43 +158,52 @@ Downloads elevation data (DEM) using WindNinja's built-in fetch_dem tool.
 Arguments:
   north/east/south/west  Bounding box in decimal degrees (latitude/longitude)
   output                 Output file path (default: static_data/dem_download.tif)
-  source                 Data source (default: srtm). Options:
-                           srtm  - SRTM 30m via OpenTopography (needs API key)
+  source                 Data source (default: us). Options:
+                           us    - USGS 3DEP 10m (US only, no key needed, true 10m)
+                           srtm  - SRTM 30m via OpenTopography (global, needs API key)
                            gmted - GMTED2010 (~250m global, no key needed)
-  resolution             Output resolution in meters (default: 30)
-                         Note: requesting < 30m resamples/interpolates from 30m SRTM.
-                         For true high-res DEMs (10m/1m), download from USGS National Map
-                         (https://apps.nationalmap.gov/downloader/) and place in static_data/.
+  resolution             Output resolution in meters (default: 10 for us, 30 for srtm)
 
 Note: srtm source requires an OpenTopography API key. Set CUSTOM_SRTM_API_KEY
 in config/runtime.env. Get a free key at https://opentopography.org/
 
 Examples:
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif
+  ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
   ./deploy/gcp/mwn.sh fetch-dem 45.5 7.0 45.0 6.5 static_data/alps.tif srtm 30
 USAGE
     exit 1
   fi
 
-  local fetch_src="$src"
-  case "$src" in
-    srtm)    fetch_src="srtm" ;;
-    gmted)   fetch_src="gmted" ;;
-    *)
-      echo "Unknown source: $src (use: srtm or gmted)"
-      exit 1
-      ;;
-  esac
-
   pick_docker
-  echo "Downloading DEM: north=$north east=$east south=$south west=$west"
-  echo "Source: $src ($fetch_src) | Output: $output | Resolution: ${resolution}m"
-  compose run --rm shell fetch_dem \
-    --bbox "$north" "$east" "$south" "$west" \
-    --src "$fetch_src" \
-    --out_res "$resolution" \
-    "$output"
+
+  if [ "$src" = "us" ]; then
+    local res="${resolution:-10}"
+    local vrt="/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/USGS_Seamless_DEM_13.vrt"
+    echo "Downloading DEM: north=$north east=$east south=$south west=$west"
+    echo "Source: USGS 3DEP 1/3 arc-second | Output: $output | Resolution: ${res}m"
+    compose run --rm shell gdalwarp \
+      -te "$west" "$south" "$east" "$north" \
+      -te_srs EPSG:4326 \
+      -tr "$res" "$res" \
+      -r bilinear \
+      -overwrite \
+      "$vrt" "$output"
+  elif [ "$src" = "srtm" ] || [ "$src" = "gmted" ]; then
+    local res="${resolution:-30}"
+    echo "Downloading DEM: north=$north east=$east south=$south west=$west"
+    echo "Source: $src | Output: $output | Resolution: ${res}m"
+    compose run --rm shell fetch_dem \
+      --bbox "$north" "$east" "$south" "$west" \
+      --src "$src" \
+      --out_res "$res" \
+      "$output"
+  else
+    echo "Unknown source: $src (use: us, srtm, or gmted)"
+    exit 1
+  fi
+
   echo ""
   echo "DEM saved to $output"
   echo "Next: add it to config/domains.json and run ./deploy/gcp/mwn.sh check"
