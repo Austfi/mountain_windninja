@@ -34,18 +34,20 @@ New GCP accounts receive $300 in free credits for 90 days. The VM used in this t
 2. Click **Create Instance**
 3. Configure with the following settings:
 
-| Setting | Value |
-|---------|-------|
-| Name | `windninja` |
-| Region | `us-central1 (Iowa)` |
-| Zone | `us-central1-a` |
-| Machine series | E2 |
-| Machine type | `e2-standard-4` (4 vCPU, 16 GB RAM) |
-| Boot disk OS | Ubuntu 22.04 LTS |
-| Boot disk size | 50 GB |
-| Boot disk type | Balanced persistent disk |
 
-4. Click **Create**
+| Setting        | Value                               |
+| -------------- | ----------------------------------- |
+| Name           | `windninja`                         |
+| Region         | `us-central1 (Iowa)`                |
+| Zone           | `us-central1-a`                     |
+| Machine series | E2                                  |
+| Machine type   | `e2-standard-4` (4 vCPU, 16 GB RAM) |
+| Boot disk OS   | Ubuntu 22.04 LTS                    |
+| Boot disk size | 50 GB                               |
+| Boot disk type | Balanced persistent disk            |
+
+
+1. Click **Create**
 
 The `e2-standard-4` provides 4 CPU cores and 16 GB of RAM. This is sufficient for domains up to approximately 30x30 km with the momentum solver. For larger domains or faster runs, `c2-standard-8` (8 cores, 32 GB) is recommended.
 
@@ -116,16 +118,19 @@ sudo resize2fs /dev/sda1
 
 WindNinja requires a bounding box defined by four coordinates:
 
-| Parameter | Description |
-|-----------|-------------|
-| North | Latitude of the northern edge |
-| East | Longitude of the eastern edge |
-| South | Latitude of the southern edge |
-| West | Longitude of the western edge |
+
+| Parameter | Description                   |
+| --------- | ----------------------------- |
+| North     | Latitude of the northern edge |
+| East      | Longitude of the eastern edge |
+| South     | Latitude of the southern edge |
+| West      | Longitude of the western edge |
+
 
 To find coordinates: open [Google Maps](https://www.google.com/maps), navigate to your area, and right-click to copy the latitude/longitude of the northwest and southeast corners.
 
 Guidelines:
+
 - Western hemisphere longitudes are negative (e.g., `-106.0`)
 - For initial testing, keep the domain under 15x15 km
 - Domains larger than 50x50 km will require significant computation time and memory
@@ -178,12 +183,14 @@ LANDFIRE generates the file server-side; downloads may take 5-15 minutes.
 
 ### DEM vs LCP
 
-| | DEM (.tif) | LCP (.lcp) |
-|---|---|---|
-| Data | Elevation only | Elevation + 7 vegetation/fuel bands |
-| Vegetation handling | Uniform (grass, brush, or trees) | Per-cell vegetation from LANDFIRE |
-| Availability | Global (3DEP, SRTM, GMTED) | US only (LANDFIRE) |
-| Recommended use | Initial testing, non-US areas | Fire weather, forested terrain, production |
+
+|                     | DEM (.tif)                       | LCP (.lcp)                                 |
+| ------------------- | -------------------------------- | ------------------------------------------ |
+| Data                | Elevation only                   | Elevation + 7 vegetation/fuel bands        |
+| Vegetation handling | Uniform (grass, brush, or trees) | Per-cell vegetation from LANDFIRE          |
+| Availability        | Global (3DEP, SRTM, GMTED)       | US only (LANDFIRE)                         |
+| Recommended use     | Initial testing, non-US areas    | Fire weather, forested terrain, production |
+
 
 **Verify:** `ls -la static_data/` shows your terrain file with a non-zero file size.
 
@@ -234,34 +241,40 @@ The file `config/template.cfg` controls WindNinja's behavior. It maps directly t
 
 ### Input Settings
 
-| Config Option | Desktop Equivalent | Default |
-|---|---|---|
-| `initialization_method` | Initialization method dropdown | `wxModelInitialization` |
-| `wx_model_type` | Weather model selector | `NOMADS-HRRR-CONUS-3-KM` |
-| `forecast_duration` | Forecast duration | Set at runtime via `--hours` |
+
+| Config Option           | Desktop Equivalent             | Default                      |
+| ----------------------- | ------------------------------ | ---------------------------- |
+| `initialization_method` | Initialization method dropdown | `wxModelInitialization`      |
+| `wx_model_type`         | Weather model selector         | `NOMADS-HRRR-CONUS-3-KM`     |
+| `forecast_duration`     | Forecast duration              | Set at runtime via `--hours` |
+
 
 ### Solver Settings
 
-| Config Option | Desktop Equivalent | Default |
-|---|---|---|
-| `momentum_flag` | Solver type (Mass vs Momentum) | `true` |
-| `mesh_resolution` | Mesh resolution slider | `100.0` m |
-| `number_of_iterations` | Number of iterations | `300` |
-| `num_threads` | Number of processors | `4` |
-| `diurnal_winds` | Diurnal winds checkbox | `true` |
+
+| Config Option          | Desktop Equivalent             | Default   |
+| ---------------------- | ------------------------------ | --------- |
+| `momentum_flag`        | Solver type (Mass vs Momentum) | `true`    |
+| `mesh_resolution`      | Mesh resolution slider         | `100.0` m |
+| `number_of_iterations` | Number of iterations           | `300`     |
+| `num_threads`          | Number of processors           | `4`       |
+| `diurnal_winds`        | Diurnal winds checkbox         | `true`    |
+
 
 Setting `momentum_flag = false` uses the conservation of mass solver only (equivalent to selecting "Mass Conservation" in the desktop). This runs in seconds rather than minutes but produces less accurate results in complex terrain.
 
 ### Output Settings
 
-| Config Option | Desktop Equivalent | Default |
-|---|---|---|
-| `output_wind_height` | Output height | `10.0` m |
-| `output_speed_units` | Speed units | `mph` |
-| `write_goog_output` | Google Earth (KMZ) checkbox | `true` |
-| `write_ascii_output` | ASCII grids checkbox | `true` |
-| `write_shapefile_output` | Shapefile checkbox | `false` |
-| `write_pdf_output` | PDF checkbox | `false` |
+
+| Config Option            | Desktop Equivalent          | Default  |
+| ------------------------ | --------------------------- | -------- |
+| `output_wind_height`     | Output height               | `10.0` m |
+| `output_speed_units`     | Speed units                 | `mph`    |
+| `write_goog_output`      | Google Earth (KMZ) checkbox | `true`   |
+| `write_ascii_output`     | ASCII grids checkbox        | `true`   |
+| `write_shapefile_output` | Shapefile checkbox          | `false`  |
+| `write_pdf_output`       | PDF checkbox                | `false`  |
+
 
 To modify these settings:
 
@@ -300,13 +313,15 @@ To use a different weather model:
 
 Available models:
 
-| Flag | WindNinja Model Name | Resolution | Coverage | Max Hours |
-|------|---------------------|-----------|----------|-----------|
-| `HRRR` | `NOMADS-HRRR-CONUS-3-KM` | 3 km | CONUS | 18 |
-| `NBM` | `NOMADS-NBM-CONUS-2.5-KM` | 2.5 km | CONUS | 264 |
-| `NAM` | `NOMADS-NAM-NEST-CONUS-3-KM` | 3 km | CONUS | 60 |
-| `RAP` | `NOMADS-RAP-CONUS-13-KM` | 13 km | CONUS | 21 |
-| `GFS` | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km | Global | 384 |
+
+| Flag   | WindNinja Model Name         | Resolution | Coverage | Max Hours |
+| ------ | ---------------------------- | ---------- | -------- | --------- |
+| `HRRR` | `NOMADS-HRRR-CONUS-3-KM`     | 3 km       | CONUS    | 18        |
+| `NBM`  | `NOMADS-NBM-CONUS-2.5-KM`    | 2.5 km     | CONUS    | 264       |
+| `NAM`  | `NOMADS-NAM-NEST-CONUS-3-KM` | 3 km       | CONUS    | 60        |
+| `RAP`  | `NOMADS-RAP-CONUS-13-KM`     | 13 km      | CONUS    | 21        |
+| `GFS`  | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km     | Global   | 384       |
+
 
 ### Domain Average Initialization
 
@@ -372,12 +387,14 @@ To keep individual hourly files for inspection, use the `--keep-temp` flag:
 
 Raw output is written to `runtime/temp/<run_directory>/` and includes:
 
-| File Pattern | Description |
-|---|---|
-| `*_vel.asc` | Wind speed ASCII grid (one per hour) |
-| `*_ang.asc` | Wind direction ASCII grid (one per hour) |
-| `*.kmz` | Individual hourly KMZ files |
-| `*.cfg` | The generated WindNinja configuration file |
+
+| File Pattern | Description                                |
+| ------------ | ------------------------------------------ |
+| `*_vel.asc`  | Wind speed ASCII grid (one per hour)       |
+| `*_ang.asc`  | Wind direction ASCII grid (one per hour)   |
+| `*.kmz`      | Individual hourly KMZ files                |
+| `*.cfg`      | The generated WindNinja configuration file |
+
 
 ASCII grids can be opened in GIS software (QGIS, ArcGIS) for further analysis.
 
@@ -411,22 +428,24 @@ The Docker image, terrain files, and all output persist across stop/start cycles
 
 For users familiar with the WindNinja desktop application, this table maps GUI actions to their CLI equivalents:
 
-| Desktop Action | CLI Equivalent |
-|---|---|
-| File > Open Elevation File | `mwn.sh fetch-dem` or place file in `static_data/` |
-| Input > Domain Average | `mwn.sh run --mode domain-average --speed N --direction N` |
-| Input > Weather Model > HRRR | `mwn.sh run --model HRRR --hours N` |
-| Input > Weather Model > GFS | `mwn.sh run --model GFS --hours N` |
-| Input > Vegetation | `MWN_SURFACE_VEGETATION` in `config/runtime.env` |
-| Solver > Mass Conservation | `momentum_flag = false` in `config/template.cfg` |
-| Solver > Momentum | `momentum_flag = true` in `config/template.cfg` |
-| Solver > Mesh Resolution | `mesh_resolution` in `config/template.cfg` |
-| Solver > Iterations | `number_of_iterations` in `config/template.cfg` |
-| Output > Google Earth | `write_goog_output = true` in `config/template.cfg` |
-| Output > Shapefiles | `write_shapefile_output = true` in `config/template.cfg` |
-| Output > PDF | `write_pdf_output = true` in `config/template.cfg` |
-| Output > Speed Units | `output_speed_units` in `config/template.cfg` |
-| Solve | `mwn.sh run` |
+
+| Desktop Action               | CLI Equivalent                                             |
+| ---------------------------- | ---------------------------------------------------------- |
+| File > Open Elevation File   | `mwn.sh fetch-dem` or place file in `static_data/`         |
+| Input > Domain Average       | `mwn.sh run --mode domain-average --speed N --direction N` |
+| Input > Weather Model > HRRR | `mwn.sh run --model HRRR --hours N`                        |
+| Input > Weather Model > GFS  | `mwn.sh run --model GFS --hours N`                         |
+| Input > Vegetation           | `MWN_SURFACE_VEGETATION` in `config/runtime.env`           |
+| Solver > Mass Conservation   | `momentum_flag = false` in `config/template.cfg`           |
+| Solver > Momentum            | `momentum_flag = true` in `config/template.cfg`            |
+| Solver > Mesh Resolution     | `mesh_resolution` in `config/template.cfg`                 |
+| Solver > Iterations          | `number_of_iterations` in `config/template.cfg`            |
+| Output > Google Earth        | `write_goog_output = true` in `config/template.cfg`        |
+| Output > Shapefiles          | `write_shapefile_output = true` in `config/template.cfg`   |
+| Output > PDF                 | `write_pdf_output = true` in `config/template.cfg`         |
+| Output > Speed Units         | `output_speed_units` in `config/template.cfg`              |
+| Solve                        | `mwn.sh run`                                               |
+
 
 ---
 
@@ -461,3 +480,4 @@ export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 - **[WindNinja Reference](windninja_reference.md)** -- full configuration file reference, environment variables, solver details
 - **[Official WindNinja Tutorials](https://weather.firelab.org/windninja/tutorials/)** -- detailed tutorials from the WindNinja development team
 - **[WindNinja Wiki](https://github.com/firelab/windninja/wiki)** -- advanced configuration, weather models, developer documentation
+

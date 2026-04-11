@@ -71,7 +71,7 @@ def resolve_weather_model(model: str, run_type: str) -> str:
 # ---------------------------------------------------------------------------
 def generate_config(date_str, start_time, stop_time, domain_config,
                     wx_model_type_override=None, surface_vegetation=None,
-                    sub_dir=None):
+                    sub_dir=None, output_wind_height=10.0):
     """Read a template .cfg, fill placeholders, write a ready-to-run config."""
     run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR, date_str)
     utils.ensure_dir(run_output_dir)
@@ -90,6 +90,7 @@ def generate_config(date_str, start_time, stop_time, domain_config,
         stop_minute=stop_time.minute,
         forecast_duration=duration,
         elevation_file=domain_config.elevation_file.as_posix(),
+        output_wind_height=output_wind_height,
     )
 
     lines = filled.split("\n")
@@ -132,7 +133,7 @@ def generate_config(date_str, start_time, stop_time, domain_config,
 
 def generate_domain_average_config(domain_config, wind_speed, wind_direction,
                                    speed_units="mph", surface_vegetation=None,
-                                   sub_dir=None):
+                                   sub_dir=None, output_wind_height=10.0):
     """Generate a domain-average config (single uniform wind, no wx download).
 
     This mirrors the desktop app's "Domain Average" initialization: specify one
@@ -179,7 +180,7 @@ def generate_domain_average_config(domain_config, wind_speed, wind_direction,
         "momentum_flag = true",
         "number_of_iterations = 300",
         "",
-        "output_wind_height = 10.0",
+        f"output_wind_height = {output_wind_height}",
         "units_output_wind_height = m",
         f"output_speed_units = {speed_units}",
         "",
@@ -355,6 +356,8 @@ def main():
                         help="Keep output files instead of archiving")
     parser.add_argument("--no-upload", action="store_true",
                         help="Skip GCS upload even if enabled")
+    parser.add_argument("--height", type=float, default=10.0,
+                        help="Output wind height in meters above ground (default: 10)")
     args = parser.parse_args()
 
     domain_config = config_loader.get_domain_config(args.domain)
@@ -377,6 +380,7 @@ def main():
                 domain_config, args.speed, args.direction,
                 speed_units=args.speed_units,
                 surface_vegetation=config_loader.SURFACE_VEGETATION,
+                output_wind_height=args.height,
             )
 
             if not args.dry_run:
@@ -426,6 +430,7 @@ def main():
             wx_model_type_override=wx_model,
             surface_vegetation=config_loader.SURFACE_VEGETATION,
             sub_dir=output_dir,
+            output_wind_height=args.height,
         )
 
         if not args.dry_run:

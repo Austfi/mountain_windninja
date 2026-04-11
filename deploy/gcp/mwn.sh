@@ -62,6 +62,8 @@ Run flags (passed to daily_run.py):
   --speed N                      Wind speed for domain-average mode
   --direction N                  Wind direction (degrees) for domain-average
   --speed-units mph|mps|kph|kts  Units for --speed (default: mph)
+  --height N                     Output wind height in meters (default: 10)
+                                   2 = felt wind, 10 = standard tower height
   --keep-temp                    Keep output files (don't archive)
   --no-upload                    Skip GCS upload
   --dry-run                      Generate config only, don't run WindNinja
@@ -80,6 +82,7 @@ Examples:
   ./deploy/gcp/mwn.sh run --hours 6 --model HRRR
   ./deploy/gcp/mwn.sh run --mode reanalysis --hours 12
   ./deploy/gcp/mwn.sh run --mode domain-average --speed 20 --direction 270
+  ./deploy/gcp/mwn.sh run --hours 6 --height 2        # 2m felt wind
   ./deploy/gcp/mwn.sh run --model GFS --hours 48
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10

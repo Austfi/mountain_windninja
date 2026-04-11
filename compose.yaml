@@ -8,6 +8,7 @@ services:
     profiles: ["tools"]
     stdin_open: true
     tty: true
+    env_file: config/runtime.env
     volumes:
       - ./config:/opt/mountain_windninja/config:ro
       - ./runtime:/opt/mountain_windninja/runtime
@@ -19,6 +20,7 @@ services:
     image: mountain-windninja:local
     container_name: mountain-windninja-scheduler
     restart: unless-stopped
+    env_file: config/runtime.env
     volumes:
       - ./config:/opt/mountain_windninja/config:ro
       - ./runtime:/opt/mountain_windninja/runtime
