@@ -11,6 +11,7 @@ services:
     env_file: config/runtime.env
     volumes:
       - ./config:/opt/mountain_windninja/config:ro
+      - ./scripts:/opt/mountain_windninja/scripts:ro
       - ./runtime:/opt/mountain_windninja/runtime
       - ./static_data:/opt/mountain_windninja/static_data
     command: ["/bin/bash"]
@@ -23,6 +24,7 @@ services:
     env_file: config/runtime.env
     volumes:
       - ./config:/opt/mountain_windninja/config:ro
+      - ./scripts:/opt/mountain_windninja/scripts:ro
       - ./runtime:/opt/mountain_windninja/runtime
       - ./static_data:/opt/mountain_windninja/static_data
     command: ["./docker/start_scheduler.sh"]
