@@ -131,6 +131,18 @@ def generate_config(date_str, start_time, stop_time, domain_config,
     return config_path, run_output_dir
 
 
+def _read_template_num_threads(template_path, fallback=4):
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            for line in f:
+                match = re.match(r"^\s*num_threads\s*=\s*(\d+)\s*$", line)
+                if match:
+                    return max(1, int(match.group(1)))
+    except OSError as e:
+        logger.warning(f"Could not read num_threads from template {template_path}: {e}")
+    return fallback
+
+
 def generate_domain_average_config(domain_config, wind_speed, wind_direction,
                                    speed_units="mph", surface_vegetation=None,
                                    sub_dir=None, output_wind_height=10.0):
@@ -147,9 +159,10 @@ def generate_domain_average_config(domain_config, wind_speed, wind_direction,
 
     vegetation = surface_vegetation or config_loader.SURFACE_VEGETATION
     use_lcp = domain_config.elevation_file.suffix.lower() == ".lcp"
+    num_threads = _read_template_num_threads(domain_config.template_path)
 
     lines = [
-        f"num_threads = {os.cpu_count() or 4}",
+        f"num_threads = {num_threads}",
         f"elevation_file = {domain_config.elevation_file.as_posix()}",
         "",
         "initialization_method = domainAverageInitialization",
@@ -261,7 +274,7 @@ def rename_reanalysis_outputs(output_dir, domain_key):
 
 
 def archive_results(run_output_dir, archive_name_base):
-    """Zip KMZ files from the run into runtime/archives/ and clean up."""
+    """Zip retained run outputs into runtime/archives/ and clean up."""
     utils.ensure_dir(config_loader.ARCHIVE_DIR)
     archive_path = os.path.join(config_loader.ARCHIVE_DIR, f"{archive_name_base}.zip")
 
@@ -273,9 +286,8 @@ def archive_results(run_output_dir, archive_name_base):
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for root, _dirs, files in os.walk(run_output_dir):
             for fname in files:
-                if fname.endswith(".kmz"):
-                    full = os.path.join(root, fname)
-                    zf.write(full, os.path.relpath(full, run_output_dir))
+                full = os.path.join(root, fname)
+                zf.write(full, os.path.relpath(full, run_output_dir))
 
     shutil.rmtree(run_output_dir)
     return archive_path

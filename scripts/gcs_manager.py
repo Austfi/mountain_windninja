@@ -9,15 +9,54 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 
 import config_loader
 import utils
 
 logger = utils.setup_logging(__name__)
+ARCHIVE_FORECAST_RE = re.compile(
+    r"^(?P<domain>.+)_(?P<run_type>forecast_\d+h|reanalysis_\d+h)_(?P<model>[^_]+)_(?P<date>\d{8})$"
+)
 
 
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _parse_archive_metadata(blob_name: str):
+    parts = blob_name.split("/")
+    filename = parts[-1]
+    stem = Path(filename).stem
+
+    if len(parts) >= 3 and parts[0] == "archives":
+        date_dir = parts[1]
+        match = ARCHIVE_FORECAST_RE.match(stem)
+        if match:
+            return {
+                "date": match.group("date") or date_dir,
+                "run_type": match.group("run_type"),
+                "model": match.group("model"),
+                "filename": filename,
+            }
+        return {
+            "date": date_dir,
+            "run_type": stem,
+            "model": "unknown",
+            "filename": filename,
+        }
+
+    if len(parts) >= 3:
+        date_dir, run_info = parts[0], parts[1]
+        run_parts = run_info.rsplit("_", 1)
+        return {
+            "date": date_dir,
+            "run_type": run_parts[0] if len(run_parts) == 2 else run_info,
+            "model": run_parts[1] if len(run_parts) == 2 else "unknown",
+            "filename": filename,
+        }
+
+    return None
 
 
 class GCSManager:
@@ -98,15 +137,13 @@ class GCSManager:
             blobs = list(self.client.list_blobs(self.bucket, match_glob="**/*.zip"))
             forecasts = []
             for blob in blobs:
-                parts = blob.name.split("/")
-                if len(parts) >= 3:
-                    date_dir, run_info, filename = parts[0], parts[1], parts[-1]
-                    run_parts = run_info.rsplit("_", 1)
-                    run_label = run_parts[0] if len(run_parts) == 2 else run_info
-                    model = run_parts[1] if len(run_parts) == 2 else "unknown"
+                metadata = _parse_archive_metadata(blob.name)
+                if metadata:
                     forecasts.append({
-                        "date": date_dir, "run_type": run_label,
-                        "model": model, "filename": filename,
+                        "date": metadata["date"],
+                        "run_type": metadata["run_type"],
+                        "model": metadata["model"],
+                        "filename": metadata["filename"],
                         "url": f"{config_loader.GCS_PUBLIC_URL_BASE}/{blob.name}",
                     })
 
@@ -175,7 +212,9 @@ class GCSManager:
         for prefix in prefixes:
             date_str = prefix.strip("/").split("/")[-1]
             try:
-                ts = datetime.datetime.strptime(date_str, "%Y%m%d")
+                ts = datetime.datetime.strptime(date_str, "%Y%m%d").replace(
+                    tzinfo=datetime.timezone.utc
+                )
             except ValueError:
                 continue
             if ts < cutoff:

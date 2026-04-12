@@ -102,7 +102,7 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 2. Fills in the template with start/stop times and paths
 3. Runs `WindNinja_cli` which downloads weather data and runs the simulation
 4. Bundles hourly KMZ files into a single playable KMZ
-5. Archives KMZ files as a zip in `runtime/archives/`
+5. Archives KMZ files, ASCII grids, and generated config as a zip in `runtime/archives/`
 6. If GCS is enabled, uploads the archive and latest KMZ
 
 For domain-average mode, step 3 skips the weather download and uses the speed/direction you provided.
@@ -117,7 +117,7 @@ After a run with `--keep-temp`, you'll find in `runtime/temp/<run_dir>/`:
 - `*.cfg` -- the generated WindNinja config file
 - `*_playable.kmz` -- all hours bundled into one KMZ with a time slider
 
-Without `--keep-temp`, only the archive zip is kept in `runtime/archives/`.
+Without `--keep-temp`, only archive zip is kept in `runtime/archives/`, but it still contains these run outputs.
 
 ## shell
 

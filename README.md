@@ -38,7 +38,7 @@ nano config/domains.json
 ./deploy/gcp/mwn.sh run --hours 6
 ```
 
-Output goes to `runtime/archives/` (KMZ files for Google Earth). Full walkthrough: [docs/gcp_setup.md](docs/gcp_setup.md).
+Output goes to `runtime/archives/` (zipped KMZ files, ASCII grids, and run config). Full walkthrough: [docs/gcp_setup.md](docs/gcp_setup.md).
 
 ## How It Works
 

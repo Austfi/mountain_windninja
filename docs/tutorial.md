@@ -379,7 +379,9 @@ If the archive contains a `*_playable.kmz` file, it includes all forecast hours 
 
 ### Inspect Raw Output
 
-To keep individual hourly files for inspection, use the `--keep-temp` flag:
+The downloaded archive also contains hourly ASCII grids and the generated `.cfg` file.
+
+To keep the unpacked hourly files on the VM for inspection, use the `--keep-temp` flag:
 
 ```bash
 ./deploy/gcp/mwn.sh run --hours 3 --keep-temp
@@ -480,4 +482,3 @@ export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 - **[WindNinja Reference](windninja_reference.md)** -- full configuration file reference, environment variables, solver details
 - **[Official WindNinja Tutorials](https://weather.firelab.org/windninja/tutorials/)** -- detailed tutorials from the WindNinja development team
 - **[WindNinja Wiki](https://github.com/firelab/windninja/wiki)** -- advanced configuration, weather models, developer documentation
-

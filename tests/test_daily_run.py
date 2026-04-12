@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ def _make_template(tmp_path):
     template = tmp_path / "template.cfg"
     template.write_text(
         "\n".join([
+            "num_threads = 4",
             "elevation_file = {elevation_file}",
             "initialization_method = wxModelInitialization",
             "wx_model_type = NOMADS-HRRR-CONUS-3-KM",
@@ -202,3 +204,54 @@ def test_generate_domain_average_config_skips_vegetation_for_lcp(tmp_path):
 
     contents = Path(config_path).read_text(encoding="utf-8")
     assert "vegetation" not in contents
+
+
+def test_generate_domain_average_config_uses_template_thread_cap(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    template.write_text(
+        template.read_text(encoding="utf-8").replace("num_threads = 4", "num_threads = 6"),
+        encoding="utf-8",
+    )
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    monkeypatch.setattr(daily_run.os, "cpu_count", lambda: 64)
+
+    config_path, _ = daily_run.generate_domain_average_config(
+        domain, wind_speed=12.0, wind_direction=225.0,
+        sub_dir=str(tmp_path / "domavg_out"),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "num_threads = 6" in contents
+
+
+def test_archive_results_keeps_ascii_outputs_and_skips_grids_dir(tmp_path, monkeypatch):
+    archive_dir = tmp_path / "archives"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "forecast_playable.kmz").write_text("kmz", encoding="utf-8")
+    (run_dir / "forecast_vel.asc").write_text("speed", encoding="utf-8")
+    (run_dir / "forecast_vel.prj").write_text("proj", encoding="utf-8")
+    (run_dir / "forecast.cfg").write_text("config", encoding="utf-8")
+    grids_dir = run_dir / "grids"
+    grids_dir.mkdir()
+    (grids_dir / "ignore.txt").write_text("ignore", encoding="utf-8")
+
+    monkeypatch.setattr(daily_run.config_loader, "ARCHIVE_DIR", str(archive_dir))
+
+    archive_path = daily_run.archive_results(str(run_dir), "bundle")
+
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        names = set(zf.namelist())
+
+    assert names == {
+        "forecast.cfg",
+        "forecast_playable.kmz",
+        "forecast_vel.asc",
+        "forecast_vel.prj",
+    }
+    assert not run_dir.exists()

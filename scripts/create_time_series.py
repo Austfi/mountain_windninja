@@ -88,8 +88,12 @@ def create_timeseries_kml(run_dir, gcs_base_url, run_label, domain_label="WindNi
     Generates a master KML file containing NetworkLinks to hourly KMZs on GCS.
     """
     kmz_files = glob.glob(os.path.join(run_dir, "*.kmz"))
-    # Filter out any non-hourly KMZs if they exist (though output dir should be clean)
-    kmz_files = [f for f in kmz_files if "playable" not in f and "latest" not in f]
+    # Filter out synthesized KMZs by filename, not parent directory path.
+    kmz_files = [
+        f for f in kmz_files
+        if "playable" not in os.path.basename(f)
+        and "latest" not in os.path.basename(f)
+    ]
     
     if not kmz_files:
         print("No KMZ files found.")
@@ -195,7 +199,11 @@ def create_playable_kmz(run_dir, output_name, domain_label="WindNinja"):
     Returns the path to the created KMZ file.
     """
     kmz_files = glob.glob(os.path.join(run_dir, "*.kmz"))
-    kmz_files = [f for f in kmz_files if "playable" not in f and "latest" not in f]
+    kmz_files = [
+        f for f in kmz_files
+        if "playable" not in os.path.basename(f)
+        and "latest" not in os.path.basename(f)
+    ]
     
     if not kmz_files:
         print("No KMZ files found for bundling.")
@@ -248,7 +256,7 @@ def create_playable_kmz(run_dir, output_name, domain_label="WindNinja"):
         for dt, kmz_path in entries:
             dt_end = dt + datetime.timedelta(hours=1)
             basename = os.path.basename(kmz_path)
-            folder_name = dt.strftime("%H%M")
+            folder_name = dt.strftime("%Y%m%d_%H%M")
             
             # Create folder for this hour
             folder = SubElement(document, 'Folder')

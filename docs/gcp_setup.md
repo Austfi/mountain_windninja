@@ -346,7 +346,7 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 
 Output files are in `runtime/` on the VM:
 
-- `runtime/archives/` -- zipped KMZ files
+- `runtime/archives/` -- zipped run outputs (KMZ files, ASCII grids, generated config)
 - `runtime/temp/` -- raw output if you used `--keep-temp`
 
 To download files to your local machine:
@@ -734,4 +734,3 @@ gcloud compute instances start windninja --zone=us-central1-a
 # Download results
 gcloud compute scp windninja:/opt/mountain_windninja/runtime/archives/*.zip ~/Downloads/
 ```
-
