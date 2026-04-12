@@ -1,0 +1,13 @@
+station_id,label,group,height_m_override
+CO124,070W21815RWS1RHS - 0.3 mi W of Herman Gulch Rd,pass_corridor,
+CALVP,LOVELAND PASS,ridge,
+LBAC2,LOVELAND BASIN,mid_mountain,
+GZPC2,GRIZZLY PEAK,ridge,
+CAABM,ARAPAHOE BASIN SKI AREA - MIDWAY,mid_mountain,
+CAABT,ARAPAHOE BASIN SKI AREA - SUMMIT,ridge,
+CO126,070E21320RWS1RHS - 0.6 mi W of EJMT,pass_corridor,
+CO157,070W21180RWS1RHS - 1.7 mi W of EJMT RTR,pass_corridor,
+CO159,070E21065RWS1GP2 - 2.9 mi W of EJMT DMS,pass_corridor,
+CO158,070W20800RWS1RHS - 2.4 mi E of US-6/CO-9 Silverthorne,pass_corridor,
+XL146,Montezuma CO 0.5N,valley,
+XL106,Dillon CO 1.5 SE,valley,

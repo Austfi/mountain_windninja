@@ -56,10 +56,43 @@ Output goes to `runtime/archives/` (zipped KMZ files, ASCII grids, and run confi
 
 # Reanalysis: archived past weather (HRRR only, back to 2014)
 ./deploy/gcp/mwn.sh run --mode reanalysis --hours 12
+./deploy/gcp/mwn.sh run --mode reanalysis --start 202601010000 --end 202601080000
 
 # Domain-average: manual wind input, no internet needed
 ./deploy/gcp/mwn.sh run --mode domain-average --speed 20 --direction 270
 ```
+
+## Validation Workflow
+
+You can validate a historical WindNinja run against Synoptic stations and against the parent HRRR vectors at the exact same station points.
+
+```bash
+# 1. Build a WindNinja points CSV from a Synoptic station manifest
+./deploy/gcp/mwn.sh synoptic-points \
+  --station-file config/stations/loveland_pass_validation_manifest.csv \
+  --points-output runtime/validation/loveland_points.csv \
+  --metadata-output runtime/validation/loveland_metadata.json \
+  --start 202601010000 --end 202601080000
+
+# 2. Run a fixed historical HRRR archive window with point sampling enabled
+./deploy/gcp/mwn.sh run --mode reanalysis \
+  --start 202601010000 --end 202601080000 \
+  --model HRRR \
+  --points-file runtime/validation/loveland_points.csv \
+  --keep-temp --no-upload
+
+# 3. Compare Synoptic observations vs WindNinja and raw HRRR at the same points
+./deploy/gcp/mwn.sh validate \
+  --points-output runtime/temp/20260101_reanalysis_168h_HRRR/my_area_sample_points.csv \
+  --metadata-file runtime/validation/loveland_metadata.json \
+  --start 202601010000 --end 202601080000 \
+  --samples-csv runtime/validation/jan2026_samples.csv \
+  --station-summary-csv runtime/validation/jan2026_station_summary.csv \
+  --group-summary-csv runtime/validation/jan2026_group_summary.csv \
+  --summary-json runtime/validation/jan2026_summary.json
+```
+
+The validation outputs include per-sample comparisons, per-station summaries, grouped summaries, and an overall JSON summary. WindNinja point sampling carries both `u,v` and parent-weather-model `wx_u,wx_v`, so the baseline HRRR comparison is generated from the same station/time matches as the downscaled output.
 
 ## Commands
 

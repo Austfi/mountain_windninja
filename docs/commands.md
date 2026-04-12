@@ -46,9 +46,12 @@ Uses archived HRRR data from Google Cloud to simulate past wind events. Useful f
 ```bash
 ./deploy/gcp/mwn.sh run --mode reanalysis --hours 12
 ./deploy/gcp/mwn.sh run --mode reanalysis --hours 24
+./deploy/gcp/mwn.sh run --mode reanalysis --start 202601010000 --end 202601080000
 ```
 
 Only HRRR is available for reanalysis (other models don't have public archives accessible through WindNinja's pastcast system).
+
+Use `--start` and `--end` to pin a specific historical UTC window. Both values must be hour-aligned and use either `YYYYMMDDHHMM` or `YYYY-MM-DDTHH:MM`.
 
 ### Domain-Average Mode (Manual Wind)
 
@@ -69,10 +72,15 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
 | `--model HRRR\|NBM\|NAM\|RAP\|GFS` | Weather model (forecast/reanalysis only) | `HRRR` |
 | `--hours N` | Number of hours to simulate | `18` |
+| `--start UTC` | Fixed reanalysis start time | none |
+| `--end UTC` | Fixed reanalysis end time | none |
 | `--domain NAME` | Domain key from `config/domains.json` | Value of `MWN_DOMAIN_ID` |
 | `--speed N` | Wind speed (domain-average only) | required |
 | `--direction N` | Wind direction in degrees (domain-average only) | required |
 | `--speed-units mph\|mps\|kph\|kts` | Units for `--speed` | `mph` |
+| `--height N` | Output height above ground in meters | `10` |
+| `--points-file PATH` | WindNinja WGS84 point sampling CSV | off |
+| `--points-output PATH` | Output CSV for sampled `u,v,wx_u,wx_v` | auto in run dir |
 | `--keep-temp` | Don't archive, keep raw files in `runtime/temp/` | off |
 | `--no-upload` | Don't upload to GCS | off |
 | `--dry-run` | Generate config only | off |
@@ -116,6 +124,7 @@ After a run with `--keep-temp`, you'll find in `runtime/temp/<run_dir>/`:
 - `*_ang.asc` -- wind direction ASCII grids (one per hour)
 - `*.cfg` -- the generated WindNinja config file
 - `*_playable.kmz` -- all hours bundled into one KMZ with a time slider
+- `*_sample_points.csv` -- sampled WindNinja and raw weather-model vectors at requested station points
 
 Without `--keep-temp`, only archive zip is kept in `runtime/archives/`, but it still contains these run outputs.
 
@@ -195,6 +204,43 @@ Manually trigger a GCS index update. Useful if you want to push the bucket index
 ```
 
 Requires `MWN_GCS_UPLOAD_ENABLED=true` and `MWN_GCS_BUCKET` set in `config/runtime.env`.
+
+## synoptic-points
+
+Fetch Synoptic station metadata, infer wind sensor heights, and build a WindNinja point-sampling CSV.
+
+```bash
+./deploy/gcp/mwn.sh synoptic-points \
+  --station-file config/stations/loveland_pass_validation_manifest.csv \
+  --points-output runtime/validation/loveland_points.csv \
+  --metadata-output runtime/validation/loveland_metadata.json \
+  --start 202601010000 --end 202601080000
+```
+
+The station manifest is a CSV with `station_id,label,group,height_m_override`. If `height_m_override` is empty, the command uses the Synoptic wind sensor `position` metadata. It also prints a suggested padded bbox for the station set.
+
+Requires `MWN_SYNOPTIC_TOKEN` (or `CUSTOM_API_KEY`) in `config/runtime.env`, unless you pass `--token`.
+
+## validate
+
+Compare a WindNinja `output_points_file` CSV against Synoptic observations and the parent HRRR vectors sampled at the same points.
+
+```bash
+./deploy/gcp/mwn.sh validate \
+  --points-output runtime/temp/20260101_reanalysis_168h_HRRR/my_area_sample_points.csv \
+  --metadata-file runtime/validation/loveland_metadata.json \
+  --start 202601010000 --end 202601080000 \
+  --samples-csv runtime/validation/jan2026_samples.csv \
+  --station-summary-csv runtime/validation/jan2026_station_summary.csv \
+  --group-summary-csv runtime/validation/jan2026_group_summary.csv \
+  --summary-json runtime/validation/jan2026_summary.json
+```
+
+Outputs:
+- `samples.csv` with matched per-time station rows
+- `station_summary.csv` with per-station MAE/RMSE
+- `group_summary.csv` with grouped MAE/RMSE
+- `summary.json` with overall metrics and WindNinja-vs-HRRR improvement deltas
 
 ## schedule
 

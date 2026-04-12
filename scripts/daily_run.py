@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -71,7 +72,8 @@ def resolve_weather_model(model: str, run_type: str) -> str:
 # ---------------------------------------------------------------------------
 def generate_config(date_str, start_time, stop_time, domain_config,
                     wx_model_type_override=None, surface_vegetation=None,
-                    sub_dir=None, output_wind_height=10.0):
+                    sub_dir=None, output_wind_height=10.0,
+                    input_points_file=None, output_points_file=None):
     """Read a template .cfg, fill placeholders, write a ready-to-run config."""
     run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR, date_str)
     utils.ensure_dir(run_output_dir)
@@ -103,6 +105,12 @@ def generate_config(date_str, start_time, stop_time, domain_config,
         if stripped.startswith("output_path"):
             continue
 
+        if stripped.startswith("input_points_file"):
+            continue
+
+        if stripped.startswith("output_points_file"):
+            continue
+
         if wx_model_type_override and stripped.startswith("wx_model_type"):
             out_lines.append(f"wx_model_type = {wx_model_type_override}")
             continue
@@ -118,6 +126,16 @@ def generate_config(date_str, start_time, stop_time, domain_config,
             and domain_config.elevation_file.suffix.lower() != ".lcp"
             and not found_vegetation):
         out_lines.append(f"vegetation = {surface_vegetation}")
+
+    if input_points_file:
+        out_lines.append(f"input_points_file = {Path(input_points_file).as_posix()}")
+        if not output_points_file:
+            output_points_file = os.path.join(
+                run_output_dir, f"{domain_config.key}_sample_points.csv",
+            )
+        output_points_path = Path(output_points_file)
+        utils.ensure_dir(str(output_points_path.parent))
+        out_lines.append(f"output_points_file = {output_points_path.as_posix()}")
 
     out_lines.append(f"output_path = {run_output_dir}")
 
@@ -145,7 +163,8 @@ def _read_template_num_threads(template_path, fallback=4):
 
 def generate_domain_average_config(domain_config, wind_speed, wind_direction,
                                    speed_units="mph", surface_vegetation=None,
-                                   sub_dir=None, output_wind_height=10.0):
+                                   sub_dir=None, output_wind_height=10.0,
+                                   input_points_file=None, output_points_file=None):
     """Generate a domain-average config (single uniform wind, no wx download).
 
     This mirrors the desktop app's "Domain Average" initialization: specify one
@@ -204,6 +223,20 @@ def generate_domain_average_config(domain_config, wind_speed, wind_direction,
         "write_ascii_output = true",
         "ascii_out_resolution = -1",
         "units_ascii_out_resolution = m",
+        "",
+    ]
+
+    if input_points_file:
+        lines.append(f"input_points_file = {Path(input_points_file).as_posix()}")
+        if not output_points_file:
+            output_points_file = os.path.join(
+                run_output_dir, f"{domain_config.key}_sample_points.csv",
+            )
+        output_points_path = Path(output_points_file)
+        utils.ensure_dir(str(output_points_path.parent))
+        lines.append(f"output_points_file = {output_points_path.as_posix()}")
+
+    lines += [
         "",
         f"output_path = {run_output_dir}",
     ]
@@ -337,6 +370,57 @@ def get_run_parameters(mode, hours):
         raise ValueError(f"Unknown mode: {mode}")
 
 
+def parse_utc_timestamp(raw_value):
+    formats = (
+        "%Y%m%d%H%M",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M",
+    )
+    for fmt in formats:
+        try:
+            return datetime.datetime.strptime(raw_value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(
+        "Expected UTC time in YYYYMMDDHHMM, YYYY-MM-DDTHH:MM, "
+        "YYYY-MM-DDTHH:MM:SSZ, or YYYY-MM-DD HH:MM format."
+    )
+
+
+def build_run_parameters(mode, hours, start_time=None, end_time=None):
+    if start_time is None and end_time is None:
+        return get_run_parameters(mode, hours)
+
+    if mode != "reanalysis":
+        raise ValueError("--start/--end are only supported for reanalysis mode.")
+    if start_time is None or end_time is None:
+        raise ValueError("--start and --end must be provided together.")
+    if start_time >= end_time:
+        raise ValueError("--end must be later than --start.")
+    if start_time.minute or end_time.minute:
+        raise ValueError("--start and --end must be on hour boundaries (minute 00).")
+
+    duration = end_time - start_time
+    hours = int(duration.total_seconds() / 3600)
+    if duration != datetime.timedelta(hours=hours):
+        raise ValueError("--start and --end must be an exact whole number of hours apart.")
+
+    return {
+        "start": start_time,
+        "stop": end_time,
+        "label": f"reanalysis_{hours}h",
+        "type": "reanalysis",
+    }
+
+
+def resolve_cli_path(raw_path):
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return (config_loader.BASE_DIR / path).resolve()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -351,6 +435,12 @@ def main():
                         default="forecast")
     parser.add_argument("--hours", type=int, default=18,
                         help="Forecast/reanalysis window in hours (default: 18)")
+    parser.add_argument("--start",
+                        help="UTC start time for reanalysis window "
+                             "(YYYYMMDDHHMM or YYYY-MM-DDTHH:MM)")
+    parser.add_argument("--end",
+                        help="UTC end time for reanalysis window "
+                             "(YYYYMMDDHHMM or YYYY-MM-DDTHH:MM)")
     parser.add_argument("--domain", choices=available,
                         default=config_loader.DEFAULT_DOMAIN)
     parser.add_argument("--model", choices=ALL_MODEL_NAMES,
@@ -370,6 +460,10 @@ def main():
                         help="Skip GCS upload even if enabled")
     parser.add_argument("--height", type=float, default=10.0,
                         help="Output wind height in meters above ground (default: 10)")
+    parser.add_argument("--points-file",
+                        help="WindNinja point-sampling CSV in WGS84 format.")
+    parser.add_argument("--points-output",
+                        help="Optional output CSV for sampled model/wx vectors.")
     args = parser.parse_args()
 
     domain_config = config_loader.get_domain_config(args.domain)
@@ -377,6 +471,15 @@ def main():
 
     do_upload = (config_loader.GCS_UPLOAD_ENABLED
                  and not args.dry_run and not args.no_upload)
+
+    points_input_path = None
+    points_output_path = None
+    if args.points_file:
+        points_input_path = resolve_cli_path(args.points_file)
+        if not points_input_path.exists():
+            parser.error(f"--points-file does not exist: {points_input_path}")
+    if args.points_output:
+        points_output_path = resolve_cli_path(args.points_output)
 
     # --- Domain-average mode (no weather download, single wind) ---
     if args.mode == "domain-average":
@@ -393,6 +496,8 @@ def main():
                 speed_units=args.speed_units,
                 surface_vegetation=config_loader.SURFACE_VEGETATION,
                 output_wind_height=args.height,
+                input_points_file=str(points_input_path) if points_input_path else None,
+                output_points_file=str(points_output_path) if points_output_path else None,
             )
 
             if not args.dry_run:
@@ -414,7 +519,14 @@ def main():
         return
 
     # --- Forecast / Reanalysis mode ---
-    run_params = get_run_parameters(args.mode, args.hours)
+    try:
+        explicit_start = parse_utc_timestamp(args.start) if args.start else None
+        explicit_end = parse_utc_timestamp(args.end) if args.end else None
+        run_params = build_run_parameters(
+            args.mode, args.hours, start_time=explicit_start, end_time=explicit_end,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     try:
         wx_model = resolve_weather_model(args.model, run_params["type"])
@@ -443,6 +555,8 @@ def main():
             surface_vegetation=config_loader.SURFACE_VEGETATION,
             sub_dir=output_dir,
             output_wind_height=args.height,
+            input_points_file=str(points_input_path) if points_input_path else None,
+            output_points_file=str(points_output_path) if points_output_path else None,
         )
 
         if not args.dry_run:

@@ -133,6 +133,31 @@ def test_generate_config_writes_output_path_once(tmp_path):
     assert contents.count("output_path =") == 1
 
 
+def test_generate_config_appends_point_sampling_files(tmp_path):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    points_file = tmp_path / "stations.csv"
+    points_file.write_text("WGS84\npoint_name,latitude,longitude,height_meters_above_ground\n", encoding="utf-8")
+
+    config_path, run_dir = daily_run.generate_config(
+        date_str="20260101",
+        start_time=dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        stop_time=dt.datetime(2026, 1, 1, 6, 0, tzinfo=UTC),
+        domain_config=domain,
+        sub_dir=str(tmp_path / "out"),
+        input_points_file=str(points_file),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert f"input_points_file = {points_file.as_posix()}" in contents
+    assert f"output_points_file = {Path(run_dir, 'test_sample_points.csv').as_posix()}" in contents
+
+
 def test_get_run_parameters_forecast():
     params = daily_run.get_run_parameters("forecast", 6)
     assert params["type"] == "forecast"
@@ -145,6 +170,33 @@ def test_get_run_parameters_reanalysis():
     assert params["type"] == "reanalysis"
     assert params["label"] == "reanalysis_12h"
     assert (params["stop"] - params["start"]).total_seconds() == 12 * 3600
+
+
+def test_build_run_parameters_accepts_explicit_reanalysis_window():
+    start = dt.datetime(2026, 1, 1, 0, 0)
+    end = dt.datetime(2026, 1, 8, 0, 0)
+
+    params = daily_run.build_run_parameters("reanalysis", 12, start_time=start, end_time=end)
+
+    assert params["type"] == "reanalysis"
+    assert params["label"] == "reanalysis_168h"
+    assert params["start"] == start
+    assert params["stop"] == end
+
+
+def test_build_run_parameters_rejects_non_hour_aligned_windows():
+    with pytest.raises(ValueError):
+        daily_run.build_run_parameters(
+            "reanalysis",
+            12,
+            start_time=dt.datetime(2026, 1, 1, 0, 30),
+            end_time=dt.datetime(2026, 1, 1, 6, 0),
+        )
+
+
+def test_parse_utc_timestamp_supports_compact_and_iso_formats():
+    assert daily_run.parse_utc_timestamp("202601010000") == dt.datetime(2026, 1, 1, 0, 0)
+    assert daily_run.parse_utc_timestamp("2026-01-01T00:00") == dt.datetime(2026, 1, 1, 0, 0)
 
 
 def test_resolve_weather_model_all_forecast_models():
