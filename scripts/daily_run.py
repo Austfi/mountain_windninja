@@ -257,7 +257,28 @@ def generate_domain_average_config(domain_config, wind_speed, wind_direction,
 # ---------------------------------------------------------------------------
 # Run WindNinja
 # ---------------------------------------------------------------------------
-def run_windninja(config_path):
+def build_windninja_env(run_type="forecast"):
+    env = os.environ.copy()
+    if run_type != "reanalysis":
+        return env
+
+    gcs_auth_vars = (
+        "GS_SECRET_ACCESS_KEY",
+        "GS_ACCESS_KEY_ID",
+        "GS_OAUTH2_PRIVATE_KEY_FILE",
+        "GS_OAUTH2_CLIENT_EMAIL",
+        "GS_OAUTH2_REFRESH_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    )
+    has_gcs_auth = any(env.get(name) for name in gcs_auth_vars)
+    if not has_gcs_auth and not env.get("GS_NO_SIGN_REQUEST"):
+        # Archived HRRR lives in public GCS; unsigned reads avoid requiring
+        # per-user credentials for pastcast runs.
+        env["GS_NO_SIGN_REQUEST"] = "YES"
+    return env
+
+
+def run_windninja(config_path, run_type="forecast"):
     """Invoke WindNinja_cli, cleaning up any stale NINJAFOAM case first."""
     config_basename = os.path.splitext(os.path.basename(config_path))[0]
     case_dir = config_loader.STATIC_DATA_DIR / f"NINJAFOAM_{config_basename}"
@@ -266,9 +287,12 @@ def run_windninja(config_path):
         shutil.rmtree(case_dir)
 
     cmd = [config_loader.WINDNINJA_CLI, config_path]
+    env = build_windninja_env(run_type)
+    if run_type == "reanalysis" and env.get("GS_NO_SIGN_REQUEST") == "YES":
+        logger.info("Using unsigned GCS access for public HRRR pastcast data.")
     logger.info(f"Running: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=env)
     except subprocess.CalledProcessError as e:
         logger.error(f"WindNinja failed: {e}")
         raise
@@ -565,7 +589,7 @@ def main():
         )
 
         if not args.dry_run:
-            run_windninja(config_path)
+            run_windninja(config_path, run_type=run_params["type"])
 
         if run_params["type"] == "reanalysis":
             rename_reanalysis_outputs(output_dir, domain_config.key)

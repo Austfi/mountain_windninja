@@ -306,6 +306,32 @@ def test_generate_domain_average_config_uses_template_thread_cap(tmp_path, monke
     assert "num_threads = 6" in contents
 
 
+def test_build_windninja_env_enables_unsigned_gcs_for_reanalysis(monkeypatch):
+    monkeypatch.delenv("GS_NO_SIGN_REQUEST", raising=False)
+    monkeypatch.delenv("GS_SECRET_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("GS_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("GS_OAUTH2_PRIVATE_KEY_FILE", raising=False)
+    monkeypatch.delenv("GS_OAUTH2_CLIENT_EMAIL", raising=False)
+    monkeypatch.delenv("GS_OAUTH2_REFRESH_TOKEN", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
+    env = daily_run.build_windninja_env("reanalysis")
+
+    assert env["GS_NO_SIGN_REQUEST"] == "YES"
+
+
+def test_build_windninja_env_preserves_explicit_gcs_auth_for_reanalysis(monkeypatch):
+    monkeypatch.delenv("GS_NO_SIGN_REQUEST", raising=False)
+    monkeypatch.setenv("GS_ACCESS_KEY_ID", "access")
+    monkeypatch.setenv("GS_SECRET_ACCESS_KEY", "secret")
+
+    env = daily_run.build_windninja_env("reanalysis")
+
+    assert "GS_NO_SIGN_REQUEST" not in env
+    assert env["GS_ACCESS_KEY_ID"] == "access"
+    assert env["GS_SECRET_ACCESS_KEY"] == "secret"
+
+
 def test_archive_results_keeps_ascii_outputs_and_skips_grids_dir(tmp_path, monkeypatch):
     archive_dir = tmp_path / "archives"
     run_dir = tmp_path / "run"
