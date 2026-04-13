@@ -71,6 +71,31 @@ def test_generate_config_applies_weather_model_override(tmp_path):
     assert "output_path =" in contents
 
 
+def test_generate_config_strips_forecast_duration_for_reanalysis(tmp_path):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    config_path, _ = daily_run.generate_config(
+        date_str="20260101",
+        start_time=dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        stop_time=dt.datetime(2026, 1, 2, 0, 0, tzinfo=UTC),
+        domain_config=domain,
+        sub_dir=str(tmp_path / "out"),
+        wx_model_type_override="PASTCAST-GCP-HRRR-CONUS-3-KM",
+        run_type="reanalysis",
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "wx_model_type = PASTCAST-GCP-HRRR-CONUS-3-KM" in contents
+    assert "forecast_duration =" not in contents
+    assert "start_year = 2026" in contents
+    assert "stop_day = 2" in contents
+
+
 def test_generate_config_injects_surface_vegetation_for_dem_runs(tmp_path):
     template = _make_template(tmp_path)
     domain = DomainConfig(

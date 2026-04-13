@@ -73,7 +73,8 @@ def resolve_weather_model(model: str, run_type: str) -> str:
 def generate_config(date_str, start_time, stop_time, domain_config,
                     wx_model_type_override=None, surface_vegetation=None,
                     sub_dir=None, output_wind_height=10.0,
-                    input_points_file=None, output_points_file=None):
+                    input_points_file=None, output_points_file=None,
+                    run_type="forecast"):
     """Read a template .cfg, fill placeholders, write a ready-to-run config."""
     run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR, date_str)
     utils.ensure_dir(run_output_dir)
@@ -109,6 +110,9 @@ def generate_config(date_str, start_time, stop_time, domain_config,
             continue
 
         if stripped.startswith("output_points_file"):
+            continue
+
+        if run_type == "reanalysis" and stripped.startswith("forecast_duration"):
             continue
 
         if wx_model_type_override and stripped.startswith("wx_model_type"):
@@ -557,6 +561,7 @@ def main():
             output_wind_height=args.height,
             input_points_file=str(points_input_path) if points_input_path else None,
             output_points_file=str(points_output_path) if points_output_path else None,
+            run_type=run_params["type"],
         )
 
         if not args.dry_run:
