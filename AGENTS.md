@@ -80,6 +80,16 @@ WindNinja requires a `.prj` projection file alongside LCP files. `mwn.sh fetch-l
 gdalsrsinfo -o wkt my_file.lcp > my_file.prj
 ```
 
+### 7. Public HRRR pastcast requires the patched image
+
+Upstream WindNinja 3.12.2 hard-checks for GCS credentials before attempting to read public HRRR pastcast data. This repo patches upstream `src/ninja/gcp_wx_init.cpp` during the Docker build so `GS_NO_SIGN_REQUEST=YES` works against the public archive.
+
+**Implication:** if reanalysis still fails with `Missing required GCS credentials`, the running image is stale. Pull latest code and rebuild with `./deploy/gcp/mwn.sh build`.
+
+### 8. Synoptic validation has an external auth dependency
+
+`mwn.sh synoptic-points` and `mwn.sh validate` require a Synoptic token with actual weather-data access. A 32-character token string in `config/runtime.env` is not enough if the Synoptic account itself is unauthorized.
+
 ## DEM Data Sources
 
 | Source | Resolution | Coverage | API Key | mwn.sh arg |
@@ -100,6 +110,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - Base: Ubuntu 22.04
 - OpenFOAM 9 (package from dl.openfoam.org)
 - WindNinja compiled from source with `-D NINJA_QTGUI=OFF` (no GUI deps)
+- Build-time upstream patch script: `docker/patch_windninja_public_pastcast.py`
 - OpenFOAM custom libs (`libWindNinja.so`, `applyInit`) platform path: `linux64GccDPInt32Opt`
 - Full build ~30 min; cached layers make rebuilds fast
 
@@ -112,10 +123,12 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/config_loader.py` | Reads `runtime.env` + `domains.json`, provides typed config objects |
 | `scripts/preflight_check.py` | Pre-run validation (files exist, CRS ok, WindNinja works) |
 | `scripts/create_time_series.py` | Bundles hourly KMZ files into playable time-series KMZ |
+| `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
 | `config/template.cfg` | WindNinja config template with placeholders |
 | `config/domains.json` | Maps domain names to terrain files and templates |
 | `compose.yaml` | Docker Compose config (services, volumes, env_file) |
 | `Dockerfile` | Builds the WindNinja + OpenFOAM environment |
+| `docker/patch_windninja_public_pastcast.py` | Patches upstream WindNinja pastcast auth gate at build time |
 
 ## Testing
 
@@ -144,3 +157,12 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - Scheduled cron forecasts (scheduler service exists but needs production testing)
 - Performance profiling on larger domains (30+ km)
 - Support for additional weather models beyond HRRR
+
+## Handoff
+
+Before handing this repo to another agent/operator:
+
+- Confirm whether the active issue is image-level (`Dockerfile`, `docker/`) or bind-mounted runtime code (`scripts/`, `config/`).
+- If the work touched `Dockerfile` or `docker/`, tell the next operator they must rebuild with `./deploy/gcp/mwn.sh build`.
+- If the task involves historical validation, confirm whether Synoptic authorization is available before debugging the validation code path.
+- Do not assume `config/template.cfg` reflects a canonical thread count; operators often tune it locally per VM/domain.

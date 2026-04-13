@@ -15,6 +15,8 @@ Build the Docker image. Takes ~30 minutes the first time (compiles WindNinja, Op
 ./deploy/gcp/mwn.sh build
 ```
 
+Rebuild after any change to `Dockerfile` or `docker/`. Python/script-only changes under `scripts/`, `config/`, or `docs/` do not need a rebuild.
+
 ## check
 
 Run preflight checks to verify everything is set up correctly. Checks for: WindNinja binary, OpenFOAM, GDAL, terrain files, writable directories, and domain configuration.
@@ -54,6 +56,7 @@ Only HRRR is available for reanalysis (other models don't have public archives a
 Use `--start` and `--end` to pin a specific historical UTC window. Both values must be hour-aligned and use either `YYYYMMDDHHMM` or `YYYY-MM-DDTHH:MM`.
 
 The patched Docker image in this repo reads the public HRRR archive without requiring GCS keys. If you pull a change that updates `Dockerfile`, rebuild once with `./deploy/gcp/mwn.sh build` before retrying reanalysis.
+If you still see `Missing required GCS credentials` during reanalysis, the running image is stale and needs to be rebuilt.
 
 ### Domain-Average Mode (Manual Wind)
 
@@ -222,6 +225,7 @@ Fetch Synoptic station metadata, infer wind sensor heights, and build a WindNinj
 The station manifest is a CSV with `station_id,label,group,height_m_override`. If `height_m_override` is empty, the command uses the Synoptic wind sensor `position` metadata. It also prints a suggested padded bbox for the station set.
 
 Requires `MWN_SYNOPTIC_TOKEN` (or `CUSTOM_API_KEY`) in `config/runtime.env`, unless you pass `--token`.
+The token also needs account-level access to Synoptic weather data. A syntactically valid token with insufficient account permissions will still fail.
 
 ## validate
 
@@ -243,6 +247,8 @@ Outputs:
 - `station_summary.csv` with per-station MAE/RMSE
 - `group_summary.csv` with grouped MAE/RMSE
 - `summary.json` with overall metrics and WindNinja-vs-HRRR improvement deltas
+
+Validation is point-based, not raster-wide. WindNinja solves the full terrain domain, then compares model output only at the requested station/sample points where observations exist.
 
 ## schedule
 

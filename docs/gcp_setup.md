@@ -500,6 +500,10 @@ Default is 20 seconds, which can be too short on slow connections.
 **Reanalysis mode fails:**
 Historical (pastcast) data is only available for HRRR and only goes back to ~2014. Make sure you're using `--model HRRR` with reanalysis mode. Other models don't have pastcast archives.
 If you just pulled a change that updates `Dockerfile`, rebuild once with `./deploy/gcp/mwn.sh build` before retrying historical runs. The patched image can read public HRRR archive data without manual GCS keys.
+If you still see `Missing required GCS credentials`, you are almost certainly running an older image layer. Pull latest code, rebuild, then retry.
+
+**Synoptic validation fails with 403 / Unauthorized:**
+The validation workflow needs a Synoptic token with actual data access, not just a syntactically valid token value in `config/runtime.env`. Verify access in the Synoptic customer console before debugging the repo code further.
 
 ### OpenFOAM / Momentum Solver Problems
 

@@ -103,6 +103,8 @@ docker ps
 
 This compiles WindNinja (v3.12.2), OpenFOAM 9, GDAL 3.4.1, PROJ 8.2.1, and all dependencies from source inside a Docker container. The build takes approximately 30 minutes on `e2-standard-4`. Subsequent builds use Docker's layer cache and complete in seconds unless the Dockerfile changes.
 
+The image also includes a small build-time patch to WindNinja's pastcast code so the public HRRR archive can be read without manually provisioning GCS credentials. If you pull a repo update that changes `Dockerfile` or `docker/`, rebuild before retrying reanalysis.
+
 If the build fails with a disk space error, resize the boot disk in the GCP Console (Compute Engine > Disks > Edit), then expand the filesystem:
 
 ```bash
@@ -348,6 +350,8 @@ Uses archived HRRR data from the Google Cloud HRRR archive (available from 2014 
 ```
 
 Only the HRRR model is available for reanalysis.
+
+With the patched image in this repo, reanalysis should not require manual GCS keys for public HRRR archive access. If you see `Missing required GCS credentials`, the image on the VM is stale and needs `./deploy/gcp/mwn.sh build`.
 
 **Verify:** The run completes without errors and reports archiving output files.
 

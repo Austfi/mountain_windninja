@@ -45,7 +45,7 @@ Output goes to `runtime/archives/` (zipped KMZ files, ASCII grids, and run confi
 1. You provide a terrain file (DEM `.tif` or LCP `.lcp`) in `static_data/`
 2. You define a domain in `config/domains.json` pointing to your terrain + the config template
 3. `mwn.sh run` starts a Docker container with WindNinja + OpenFOAM, generates config, runs simulation
-4. WindNinja downloads weather data from NOAA automatically
+4. WindNinja downloads forecast data from NOAA automatically, and reanalysis data from the public HRRR archive
 5. Output files (KMZ, ASCII grids) go to `runtime/`
 
 ## Three Run Modes
@@ -65,6 +65,10 @@ Output goes to `runtime/archives/` (zipped KMZ files, ASCII grids, and run confi
 ## Validation Workflow
 
 You can validate a historical WindNinja run against Synoptic stations and against the parent HRRR vectors at the exact same station points.
+
+Notes:
+- Reanalysis uses the patched Docker image in this repo and should not require manual GCS credentials for public HRRR archive access after `./deploy/gcp/mwn.sh build`.
+- Validation requires a working Synoptic token with data access.
 
 ```bash
 # 1. Build a WindNinja points CSV from a Synoptic station manifest
@@ -107,6 +111,8 @@ The validation outputs include per-sample comparisons, per-station summaries, gr
 | `mwn.sh clean`                               | Clear cached mesh and temp files              |
 | `mwn.sh fetch-lcp N E S W [out]`             | Download LCP from LANDFIRE (US only)          |
 | `mwn.sh lcp-build input.tif [out.lcp]`       | Convert LANDFIRE GeoTIFF to LCP               |
+| `mwn.sh synoptic-points`                     | Build WindNinja point CSV from Synoptic metadata |
+| `mwn.sh validate`                            | Compare WindNinja/HRRR point output vs Synoptic |
 | `mwn.sh schedule`                            | Start hourly auto-forecasts                   |
 | `mwn.sh stop`                                | Stop scheduler                                |
 | `mwn.sh logs`                                | View scheduler logs                           |
@@ -202,15 +208,20 @@ scripts/
   run_windninja.sh     # Entry wrapper (sources OpenFOAM env)
   gcs_manager.py       # Optional GCS upload
   preflight_check.py   # Readiness checks
+  synoptic_validation.py  # Station metadata prep + validation metrics
   build_lcp_from_geotiff.py  # GeoTIFF → LCP converter
 
 deploy/gcp/
   mwn.sh               # Main CLI
   bootstrap_repo.sh    # One-time server setup
 
+docker/
+  patch_windninja_public_pastcast.py  # Build-time upstream WindNinja patch for public HRRR pastcast
+
 docs/
   gcp_setup.md         # Full GCP walkthrough + cost guide + troubleshooting
   commands.md          # Detailed command reference
+  agent_handoff.md     # Current repo state, known constraints, handoff checklist
   windninja_reference.md  # WindNinja internals reference
 ```
 
@@ -234,6 +245,7 @@ Edit `config/template.cfg` to tune WindNinja behavior:
 - **[Beginner Tutorial](docs/tutorial.md)** -- start here. Step-by-step walkthrough from zero to your first forecast.
 - **[GCP Setup Guide](docs/gcp_setup.md)** -- VM creation, costs, terrain data, troubleshooting
 - **[Command Reference](docs/commands.md)** -- all flags, weather models, examples
+- **[Agent Handoff](docs/agent_handoff.md)** -- current repo capabilities, operational caveats, and handoff checklist
 - **[WindNinja Reference](docs/windninja_reference.md)** -- internals, config options, upstream docs
 
 ## License
