@@ -53,6 +53,8 @@ Only HRRR is available for reanalysis (other models don't have public archives a
 
 Use `--start` and `--end` to pin a specific historical UTC window. Both values must be hour-aligned and use either `YYYYMMDDHHMM` or `YYYY-MM-DDTHH:MM`.
 
+The patched Docker image in this repo reads the public HRRR archive without requiring GCS keys. If you pull a change that updates `Dockerfile`, rebuild once with `./deploy/gcp/mwn.sh build` before retrying reanalysis.
+
 ### Domain-Average Mode (Manual Wind)
 
 Specify a single wind speed and direction. WindNinja applies it uniformly then adjusts for terrain effects. No internet/weather download needed. This is the same as the desktop app's "Domain Average" initialization.

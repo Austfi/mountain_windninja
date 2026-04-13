@@ -499,6 +499,7 @@ Default is 20 seconds, which can be too short on slow connections.
 
 **Reanalysis mode fails:**
 Historical (pastcast) data is only available for HRRR and only goes back to ~2014. Make sure you're using `--model HRRR` with reanalysis mode. Other models don't have pastcast archives.
+If you just pulled a change that updates `Dockerfile`, rebuild once with `./deploy/gcp/mwn.sh build` before retrying historical runs. The patched image can read public HRRR archive data without manual GCS keys.
 
 ### OpenFOAM / Momentum Solver Problems
 
