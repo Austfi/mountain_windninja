@@ -18,7 +18,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /opt/mountain_windninja
 
-COPY docker/patches/windninja-public-pastcast.patch /tmp/windninja-public-pastcast.patch
+COPY docker/patch_windninja_public_pastcast.py /tmp/patch_windninja_public_pastcast.py
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -54,7 +54,7 @@ RUN apt-get update && \
 RUN apt-get update && \
     git clone --branch "${WINDNINJA_REF}" --depth 1 \
         https://github.com/firelab/windninja.git /opt/src/windninja && \
-    git -C /opt/src/windninja apply /tmp/windninja-public-pastcast.patch && \
+    python3 /tmp/patch_windninja_public_pastcast.py /opt/src/windninja/src/ninja/gcp_wx_init.cpp && \
     cd /opt/src && \
     wget https://poppler.freedesktop.org/poppler-22.02.0.tar.xz && \
     tar -xf poppler-22.02.0.tar.xz && \
