@@ -49,6 +49,7 @@ Commands:
   lcp-build <tif>      Convert a LANDFIRE GeoTIFF to LCP format
   synoptic-points      Build WindNinja point CSV from Synoptic station metadata
   validate             Compare WindNinja point output against Synoptic observations
+  validate-rasters     Compare nearest WindNinja/HRRR rasters against Synoptic
   clean                Clear cached mesh and temp files (fixes most errors)
   upload               Upload latest results to GCS bucket
   schedule             Start the automatic hourly scheduler
@@ -94,6 +95,7 @@ Examples:
   ./deploy/gcp/mwn.sh run --model GFS --hours 48
   ./deploy/gcp/mwn.sh synoptic-points --station-file config/stations/loveland_pass_validation_manifest.csv --points-output runtime/validation/loveland_points.csv --metadata-output runtime/validation/loveland_metadata.json
   ./deploy/gcp/mwn.sh validate --points-output runtime/temp/20260101_reanalysis_168h_HRRR/loveland_pass_sample_points.csv --metadata-file runtime/validation/loveland_metadata.json --start 202601010000 --end 202601080000 --samples-csv runtime/validation/jan2026_samples.csv --station-summary-csv runtime/validation/jan2026_station_summary.csv --group-summary-csv runtime/validation/jan2026_group_summary.csv --summary-json runtime/validation/jan2026_summary.json
+  ./deploy/gcp/mwn.sh validate-rasters --run-dir runtime/temp/20260101_reanalysis_3h_HRRR --metadata-file runtime/validation/loveland_metadata.json --start 202601010000 --end 202601010300 --samples-csv runtime/validation/loveland_3h_raster_samples.csv --station-summary-csv runtime/validation/loveland_3h_raster_station_summary.csv --group-summary-csv runtime/validation/loveland_3h_raster_group_summary.csv --summary-json runtime/validation/loveland_3h_raster_summary.json
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif
   ./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
   ./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
@@ -157,6 +159,11 @@ cmd_synoptic_points() {
 cmd_validate() {
   pick_docker
   compose run --rm shell python ./scripts/synoptic_validation.py compare "$@"
+}
+
+cmd_validate_rasters() {
+  pick_docker
+  compose run --rm shell python ./scripts/raster_validation.py "$@"
 }
 
 cmd_fetch_dem() {
@@ -348,6 +355,7 @@ case "$COMMAND" in
   shell)           cmd_shell ;;
   synoptic-points) cmd_synoptic_points "$@" ;;
   validate)        cmd_validate "$@" ;;
+  validate-rasters) cmd_validate_rasters "$@" ;;
   clean)           cmd_clean ;;
   fetch-dem)       cmd_fetch_dem "$@" ;;
   fetch-lcp)       cmd_fetch_lcp "$@" ;;
