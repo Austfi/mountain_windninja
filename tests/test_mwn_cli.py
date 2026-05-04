@@ -20,6 +20,7 @@ def _copy_cli_repo(tmp_path: Path) -> Path:
     shutil.copy2(ROOT_DIR / "deploy" / "gcp" / "mwn.sh", repo / "deploy" / "gcp" / "mwn.sh")
     shutil.copy2(ROOT_DIR / "scripts" / "domain_registry.py", repo / "scripts" / "domain_registry.py")
     shutil.copy2(ROOT_DIR / "scripts" / "area_bounds.py", repo / "scripts" / "area_bounds.py")
+    shutil.copy2(ROOT_DIR / "scripts" / "validation_plots.py", repo / "scripts" / "validation_plots.py")
     shutil.copy2(
         ROOT_DIR / "config" / "runtime.env.example",
         repo / "config" / "runtime.env.example",
@@ -171,6 +172,7 @@ def test_help_advanced_lists_advanced_commands(tmp_path):
     assert "run-grid" in result.stdout
     assert "forcing-from-grib" in result.stdout
     assert "synoptic-points" in result.stdout
+    assert "plot-validation" in result.stdout
 
 
 def test_demo_smoke_restores_domain_config(tmp_path):
@@ -273,6 +275,15 @@ def test_validate_study_dispatches_to_study_script(tmp_path):
     assert "validation_study.py" in docker_log
     assert "berthoud_pass" in docker_log
     assert "--pilot-hours 3" in docker_log
+
+
+def test_plot_validation_runs_on_host_python(tmp_path):
+    repo = _copy_cli_repo(tmp_path)
+
+    result = _run_cli(repo, "plot-validation", "--help")
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "Create SVG/HTML plots" in result.stdout
 
 
 def test_domain_create_registers_default_and_runs_check_with_default_output(tmp_path):

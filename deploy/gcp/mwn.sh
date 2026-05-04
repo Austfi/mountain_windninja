@@ -226,6 +226,7 @@ Validation:
   validate             Compare WindNinja point output against Synoptic observations
   validate-rasters     Compare nearest WindNinja/HRRR rasters against Synoptic
   validate-study       Run a chunked Synoptic/HRRR/WindNinja validation study
+  plot-validation      Build static SVG/HTML plots from validation samples
 
 Run flags:
   --mode forecast|reanalysis|domain-average
@@ -805,6 +806,10 @@ cmd_validate_study() {
      export FOAM_USER_LIBBIN=/usr/local/lib/
      exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
     bash "$@"
+}
+
+cmd_plot_validation() {
+  host_python ./scripts/validation_plots.py "$@"
 }
 
 cmd_fetch_terrain() {
@@ -1760,6 +1765,7 @@ case "$COMMAND" in
   validate)        cmd_validate "$@" ;;
   validate-rasters) cmd_validate_rasters "$@" ;;
   validate-study)  cmd_validate_study "$@" ;;
+  plot-validation) cmd_plot_validation "$@" ;;
   forcing-from-grib) cmd_forcing_from_grib "$@" ;;
   clean)           cmd_clean ;;
   fetch-terrain)   cmd_fetch_terrain "$@" ;;

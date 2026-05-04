@@ -642,6 +642,36 @@ Requires `MWN_SYNOPTIC_TOKEN` with Synoptic weather-data access. Station
 selection is explicit: edit `config/stations/berthoud_pass_validation_manifest.csv`
 to choose K0CO or any other stations to compare.
 
+## plot-validation
+
+Build static SVG plots and an HTML index from completed validation samples. This
+command runs on the host with the Python standard library only, so it can be
+rerun while a long validation container is still processing future chunks.
+
+```bash
+./deploy/gcp/mwn.sh plot-validation \
+  --study-root runtime/validation/berthoud_pass \
+  --title "Berthoud Pass Validation - January 2026"
+```
+
+By default it reads `chunks/*/samples.csv`, deduplicates overlapping station
+hours, and writes:
+
+- `runtime/validation/berthoud_pass/plots/index.html`
+- `runtime/validation/berthoud_pass/plots/speed_timeseries.svg`
+- `runtime/validation/berthoud_pass/plots/speed_error_timeseries.svg`
+- `runtime/validation/berthoud_pass/plots/direction_error_timeseries.svg`
+- `runtime/validation/berthoud_pass/plots/speed_scatter.svg`
+- `runtime/validation/berthoud_pass/plots/daily_metrics.svg`
+- `runtime/validation/berthoud_pass/plots/plot_summary.json`
+
+Useful flags:
+
+- `--samples-csv PATH`: plot one specific samples CSV; can be passed more than once
+- `--output-dir PATH`: override the output directory
+- `--station-id ID`: plot one station from a multi-station validation
+- `--speed-units mph|mps|kph|kts`: label plot units
+
 ## schedule
 
 Start the automatic scheduler. By default it runs an 18-hour HRRR forecast at :15 past every hour.

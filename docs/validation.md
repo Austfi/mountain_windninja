@@ -60,6 +60,30 @@ main comparison metrics versus parent HRRR:
 
 That is reasonable enough to continue with daily chunks for a month-scale run.
 
+## Plotting Results
+
+Generate static plots from completed chunk samples:
+
+```bash
+./deploy/gcp/mwn.sh plot-validation \
+  --study-root runtime/validation/berthoud_pass \
+  --title "Berthoud Pass Validation - January 2026"
+```
+
+The plot command reads `runtime/validation/berthoud_pass/chunks/*/samples.csv`,
+deduplicates overlapping station-hours, and writes SVG plots plus an `index.html`
+to `runtime/validation/berthoud_pass/plots/`. It can be rerun while a long
+validation job is active; it only includes chunks that have already completed.
+
+Outputs include:
+
+- wind speed time series
+- wind speed error time series
+- direction absolute error time series
+- observed-vs-modeled speed scatter
+- daily error metrics
+- `plot_summary.json` with the plotted sample count and headline metrics
+
 For manual validation, use the lower-level flow:
 
 1. Prepare station metadata with `synoptic-points`.

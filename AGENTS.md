@@ -188,6 +188,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/raster_validation.py` | Samples nearest WindNinja and parent-HRRR rasters at station coordinates and compares against Synoptic |
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
 | `scripts/validation_study.py` | Chunked Synoptic/HRRR/WindNinja validation workflow using explicit station manifests |
+| `scripts/validation_plots.py` | Pure-stdlib SVG/HTML plotting for completed validation sample chunks |
 | `config/template.cfg` | WindNinja config template with placeholders |
 | `config/template_validation.cfg` | Lean validation template, ASCII outputs only |
 | `config/domains.json` | Maps domain names to terrain files and templates |
