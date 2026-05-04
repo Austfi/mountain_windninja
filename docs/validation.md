@@ -47,6 +47,13 @@ Station selection is intentionally simple: edit the manifest CSV to choose one
 station or a short list of stations, then rerun the same command. The study
 workflow does not search for stations automatically.
 
+The Berthoud manifest currently includes:
+
+| Station | Label | Height handling |
+|---------|-------|-----------------|
+| K0CO | Berthoud Pass - Mines Peak AWOS | Uses Synoptic wind sensor metadata when available |
+| CABTP | Berthoud Pass CAIC | Height override intentionally blank; uses Synoptic wind sensor metadata when available, otherwise the 10 m study default |
+
 NBM historical validation is not WindNinja native pastcast. The study wrapper
 fetches only archived NBM `WIND` and `WDIR` 10 m records by byte range, converts
 them to local `run-grid` inputs, runs one WindNinja timestep per valid hour, and
@@ -99,6 +106,7 @@ Outputs include:
 - direction absolute error time series
 - observed-vs-modeled speed scatter
 - daily error metrics
+- station location plot when `station_metadata.json` is present
 - `plot_summary.json` with the plotted sample count and headline metrics
 
 For manual HRRR validation, use the lower-level flow:

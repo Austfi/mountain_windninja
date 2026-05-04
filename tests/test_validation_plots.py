@@ -116,6 +116,50 @@ def test_plot_validation_outputs_svg_html_and_summary(tmp_path):
     assert summary["summary"]["hrrr"]["vector_rmse"] == 5.0
 
 
+def test_plot_validation_writes_station_location_plot_when_metadata_exists(tmp_path):
+    study_root = tmp_path / "validation" / "berthoud_pass"
+    write_samples(
+        study_root / "chunks" / "20260101_0000_20260102_0000" / "samples.csv",
+        [row("2026-01-01T00:00:00Z", 20.0, 18.0, 15.0)],
+    )
+    (study_root / "station_metadata.json").write_text(
+        json.dumps({
+            "stations": [
+                {
+                    "station_id": "K0CO",
+                    "label": "Berthoud Pass - Mines Peak AWOS",
+                    "latitude": 39.79453,
+                    "longitude": -105.76393,
+                    "height_m": 10.0,
+                    "height_source": "synoptic_sensor_metadata",
+                },
+                {
+                    "station_id": "CABTP",
+                    "label": "Berthoud Pass CAIC",
+                    "latitude": 39.80194,
+                    "longitude": -105.78389,
+                    "height_m": 10.0,
+                    "height_source": "default_height",
+                },
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    result = vp.main([
+        "--study-root",
+        str(study_root),
+        "--output-dir",
+        str(study_root / "plots"),
+    ])
+
+    assert result == 0
+    location_svg = (study_root / "plots" / "station_locations.svg").read_text(encoding="utf-8")
+    assert "CABTP" in location_svg
+    summary = json.loads((study_root / "plots" / "plot_summary.json").read_text())
+    assert "station_locations.svg" in summary["plots"]
+
+
 def test_plot_validation_uses_model_label_from_summary(tmp_path):
     study_root = tmp_path / "validation" / "berthoud_pass"
     write_samples(

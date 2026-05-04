@@ -147,8 +147,10 @@ The study command reads explicit stations from
 `config/stations/berthoud_pass_validation_manifest.csv`, runs HRRR reanalysis in
 chunks, validates WindNinja and parent HRRR rasters, and writes aggregate outputs
 under `runtime/validation/berthoud_pass/`.
-The Berthoud sampling geometry is shown in
-[`docs/assets/berthoud_validation_points.png`](docs/assets/berthoud_validation_points.png).
+The Berthoud manifest includes K0CO and CABTP. CABTP's wind sensor height is not
+confirmed in this repo; leave `height_m_override` blank unless the actual
+anemometer height is known. The plot command writes a station-location SVG
+beside the comparison plots.
 
 Generated runtime output, terrain downloads, caches, and local runtime config are
 ignored by git. Source inputs such as `config/stations/*.csv` and

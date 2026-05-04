@@ -128,9 +128,12 @@ for gridded forcing while keeping the same domain key.
 ### 13. Berthoud validation is intentionally small and manifest-driven
 
 The current Berthoud validation setup is a 10 km square centered on Berthoud Pass
-and currently validates K0CO Berthoud Pass / Mines Peak AWOS. Station selection
-is explicit through `config/stations/berthoud_pass_validation_manifest.csv`; add
-or remove rows there to compare more stations.
+and validates the explicit stations in
+`config/stations/berthoud_pass_validation_manifest.csv`. The manifest currently
+includes K0CO Berthoud Pass / Mines Peak AWOS and CABTP Berthoud Pass CAIC. Keep
+`height_m_override` blank for CABTP until the actual anemometer height is known;
+the workflow uses Synoptic wind sensor metadata when available, then the 10 m
+study default.
 
 Current measured scale:
 

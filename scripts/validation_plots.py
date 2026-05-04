@@ -215,6 +215,27 @@ def daily_records(rows: list[dict]) -> list[dict]:
     return records
 
 
+def load_station_metadata(study_root: Path, station_id: str | None = None) -> list[dict]:
+    metadata_path = study_root / "station_metadata.json"
+    if not metadata_path.exists():
+        return []
+
+    payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    stations = payload.get("stations", [])
+    station_filter = station_id.upper() if station_id else None
+    if station_filter:
+        stations = [
+            station
+            for station in stations
+            if (station.get("station_id") or "").upper() == station_filter
+        ]
+    return [
+        station
+        for station in stations
+        if station.get("latitude") is not None and station.get("longitude") is not None
+    ]
+
+
 def fmt_num(value: float) -> str:
     if abs(value) >= 100:
         return f"{value:.0f}"
@@ -484,6 +505,108 @@ def scatter_plot(
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
+def station_location_plot(path: Path, stations: list[dict], *, title: str) -> None:
+    width = 900
+    height = 560
+    margin = {"left": 82, "right": 44, "top": 70, "bottom": 74}
+    plot_width = width - margin["left"] - margin["right"]
+    plot_height = height - margin["top"] - margin["bottom"]
+
+    lats = [float(station["latitude"]) for station in stations]
+    lons = [float(station["longitude"]) for station in stations]
+    lat_low, lat_high = nice_range(lats)
+    lon_low, lon_high = nice_range(lons)
+
+    def x_scale(lon: float) -> float:
+        return margin["left"] + ((lon - lon_low) / (lon_high - lon_low)) * plot_width
+
+    def y_scale(lat: float) -> float:
+        return margin["top"] + (1 - ((lat - lat_low) / (lat_high - lat_low))) * plot_height
+
+    parts = svg_header(width, height, title)
+    for tick in tick_values(lon_low, lon_high):
+        x = x_scale(tick)
+        parts.append(
+            f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{margin["top"]}" '
+            f'y2="{height - margin["bottom"]}" class="grid"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{height - margin["bottom"] + 24}" '
+            f'text-anchor="middle" class="axis">{tick:.4f}</text>'
+        )
+
+    for tick in tick_values(lat_low, lat_high):
+        y = y_scale(tick)
+        parts.append(
+            f'<line x1="{margin["left"]}" x2="{width - margin["right"]}" '
+            f'y1="{y:.1f}" y2="{y:.1f}" class="grid"/>'
+        )
+        parts.append(
+            f'<text x="{margin["left"] - 10}" y="{y + 4:.1f}" '
+            f'text-anchor="end" class="axis">{tick:.4f}</text>'
+        )
+
+    parts.append(
+        f'<line x1="{margin["left"]}" x2="{margin["left"]}" y1="{margin["top"]}" '
+        f'y2="{height - margin["bottom"]}" class="axis-line"/>'
+    )
+    parts.append(
+        f'<line x1="{margin["left"]}" x2="{width - margin["right"]}" '
+        f'y1="{height - margin["bottom"]}" y2="{height - margin["bottom"]}" '
+        'class="axis-line"/>'
+    )
+
+    for station in sorted(stations, key=lambda item: item["station_id"]):
+        lat = float(station["latitude"])
+        lon = float(station["longitude"])
+        x = x_scale(lon)
+        y = y_scale(lat)
+
+        label_x = x - 320 if x > margin["left"] + plot_width * 0.55 else x + 18
+        label_x = min(max(label_x, margin["left"] + 8), width - margin["right"] - 330)
+        dy = -30 if y > margin["top"] + plot_height * 0.65 else 28
+        if y + dy < margin["top"] + 18:
+            dy = 42
+        if y + dy > height - margin["bottom"] - 18:
+            dy = -42
+        label_y = y + dy
+        station_id = str(station["station_id"])
+        label = str(station.get("label") or station.get("name") or station_id)
+        height_m = station.get("height_m")
+        height_source = station.get("height_source") or "unknown"
+        source_labels = {
+            "default_height": "10 m fallback",
+            "synoptic_sensor_metadata": "Synoptic metadata",
+        }
+        source_text = source_labels.get(str(height_source), str(height_source))
+        height_text = f"{float(height_m):.1f} m wind height" if height_m is not None else "wind height unknown"
+
+        parts.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{COLORS["windninja"]}" '
+            'stroke="#ffffff" stroke-width="2"/>'
+        )
+        parts.append(
+            f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="start" class="legend">'
+            f'<tspan font-weight="700">{html.escape(station_id)}</tspan>'
+            f'<tspan x="{label_x:.1f}" dy="17">{html.escape(label)}</tspan>'
+            f'<tspan x="{label_x:.1f}" dy="17" class="axis">{html.escape(height_text)}; '
+            f'{html.escape(source_text)}</tspan>'
+            "</text>"
+        )
+
+    parts.append(
+        f'<text x="{width / 2:.1f}" y="{height - 26}" text-anchor="middle" class="axis">'
+        "Longitude</text>"
+    )
+    parts.append(
+        f'<text x="22" y="{margin["top"] + plot_height / 2:.1f}" '
+        f'transform="rotate(-90 22 {margin["top"] + plot_height / 2:.1f})" '
+        'text-anchor="middle" class="axis">Latitude</text>'
+    )
+    parts.append(svg_footer())
+    path.write_text("\n".join(parts), encoding="utf-8")
+
+
 def write_summary_json(path: Path, summary: dict, source_paths: list[Path], plots: list[str]) -> None:
     payload = {
         "generated_at_utc": dt.datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -647,6 +770,9 @@ def main(argv: list[str] | None = None) -> int:
         "speed_scatter.svg",
         "daily_metrics.svg",
     ]
+    station_metadata = load_station_metadata(study_root, args.station_id)
+    if station_metadata:
+        plots.append("station_locations.svg")
     line_plot(
         output_dir / plots[0],
         time_records,
@@ -701,6 +827,12 @@ def main(argv: list[str] | None = None) -> int:
         y_label=f"Error ({args.speed_units})",
         include_zero=True,
     )
+    if station_metadata:
+        station_location_plot(
+            output_dir / "station_locations.svg",
+            station_metadata,
+            title="Station Locations",
+        )
 
     write_summary_json(output_dir / "plot_summary.json", summary, source_paths, plots)
     write_index(output_dir / "index.html", summary, plots, args.title)

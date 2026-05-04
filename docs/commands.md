@@ -696,6 +696,7 @@ hours, and writes:
 - `runtime/validation/berthoud_pass/plots/direction_error_timeseries.svg`
 - `runtime/validation/berthoud_pass/plots/speed_scatter.svg`
 - `runtime/validation/berthoud_pass/plots/daily_metrics.svg`
+- `runtime/validation/berthoud_pass/plots/station_locations.svg` when station metadata exists
 - `runtime/validation/berthoud_pass/plots/plot_summary.json`
 
 Useful flags:
