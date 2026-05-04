@@ -243,7 +243,6 @@ def main() -> int:
     if not raster_sets:
         raise ValueError(f"No complete WindNinja/parent-model raster sets found in {run_dir}")
 
-    station_ids = [record["station_id"] for record in station_records]
     observations_by_station = sv.fetch_observations(
         station_records,
         start_time,
