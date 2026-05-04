@@ -110,9 +110,8 @@ Uses archived HRRR data from Google Cloud to simulate past wind events. Useful f
 ```
 
 Only HRRR is available through WindNinja's native `run --mode reanalysis`
-pastcast system. NBM historical validation is available through
-`validate-study --model NBM`, which fetches archived NBM wind records and feeds
-WindNinja with gridded initialization.
+pastcast system. NBM remains available for native forecast runs through
+`./deploy/gcp/mwn.sh run --model NBM`.
 
 Use `--start` and `--end` to pin a specific historical UTC window. Both values must be hour-aligned and use either `YYYYMMDDHHMM` or `YYYY-MM-DDTHH:MM`.
 
@@ -136,7 +135,7 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
-| `--model HRRR\|NBM\|NAM\|RAP\|GFS` | Weather model (forecast/reanalysis only) | `HRRR` |
+| `--model HRRR\|NBM\|NAM\|RAP\|GFS` | Weather model; reanalysis currently supports HRRR only | `HRRR` |
 | `--hours N` | Number of hours to simulate | `18` |
 | `--start UTC` | Fixed reanalysis start time | none |
 | `--end UTC` | Fixed reanalysis end time | none |
@@ -635,11 +634,6 @@ recommended path for Berthoud Pass and other long-period comparisons.
   --end 202601080000 \
   --chunk-hours 24
 
-# Run the same station/time window with archived NBM f001 forcing
-MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
-  --start 202601010000 \
-  --end 202601080000 \
-  --chunk-hours 24
 ```
 
 The command prepares Synoptic metadata for the configured station manifest,
@@ -659,23 +653,14 @@ Useful flags:
 - `--dry-run`: print commands without running them
 - `--force`: rerun completed chunks and validations
 - `--skip-runs`: validate existing run directories only
-- `--model HRRR|NBM`: use native HRRR pastcast or archived NBM grid forcing
-- `--lead-hours`: NBM forecast lead to validate; default `1` because NBM does
-  not publish `f000`
+- `--model HRRR`: override the study model; historical validation is HRRR only
 
 Requires `MWN_SYNOPTIC_TOKEN` with Synoptic weather-data access. Station
 selection is explicit: edit `config/stations/berthoud_pass_validation_manifest.csv`
 to choose K0CO or any other stations to compare.
 
-For `--model NBM`, the study fetches only the `WIND` and `WDIR` 10 m records
-from the public NOAA NBM archive by byte range, converts them to the local DEM
-grid, runs one WindNinja `run-grid` timestep per valid hour, copies only the
-needed parent/WindNinja ASCII rasters into the chunk directory, and removes
-intermediate forcing/run directories.
-
-Use `config/studies/berthoud_pass_nbm.json` for the Berthoud NBM comparison so
-NBM output lands under `runtime/validation/berthoud_pass_nbm/` instead of mixing
-with HRRR output under `runtime/validation/berthoud_pass/`.
+Historical `validate-study` runs are HRRR only because WindNinja exposes native
+HRRR pastcast but not native NBM pastcast.
 
 `MWN_NUM_THREADS=N` overrides `num_threads` for generated WindNinja configs in
 `mwn.sh run`, `run-grid`, and `validate-study`. Keep this at or below physical
@@ -713,33 +698,6 @@ Useful flags:
 - `--output-dir PATH`: override the output directory
 - `--station-id ID`: plot one station from a multi-station validation
 - `--speed-units mph|mps|kph|kts`: label plot units
-
-## compare-validation
-
-Compare completed HRRR and NBM validation roots on only the station/timestamp
-samples that exist in both roots:
-
-```bash
-./deploy/gcp/mwn.sh compare-validation \
-  runtime/validation/berthoud_pass \
-  runtime/validation/berthoud_pass_nbm \
-  --output-dir runtime/validation/model_comparison \
-  --title "Berthoud Pass HRRR vs NBM - January 2026"
-```
-
-This command does not run WindNinja or fetch observations. It reads existing
-`samples.csv` files and writes:
-
-- `runtime/validation/model_comparison/metrics.csv`
-- `runtime/validation/model_comparison/summary.json`
-- `runtime/validation/model_comparison/index.html`
-- `runtime/validation/model_comparison/speed_mae_by_station.svg`
-- `runtime/validation/model_comparison/vector_rmse_by_station.svg`
-
-The comparison rows include parent HRRR, WindNinja forced by HRRR, parent NBM,
-and WindNinja forced by NBM. Because it joins on common station-hours, it can be
-rerun while the NBM month job is still active, but the clean final comparison
-should be regenerated after both month roots are complete.
 
 ## schedule
 

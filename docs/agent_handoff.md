@@ -9,8 +9,8 @@ This document is the quickest orientation point for another agent or operator pi
 - `fetch-terrain` downloads DEM first as fallback and LCP second as active terrain. It accepts center/size, KML/KMZ area files, or explicit bbox. `fetch-dem`, `fetch-lcp`, and `domain create` remain available as advanced/manual paths.
 - Historical reanalysis supports fixed windows through `--start` and `--end`.
 - Native WindNinja reanalysis currently only supports HRRR
-  (`PASTCAST-GCP-HRRR-CONUS-3-KM`); NBM historical validation is handled by
-  archived gridded forcing in `scripts/nbm_archive.py`.
+  (`PASTCAST-GCP-HRRR-CONUS-3-KM`). NBM is available as a native forecast model
+  through `mwn.sh run --model NBM`, not as a historical `validate-study` mode.
 - Point validation workflow exists through:
   - `./deploy/gcp/mwn.sh synoptic-points`
   - `./deploy/gcp/mwn.sh validate`
@@ -18,7 +18,6 @@ This document is the quickest orientation point for another agent or operator pi
   - `./deploy/gcp/mwn.sh validate-rasters`
 - Chunked validation studies exist through:
   - `./deploy/gcp/mwn.sh validate-study berthoud_pass ...`
-  - `MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm ...`
 - Synoptic is observation truth only. HRRR remains the model input to WindNinja.
 - Current recommended Berthoud validation path is:
   - `validate-study berthoud_pass --start YYYYMMDDHHMM --pilot-hours 3`
@@ -147,25 +146,9 @@ shows CABTP speed improved but vector RMSE worsened, K0CO modestly improved,
 and the USGS low-wind site improved speed/vector metrics while direction
 metrics are mostly light-wind noise.
 
-For the month-scale NBM comparison, use:
-
-```bash
-MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
-  --start 202601010000 \
-  --end 202602010000 \
-  --chunk-hours 24
-```
-
-After both roots have matching completed chunks, use `compare-validation` to
-join common station-hours and compare parent HRRR, WindNinja(HRRR), parent NBM,
-and WindNinja(NBM):
-
-```bash
-./deploy/gcp/mwn.sh compare-validation \
-  runtime/validation/berthoud_pass \
-  runtime/validation/berthoud_pass_nbm \
-  --output-dir runtime/validation/model_comparison
-```
+Do not reintroduce NBM historical validation unless WindNinja exposes a native
+`PASTCAST-*` NBM model or the user explicitly chooses a separate archive-forcing
+path. Keep the default validation workflow HRRR-only for now.
 
 ## Handoff Checklist
 

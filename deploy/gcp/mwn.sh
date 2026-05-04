@@ -227,7 +227,6 @@ Validation:
   validate-rasters     Compare nearest WindNinja/HRRR rasters against Synoptic
   validate-study       Run a chunked Synoptic/HRRR/WindNinja validation study
   plot-validation      Build static SVG/HTML plots from validation samples
-  compare-validation   Compare HRRR/NBM validation roots on common station-hours
 
 Run flags:
   --mode forecast|reanalysis|domain-average
@@ -417,30 +416,39 @@ cmd_clean() {
 
 cmd_run() {
   pick_docker
-  local compose_env_args=()
-  if [ -n "${MWN_NUM_THREADS:-}" ]; then
-    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
-  fi
   local run_domain
   run_domain="$(extract_run_domain "$@")"
-  local preflight_args=()
-  if [ -n "$run_domain" ]; then
-    preflight_args=(--domain "$run_domain")
-  fi
   echo "Running preflight check..."
-  if ! compose run --rm shell python ./scripts/preflight_check.py "${preflight_args[@]}" 2>&1; then
+  if [ -n "$run_domain" ]; then
+    compose run --rm shell python ./scripts/preflight_check.py --domain "$run_domain" 2>&1
+  else
+    compose run --rm shell python ./scripts/preflight_check.py 2>&1
+  fi
+  local preflight_status=$?
+  if [ "$preflight_status" -ne 0 ]; then
     echo ""
     echo "Preflight check failed. Fix the issues above, then retry."
     echo "Run ./deploy/gcp/mwn.sh check for details."
     print_preflight_guidance
     return 1
   fi
-  if ! compose run --rm "${compose_env_args[@]}" shell bash -lc \
-    'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
-     export FOAM_USER_LIBBIN=/usr/local/lib/
-     cd /opt/mountain_windninja/runtime
-     exec /opt/venv/bin/python /opt/mountain_windninja/scripts/daily_run.py "$@"' \
-    bash "$@"; then
+  if [ -n "${MWN_NUM_THREADS:-}" ]; then
+    compose run --rm -e "MWN_NUM_THREADS=${MWN_NUM_THREADS}" shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       cd /opt/mountain_windninja/runtime
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/daily_run.py "$@"' \
+      bash "$@"
+  else
+    compose run --rm shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       cd /opt/mountain_windninja/runtime
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/daily_run.py "$@"' \
+      bash "$@"
+  fi
+  local run_status=$?
+  if [ "$run_status" -ne 0 ]; then
     echo ""
     echo "Run failed. Cleaning corrupted mesh cache..."
     sudo rm -rf static_data/NINJAFOAM_* 2>/dev/null || true
@@ -453,16 +461,23 @@ cmd_run() {
 
 cmd_run_grid() {
   pick_docker
-  local compose_env_args=()
   if [ -n "${MWN_NUM_THREADS:-}" ]; then
-    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
+    compose run --rm -e "MWN_NUM_THREADS=${MWN_NUM_THREADS}" shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       cd /opt/mountain_windninja/runtime
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/gridded_run.py "$@"' \
+      bash "$@"
+  else
+    compose run --rm shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       cd /opt/mountain_windninja/runtime
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/gridded_run.py "$@"' \
+      bash "$@"
   fi
-  if ! compose run --rm "${compose_env_args[@]}" shell bash -lc \
-    'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
-     export FOAM_USER_LIBBIN=/usr/local/lib/
-     cd /opt/mountain_windninja/runtime
-     exec /opt/venv/bin/python /opt/mountain_windninja/scripts/gridded_run.py "$@"' \
-    bash "$@"; then
+  local run_status=$?
+  if [ "$run_status" -ne 0 ]; then
     echo ""
     echo "Grid run failed. Cleaning corrupted mesh cache..."
     sudo rm -rf static_data/NINJAFOAM_* 2>/dev/null || true
@@ -811,23 +826,23 @@ cmd_validate_rasters() {
 
 cmd_validate_study() {
   pick_docker
-  local compose_env_args=()
   if [ -n "${MWN_NUM_THREADS:-}" ]; then
-    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
+    compose run --rm -e "MWN_NUM_THREADS=${MWN_NUM_THREADS}" shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
+      bash "$@"
+  else
+    compose run --rm shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
+      bash "$@"
   fi
-  compose run --rm "${compose_env_args[@]}" shell bash -lc \
-    'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
-     export FOAM_USER_LIBBIN=/usr/local/lib/
-     exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
-    bash "$@"
 }
 
 cmd_plot_validation() {
   host_python ./scripts/validation_plots.py "$@"
-}
-
-cmd_compare_validation() {
-  host_python ./scripts/validation_model_compare.py "$@"
 }
 
 cmd_fetch_terrain() {
@@ -1784,7 +1799,6 @@ case "$COMMAND" in
   validate-rasters) cmd_validate_rasters "$@" ;;
   validate-study)  cmd_validate_study "$@" ;;
   plot-validation) cmd_plot_validation "$@" ;;
-  compare-validation) cmd_compare_validation "$@" ;;
   forcing-from-grib) cmd_forcing_from_grib "$@" ;;
   clean)           cmd_clean ;;
   fetch-terrain)   cmd_fetch_terrain "$@" ;;

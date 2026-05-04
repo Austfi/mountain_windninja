@@ -23,25 +23,14 @@ Then scale the same command to a longer window:
   --chunk-hours 24
 ```
 
-To run the same station/time-window comparison with archived NBM forcing, use
-the separate NBM study config so HRRR and NBM outputs do not mix:
-
-```bash
-MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
-  --start 202601010000 \
-  --end 202601080000 \
-  --chunk-hours 24
-```
-
 The study wrapper:
 
 - reads explicit stations from `config/stations/berthoud_pass_validation_manifest.csv`
 - prepares Synoptic metadata and WindNinja point coordinates for those stations
-- runs HRRR reanalysis or archived NBM gridded forcing without `--points-file`
+- runs HRRR reanalysis without `--points-file`
 - keeps per-chunk run directories under `runtime/temp/`
 - compares WindNinja and parent-model rasters with `validate-rasters`
 - writes aggregate HRRR outputs under `runtime/validation/berthoud_pass/`
-- writes aggregate NBM outputs under `runtime/validation/berthoud_pass_nbm/`
 
 Station selection is intentionally simple: edit the manifest CSV to choose one
 station or a short list of stations, then rerun the same command. The study
@@ -55,15 +44,9 @@ The Berthoud manifest currently includes:
 | CABTP | Berthoud Pass CAIC | Height override intentionally blank; uses Synoptic wind sensor metadata when available, otherwise the 10 m study default |
 | USGS-394759105464101 | Berthoud Pass USGS Meteorological Station | USGS wind speed/direction observations; height unknown, uses the 10 m study default for now |
 
-NBM historical validation is not WindNinja native pastcast. The study wrapper
-fetches only archived NBM `WIND` and `WDIR` 10 m records by byte range, converts
-them to local `run-grid` inputs, runs one WindNinja timestep per valid hour, and
-deletes intermediate forcing/run directories after copying the rasters needed
-for validation.
-
-NBM does not publish `f000` in this archive path. The current NBM validation
-uses `lead_hours = 1`, so the valid timestamps match the HRRR study window but
-the parent NBM fields are f001 forecasts.
+Historical `validate-study` runs are HRRR only because WindNinja exposes native
+HRRR pastcast but not native NBM pastcast. NBM remains available for native
+forecast runs through `./deploy/gcp/mwn.sh run --model NBM`.
 
 ## Berthoud Sampling Points
 
@@ -129,21 +112,6 @@ Outputs include:
 - `station_metrics.csv` with station-level skill, bias, and confidence intervals
 - `plot_summary.json` with the plotted sample count and headline metrics
 
-After both HRRR and NBM roots have completed at least some matching chunks, make
-the direct parent-model comparison with:
-
-```bash
-./deploy/gcp/mwn.sh compare-validation \
-  runtime/validation/berthoud_pass \
-  runtime/validation/berthoud_pass_nbm \
-  --output-dir runtime/validation/model_comparison \
-  --title "Berthoud Pass HRRR vs NBM - January 2026"
-```
-
-This joins only station-hours common to both roots and reports parent HRRR,
-WindNinja forced by HRRR, parent NBM, and WindNinja forced by NBM in one station
-metrics table plus speed-MAE and vector-RMSE bar charts.
-
 For manual HRRR validation, use the lower-level flow:
 
 1. Prepare station metadata with `synoptic-points`.
@@ -178,9 +146,6 @@ For manual HRRR validation, use the lower-level flow:
 - Start with a 3-hour smoke test, then a 24-hour pilot, before scaling to longer
   windows.
 - `validate-study --plan` prints chunk/run paths without network calls or writes.
-- `berthoud_pass_nbm` validates archived NBM f001 forcing in a separate output
-  root from the HRRR study. Increase `lead_hours` in the study config for a true
-  forecast-lead skill comparison.
 - `MWN_NUM_THREADS=6` is the current high-thread test setting on a 6-physical /
   12-logical CPU machine. OpenFOAM should not be set above physical cores.
 

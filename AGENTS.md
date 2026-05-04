@@ -110,26 +110,14 @@ If a spot/preemptible instance dies mid-run, assume the active chunk is lost and
 
 **Implication:** run historical validation studies in 24h or 72h chunks, not as one monolithic seasonal job.
 
-### 11. NBM historical validation uses archived grid forcing
+### 11. Gridded forcing needs a DEM, not LCP
 
-WindNinja does not expose an NBM `PASTCAST-*` model like HRRR. For
-`validate-study --model NBM`, this repo fetches only the public NBM archive
-`WIND` and `WDIR` 10 m GRIB records by HTTP byte range, converts them to
-`run-grid` speed/direction inputs, runs one WindNinja timestep per valid hour,
-and copies parent/WindNinja ASCII rasters into the same chunk validation layout
-used by HRRR.
+`run-grid` and `forcing-from-grib` use DEM-backed gridded initialization. If a
+domain points at `name.lcp` and a sibling `name.tif` exists in `static_data/`,
+the scripts automatically use the `.tif` for gridded forcing while keeping the
+same domain key.
 
-NBM has no `f000`; `--lead-hours` defaults to `1`. Use `--lead-hours 1` for the
-closest past-comparison workflow and larger leads for forecast-skill validation.
-
-### 12. Gridded forcing needs a DEM, not LCP
-
-`run-grid`, `forcing-from-grib`, and NBM archive forcing use DEM-backed
-gridded initialization. If a domain points at `name.lcp` and a sibling
-`name.tif` exists in `static_data/`, the scripts automatically use the `.tif`
-for gridded forcing while keeping the same domain key.
-
-### 13. Berthoud validation is intentionally small and manifest-driven
+### 12. Berthoud validation is intentionally small and manifest-driven
 
 The current Berthoud validation setup is a 10 km square centered on Berthoud Pass
 and validates the explicit stations in
@@ -182,34 +170,17 @@ run directories and chunk summaries, so extending a window is safe:
   --chunk-hours 24
 ```
 
-For NBM, use the separate study root so outputs do not mix with HRRR:
-
-```bash
-MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
-  --start 202601010000 \
-  --end 202602010000 \
-  --chunk-hours 24
-```
-
 Plotting writes station-level metrics and terrain-backed sampling maps:
 `plots/station_metrics.csv`, `plots/plot_summary.json`, and
 `plots/sampling_map_<station>.png`. Do not reintroduce the old plain
 `station_locations.svg`; it is redundant with the sampling maps.
 
-After HRRR and NBM have matching completed chunks, run:
+NBM remains supported for native forecast runs through `mwn.sh run --model NBM`.
+Do not add NBM historical validation unless WindNinja exposes a native
+`PASTCAST-*` NBM model or the user explicitly chooses a separate archive-forcing
+path.
 
-```bash
-./deploy/gcp/mwn.sh compare-validation \
-  runtime/validation/berthoud_pass \
-  runtime/validation/berthoud_pass_nbm \
-  --output-dir runtime/validation/model_comparison
-```
-
-This is a reporting step only. It joins common station-hours and compares parent
-HRRR, WindNinja(HRRR), parent NBM, and WindNinja(NBM) without creating another
-validation pathway.
-
-### 14. Validation template avoids visual artifacts
+### 13. Validation template avoids visual artifacts
 
 `berthoud_pass` uses `config/template_validation.cfg`, not `config/template.cfg`.
 It keeps the same HRRR/momentum/diurnal/100 m physics path but disables KMZ and
@@ -252,7 +223,6 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/raster_validation.py` | Samples nearest WindNinja and parent-HRRR rasters at station coordinates and compares against Synoptic |
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
 | `scripts/validation_study.py` | Chunked Synoptic/model/WindNinja validation workflow using explicit station manifests |
-| `scripts/nbm_archive.py` | Fetches archived NBM 10 m wind records by byte range and builds run-grid forcing |
 | `scripts/forcing_from_grib.py` | Converts U/V or speed/direction GRIB/NetCDF fields into WindNinja grids |
 | `scripts/validation_plots.py` | Pure-stdlib SVG/HTML plotting for completed validation sample chunks |
 | `config/template.cfg` | WindNinja config template with placeholders |
@@ -288,7 +258,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - GCS upload integration for sharing results
 - Scheduled cron forecasts (scheduler service exists but needs production testing)
 - Performance profiling on larger domains (30+ km)
-- NDFD archive forcing and validation, following the NBM gridded-forcing pattern
+- Native forecast validation for NBM/NDFD products once a simple station workflow is defined
 
 ## Handoff
 
