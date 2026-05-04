@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mountain-windninja:local
+    image: ${MWN_DOCKER_IMAGE:-mountain-windninja:local}
     profiles: ["tools"]
     stdin_open: true
     tty: true
@@ -19,7 +19,7 @@ services:
 
   # Automatic hourly scheduler: mwn.sh schedule
   scheduler:
-    image: mountain-windninja:local
+    image: ${MWN_DOCKER_IMAGE:-mountain-windninja:local}
     container_name: mountain-windninja-scheduler
     restart: unless-stopped
     env_file: config/runtime.env

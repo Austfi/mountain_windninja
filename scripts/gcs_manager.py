@@ -11,12 +11,18 @@ import os
 from pathlib import Path
 import re
 
-import config_loader
-import utils
+try:
+    from . import config_loader, utils
+except ImportError:
+    import config_loader
+    import utils
 
 logger = utils.setup_logging(__name__)
 ARCHIVE_FORECAST_RE = re.compile(
-    r"^(?P<domain>.+)_(?P<run_type>forecast_\d+h|reanalysis_\d+h)_(?P<model>[^_]+)_(?P<date>\d{8})$"
+    r"^(?P<domain>.+)_"
+    r"(?P<run_type>forecast_\d+h|reanalysis_\d+h)_"
+    r"(?P<model>[^_]+)_"
+    r"(?P<date>\d{8})(?:_(?P<time>\d{4}))?$"
 )
 
 
@@ -33,8 +39,11 @@ def _parse_archive_metadata(blob_name: str):
         date_dir = parts[1]
         match = ARCHIVE_FORECAST_RE.match(stem)
         if match:
+            start_label = match.group("date")
+            if match.group("time"):
+                start_label = f"{start_label}_{match.group('time')}"
             return {
-                "date": match.group("date") or date_dir,
+                "date": start_label or date_dir,
                 "run_type": match.group("run_type"),
                 "model": match.group("model"),
                 "filename": filename,

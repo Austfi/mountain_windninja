@@ -1,381 +1,104 @@
 #!/usr/bin/env python3
-"""Run a WindNinja simulation and produce output files.
+"""Run a WindNinja simulation and produce output files."""
+from __future__ import annotations
 
-This is the main script that:
-  1. Reads a domain template (.cfg) and fills in date/time/paths.
-  2. Runs WindNinja_cli to produce KMZ and ASCII output.
-  3. Bundles hourly KMZs into a single playable KMZ.
-  4. Archives results as a zip.
-  5. Optionally uploads to Google Cloud Storage.
-
-Usage:
-  python daily_run.py --mode forecast --model HRRR --hours 18
-  python daily_run.py --mode reanalysis --model HRRR --hours 12
-  python daily_run.py --mode domain-average --speed 15 --direction 225
-  python daily_run.py --mode forecast --hours 6 --keep-temp
-  python daily_run.py --mode forecast --hours 18 --no-upload --dry-run
-"""
 import argparse
 import datetime
-import glob
 import os
-import re
-import shutil
-import subprocess
-import sys
-import zipfile
 from pathlib import Path
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from . import config_loader, create_time_series, utils
+    from .archive_manager import (
+        archive_results,
+        build_archive_name_base,
+        build_domain_average_archive_name,
+        build_domain_average_output_dir_name,
+        build_grid_archive_name,
+        build_grid_output_dir_name,
+        build_output_dir_name,
+        enforce_retention,
+        format_start_label,
+        rename_reanalysis_outputs,
+    )
+    from .gcs_manager import manager as gcs
+    from .weather_models import (
+        ALL_MODEL_NAMES,
+        FORECAST_MODEL_MAP,
+        PASTCAST_MODEL_MAP,
+        resolve_weather_model,
+    )
+    from .windninja_config import (
+        generate_config,
+        generate_domain_average_config,
+        generate_gridded_config,
+        template_momentum_enabled,
+    )
+    from .windninja_runner import build_windninja_env, run_windninja
+except ImportError:
+    import config_loader
+    import create_time_series
+    import utils
+    from archive_manager import (
+        archive_results,
+        build_archive_name_base,
+        build_domain_average_archive_name,
+        build_domain_average_output_dir_name,
+        build_grid_archive_name,
+        build_grid_output_dir_name,
+        build_output_dir_name,
+        enforce_retention,
+        format_start_label,
+        rename_reanalysis_outputs,
+    )
+    from gcs_manager import manager as gcs
+    from weather_models import (
+        ALL_MODEL_NAMES,
+        FORECAST_MODEL_MAP,
+        PASTCAST_MODEL_MAP,
+        resolve_weather_model,
+    )
+    from windninja_config import (
+        generate_config,
+        generate_domain_average_config,
+        generate_gridded_config,
+        template_momentum_enabled,
+    )
+    from windninja_runner import build_windninja_env, run_windninja
 
-import config_loader
-import create_time_series
-import utils
-from gcs_manager import manager as gcs
+__all__ = [
+    "ALL_MODEL_NAMES",
+    "FORECAST_MODEL_MAP",
+    "PASTCAST_MODEL_MAP",
+    "archive_results",
+    "build_archive_name_base",
+    "build_domain_average_archive_name",
+    "build_domain_average_output_dir_name",
+    "build_grid_archive_name",
+    "build_grid_output_dir_name",
+    "build_output_dir_name",
+    "build_run_parameters",
+    "build_windninja_env",
+    "enforce_retention",
+    "format_start_label",
+    "generate_config",
+    "generate_domain_average_config",
+    "generate_gridded_config",
+    "get_run_parameters",
+    "parse_utc_timestamp",
+    "rename_reanalysis_outputs",
+    "resolve_weather_model",
+    "run_windninja",
+    "template_momentum_enabled",
+]
 
 logger = utils.setup_logging("daily_run")
 
-# ---------------------------------------------------------------------------
-# Weather model name mapping
-# ---------------------------------------------------------------------------
-FORECAST_MODEL_MAP = {
-    "HRRR": "NOMADS-HRRR-CONUS-3-KM",
-    "NBM": "NOMADS-NBM-CONUS-2.5-KM",
-    "NAM": "NOMADS-NAM-NEST-CONUS-3-KM",
-    "NAM-CONUS": "NOMADS-NAM-CONUS-12-KM",
-    "NAM-ALASKA": "NOMADS-NAM-ALASKA-11.25-KM",
-    "RAP": "NOMADS-RAP-CONUS-13-KM",
-    "GFS": "NOMADS-GFS-GLOBAL-0.25-DEG",
-}
 
-PASTCAST_MODEL_MAP = {
-    "HRRR": "PASTCAST-GCP-HRRR-CONUS-3-KM",
-}
-
-ALL_MODEL_NAMES = sorted(set(list(FORECAST_MODEL_MAP) + list(PASTCAST_MODEL_MAP)))
-
-
-def resolve_weather_model(model: str, run_type: str) -> str:
-    if run_type == "forecast":
-        return FORECAST_MODEL_MAP[model]
-    if run_type == "reanalysis":
-        if model not in PASTCAST_MODEL_MAP:
-            raise ValueError(
-                f"Reanalysis only supports: {', '.join(sorted(PASTCAST_MODEL_MAP))}."
-            )
-        return PASTCAST_MODEL_MAP[model]
-    raise ValueError(f"Unsupported run type: {run_type}")
-
-
-# ---------------------------------------------------------------------------
-# Config generation
-# ---------------------------------------------------------------------------
-def generate_config(date_str, start_time, stop_time, domain_config,
-                    wx_model_type_override=None, surface_vegetation=None,
-                    sub_dir=None, output_wind_height=10.0,
-                    input_points_file=None, output_points_file=None,
-                    run_type="forecast"):
-    """Read a template .cfg, fill placeholders, write a ready-to-run config."""
-    run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR, date_str)
-    utils.ensure_dir(run_output_dir)
-
-    with open(str(domain_config.template_path), "r") as f:
-        template = f.read()
-
-    duration = max(1, int((stop_time - start_time).total_seconds() / 3600))
-
-    filled = template.format(
-        start_year=start_time.year, start_month=start_time.month,
-        start_day=start_time.day, start_hour=start_time.hour,
-        start_minute=start_time.minute,
-        stop_year=stop_time.year, stop_month=stop_time.month,
-        stop_day=stop_time.day, stop_hour=stop_time.hour,
-        stop_minute=stop_time.minute,
-        forecast_duration=duration,
-        elevation_file=domain_config.elevation_file.as_posix(),
-        output_wind_height=output_wind_height,
-    )
-
-    lines = filled.split("\n")
-    out_lines = []
-    found_vegetation = False
-
-    for line in lines:
-        stripped = line.strip()
-
-        if stripped.startswith("output_path"):
-            continue
-
-        if stripped.startswith("input_points_file"):
-            continue
-
-        if stripped.startswith("output_points_file"):
-            continue
-
-        if run_type == "reanalysis" and stripped.startswith("forecast_duration"):
-            continue
-
-        if wx_model_type_override and stripped.startswith("wx_model_type"):
-            out_lines.append(f"wx_model_type = {wx_model_type_override}")
-            continue
-
-        if surface_vegetation and stripped.startswith("vegetation"):
-            out_lines.append(f"vegetation = {surface_vegetation}")
-            found_vegetation = True
-            continue
-
-        out_lines.append(line)
-
-    if (surface_vegetation and surface_vegetation != "none"
-            and domain_config.elevation_file.suffix.lower() != ".lcp"
-            and not found_vegetation):
-        out_lines.append(f"vegetation = {surface_vegetation}")
-
-    if input_points_file:
-        out_lines.append(f"input_points_file = {Path(input_points_file).as_posix()}")
-        if not output_points_file:
-            output_points_file = os.path.join(
-                run_output_dir, f"{domain_config.key}_sample_points.csv",
-            )
-        output_points_path = Path(output_points_file)
-        utils.ensure_dir(str(output_points_path.parent))
-        out_lines.append(f"output_points_file = {output_points_path.as_posix()}")
-
-    out_lines.append(f"output_path = {run_output_dir}")
-
-    config_path = os.path.join(
-        run_output_dir,
-        f"{domain_config.key}_{start_time.strftime('%Y%m%d_%H%M')}.cfg",
-    )
-    with open(config_path, "w") as f:
-        f.write("\n".join(out_lines))
-
-    return config_path, run_output_dir
-
-
-def _read_template_num_threads(template_path, fallback=4):
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            for line in f:
-                match = re.match(r"^\s*num_threads\s*=\s*(\d+)\s*$", line)
-                if match:
-                    return max(1, int(match.group(1)))
-    except OSError as e:
-        logger.warning(f"Could not read num_threads from template {template_path}: {e}")
-    return fallback
-
-
-def generate_domain_average_config(domain_config, wind_speed, wind_direction,
-                                   speed_units="mph", surface_vegetation=None,
-                                   sub_dir=None, output_wind_height=10.0,
-                                   input_points_file=None, output_points_file=None):
-    """Generate a domain-average config (single uniform wind, no wx download).
-
-    This mirrors the desktop app's "Domain Average" initialization: specify one
-    wind speed and direction, and WindNinja distributes it across the terrain.
-    """
-    now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    date_str = now_utc.strftime("%Y%m%d_%H%M")
-    run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR,
-                                             f"domavg_{date_str}")
-    utils.ensure_dir(run_output_dir)
-
-    vegetation = surface_vegetation or config_loader.SURFACE_VEGETATION
-    use_lcp = domain_config.elevation_file.suffix.lower() == ".lcp"
-    num_threads = _read_template_num_threads(domain_config.template_path)
-
-    lines = [
-        f"num_threads = {num_threads}",
-        f"elevation_file = {domain_config.elevation_file.as_posix()}",
-        "",
-        "initialization_method = domainAverageInitialization",
-        f"input_speed = {wind_speed}",
-        f"input_speed_units = {speed_units}",
-        f"input_direction = {wind_direction}",
-        "input_wind_height = 10.0",
-        "units_input_wind_height = m",
-        "",
-    ]
-
-    if not use_lcp and vegetation and vegetation != "none":
-        lines.append(f"vegetation = {vegetation}")
-
-    lines += [
-        "diurnal_winds = false",
-        "",
-        f"year  = {now_utc.year}",
-        f"month = {now_utc.month}",
-        f"day   = {now_utc.day}",
-        f"hour  = {now_utc.hour}",
-        f"minute = {now_utc.minute}",
-        "time_zone = UTC",
-        "",
-        "mesh_resolution = 80.0",
-        "units_mesh_resolution = m",
-        "",
-        "momentum_flag = true",
-        "number_of_iterations = 300",
-        "",
-        f"output_wind_height = {output_wind_height}",
-        "units_output_wind_height = m",
-        f"output_speed_units = {speed_units}",
-        "",
-        "write_goog_output = true",
-        "goog_out_use_consistent_color_scale = false",
-        "units_goog_out_resolution = m",
-        "",
-        "write_ascii_output = true",
-        "ascii_out_resolution = -1",
-        "units_ascii_out_resolution = m",
-        "",
-    ]
-
-    if input_points_file:
-        lines.append(f"input_points_file = {Path(input_points_file).as_posix()}")
-        if not output_points_file:
-            output_points_file = os.path.join(
-                run_output_dir, f"{domain_config.key}_sample_points.csv",
-            )
-        output_points_path = Path(output_points_file)
-        utils.ensure_dir(str(output_points_path.parent))
-        lines.append(f"output_points_file = {output_points_path.as_posix()}")
-
-    lines += [
-        "",
-        f"output_path = {run_output_dir}",
-    ]
-
-    config_path = os.path.join(
-        run_output_dir, f"{domain_config.key}_domavg_{date_str}.cfg",
-    )
-    with open(config_path, "w") as f:
-        f.write("\n".join(lines))
-
-    return config_path, run_output_dir
-
-
-# ---------------------------------------------------------------------------
-# Run WindNinja
-# ---------------------------------------------------------------------------
-def build_windninja_env(run_type="forecast"):
-    env = os.environ.copy()
-    if run_type != "reanalysis":
-        return env
-
-    gcs_auth_vars = (
-        "GS_SECRET_ACCESS_KEY",
-        "GS_ACCESS_KEY_ID",
-        "GS_OAUTH2_PRIVATE_KEY_FILE",
-        "GS_OAUTH2_CLIENT_EMAIL",
-        "GS_OAUTH2_REFRESH_TOKEN",
-        "GOOGLE_APPLICATION_CREDENTIALS",
-    )
-    has_gcs_auth = any(env.get(name) for name in gcs_auth_vars)
-    if not has_gcs_auth and not env.get("GS_NO_SIGN_REQUEST"):
-        # Archived HRRR lives in public GCS; unsigned reads avoid requiring
-        # per-user credentials for pastcast runs.
-        env["GS_NO_SIGN_REQUEST"] = "YES"
-    return env
-
-
-def run_windninja(config_path, run_type="forecast"):
-    """Invoke WindNinja_cli, cleaning up any stale NINJAFOAM case first."""
-    config_basename = os.path.splitext(os.path.basename(config_path))[0]
-    case_dir = config_loader.STATIC_DATA_DIR / f"NINJAFOAM_{config_basename}"
-    if case_dir.exists():
-        logger.warning(f"Removing stale case directory: {case_dir}")
-        shutil.rmtree(case_dir)
-
-    cmd = [config_loader.WINDNINJA_CLI, config_path]
-    env = build_windninja_env(run_type)
-    if run_type == "reanalysis" and env.get("GS_NO_SIGN_REQUEST") == "YES":
-        logger.info("Using unsigned GCS access for public HRRR pastcast data.")
-    logger.info(f"Running: {' '.join(cmd)}")
-    try:
-        subprocess.run(cmd, check=True, env=env)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"WindNinja failed: {e}")
-        raise
-
-
-# ---------------------------------------------------------------------------
-# Post-processing
-# ---------------------------------------------------------------------------
-def rename_reanalysis_outputs(output_dir, domain_key):
-    """Normalize reanalysis file names to <domain>_YYYYMMDD_HHMM_*.ext."""
-    vel_files = glob.glob(os.path.join(output_dir, "*_vel.asc"))
-    for fpath in vel_files:
-        fname = os.path.basename(fpath)
-        match = re.search(r"(\d{4})(\d{2})(\d{2})[-_]?(\d{2})(\d{2})", fname)
-        if not match:
-            continue
-        ymd_hm = (f"{match.group(1)}{match.group(2)}{match.group(3)}"
-                  f"_{match.group(4)}{match.group(5)}")
-        base_old = fpath.replace("_vel.asc", "")
-        base_new = os.path.join(output_dir, f"{domain_key}_{ymd_hm}")
-        for ext in ("_vel.asc", "_ang.asc", "_vel.prj", "_ang.prj",
-                     "_vel.asc.aux.xml", "_80m.kmz"):
-            old = base_old + ext
-            if os.path.exists(old):
-                try:
-                    os.rename(old, base_new + ext)
-                except OSError:
-                    pass
-
-    for kpath in glob.glob(os.path.join(output_dir, "*.kmz")):
-        kname = os.path.basename(kpath)
-        m = re.search(r"(\d{4})(\d{2})(\d{2})[-_]?(\d{2})(\d{2})", kname)
-        if m:
-            ts = f"{m.group(2)}-{m.group(3)}-{m.group(1)}_{m.group(4)}{m.group(5)}"
-            new_kmz = f"{domain_key}_{ts}_80m.kmz"
-            try:
-                os.rename(kpath, os.path.join(output_dir, new_kmz))
-            except OSError:
-                pass
-
-
-def archive_results(run_output_dir, archive_name_base):
-    """Zip retained run outputs into runtime/archives/ and clean up."""
-    utils.ensure_dir(config_loader.ARCHIVE_DIR)
-    archive_path = os.path.join(config_loader.ARCHIVE_DIR, f"{archive_name_base}.zip")
-
-    grids_dir = os.path.join(run_output_dir, "grids")
-    if os.path.exists(grids_dir):
-        shutil.rmtree(grids_dir)
-
-    logger.info(f"Archiving to {archive_path}")
-    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _dirs, files in os.walk(run_output_dir):
-            for fname in files:
-                full = os.path.join(root, fname)
-                zf.write(full, os.path.relpath(full, run_output_dir))
-
-    shutil.rmtree(run_output_dir)
-    return archive_path
-
-
-def enforce_retention(days=7):
-    """Delete local archives older than *days*."""
-    now = datetime.datetime.now()
-    cutoff = datetime.timedelta(days=days)
-    if not os.path.exists(config_loader.ARCHIVE_DIR):
-        return
-    for fname in os.listdir(config_loader.ARCHIVE_DIR):
-        fpath = os.path.join(config_loader.ARCHIVE_DIR, fname)
-        if os.path.isfile(fpath):
-            age = now - datetime.datetime.fromtimestamp(os.path.getmtime(fpath))
-            if age > cutoff:
-                try:
-                    os.remove(fpath)
-                    logger.info(f"Deleted old archive: {fname}")
-                except OSError as e:
-                    logger.error(f"Could not delete {fname}: {e}")
-
-
-# ---------------------------------------------------------------------------
-# Run parameters
-# ---------------------------------------------------------------------------
 def get_run_parameters(mode, hours):
+    if hours < 1:
+        raise ValueError("--hours must be >= 1.")
+
     now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     start = now_utc.replace(minute=0, second=0, microsecond=0)
 
@@ -386,7 +109,7 @@ def get_run_parameters(mode, hours):
             "label": f"forecast_{hours}h",
             "type": "forecast",
         }
-    elif mode == "reanalysis":
+    if mode == "reanalysis":
         stop = start
         return {
             "start": stop - datetime.timedelta(hours=hours),
@@ -394,8 +117,7 @@ def get_run_parameters(mode, hours):
             "label": f"reanalysis_{hours}h",
             "type": "reanalysis",
         }
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    raise ValueError(f"Unknown mode: {mode}")
 
 
 def parse_utc_timestamp(raw_value):
@@ -446,12 +168,29 @@ def resolve_cli_path(raw_path):
     path = Path(raw_path)
     if path.is_absolute():
         return path
-    return (config_loader.BASE_DIR / path).resolve()
+    return (Path(os.fspath(config_loader.BASE_DIR)) / path).resolve()
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def _extract_domain_average_start_label(domain_key: str, output_dir: str) -> str:
+    dirname = Path(output_dir).name
+    prefix = f"{domain_key}_domavg_"
+    if dirname.startswith(prefix):
+        return dirname.removeprefix(prefix)
+    if dirname.startswith("domavg_"):
+        return dirname.removeprefix("domavg_")
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M")
+
+
+def validate_point_sampling_supported(parser, domain_config, points_input_path) -> None:
+    if not points_input_path:
+        return
+    if template_momentum_enabled(domain_config.template_path):
+        parser.error(
+            "--points-file is not supported when momentum_flag = true. "
+            "Run without --points-file and use mwn.sh validate-rasters afterward."
+        )
+
+
 def main():
     config_loader.init_directories()
     available = config_loader.list_domains()
@@ -476,7 +215,7 @@ def main():
     parser.add_argument("--speed", type=float, default=None,
                         help="Wind speed for domain-average mode (in --speed-units)")
     parser.add_argument("--direction", type=float, default=None,
-                        help="Wind direction in degrees for domain-average mode (0=N, 90=E, 180=S, 270=W)")
+                        help="Wind direction in degrees for domain-average mode")
     parser.add_argument("--speed-units", default="mph",
                         choices=["mph", "mps", "kph", "kts"],
                         help="Units for --speed (default: mph)")
@@ -508,15 +247,16 @@ def main():
             parser.error(f"--points-file does not exist: {points_input_path}")
     if args.points_output:
         points_output_path = resolve_cli_path(args.points_output)
+    validate_point_sampling_supported(parser, domain_config, points_input_path)
 
-    # --- Domain-average mode (no weather download, single wind) ---
     if args.mode == "domain-average":
         if args.speed is None or args.direction is None:
             parser.error("--speed and --direction are required for domain-average mode")
 
-        logger.info(f"Mode: DOMAIN-AVERAGE | "
-                     f"Speed: {args.speed} {args.speed_units} | "
-                     f"Direction: {args.direction}°")
+        logger.info(
+            f"Mode: DOMAIN-AVERAGE | Speed: {args.speed} {args.speed_units} | "
+            f"Direction: {args.direction} deg"
+        )
 
         try:
             config_path, output_dir = generate_domain_average_config(
@@ -528,25 +268,36 @@ def main():
                 output_points_file=str(points_output_path) if points_output_path else None,
             )
 
-            if not args.dry_run:
+            if args.dry_run:
+                logger.info(f"Generated config: {config_path}")
+            else:
                 run_windninja(config_path)
 
-                output_name = (f"{domain_config.key}_domavg_"
-                               f"{int(args.speed)}{args.speed_units}_"
-                               f"{int(args.direction)}deg")
+                start_label = _extract_domain_average_start_label(
+                    domain_config.key, output_dir,
+                )
+                output_name = build_domain_average_archive_name(
+                    domain_config.key,
+                    start_label,
+                    args.speed,
+                    args.speed_units,
+                    args.direction,
+                )
 
                 if not args.keep_temp:
-                    archive_results(output_dir, output_name)
+                    archive_path = archive_results(output_dir, output_name)
+                    logger.info(f"Archive: {archive_path}")
+                else:
+                    logger.info(f"Output kept in: {output_dir}")
 
             enforce_retention()
             logger.info("Done.")
 
-        except Exception as e:
-            logger.error(f"FAILED: {e}")
+        except Exception as exc:
+            logger.error(f"FAILED: {exc}")
             raise
         return
 
-    # --- Forecast / Reanalysis mode ---
     try:
         explicit_start = parse_utc_timestamp(args.start) if args.start else None
         explicit_end = parse_utc_timestamp(args.end) if args.end else None
@@ -564,7 +315,9 @@ def main():
     date_str = run_params["start"].strftime("%Y%m%d")
     output_dir = os.path.join(
         config_loader.TEMP_DIR,
-        f"{date_str}_{run_params['label']}_{args.model}",
+        build_output_dir_name(
+            domain_config.key, run_params["start"], run_params["label"], args.model,
+        ),
     )
 
     logger.info(f"Mode: {args.mode.upper()} | Model: {args.model} ({wx_model})")
@@ -595,8 +348,9 @@ def main():
             rename_reanalysis_outputs(output_dir, domain_config.key)
 
         if not args.dry_run:
-            output_name = (f"{domain_config.key}_{run_params['label']}"
-                           f"_{args.model}_{date_str}")
+            output_name = build_archive_name_base(
+                domain_config.key, run_params["start"], run_params["label"], args.model,
+            )
 
             playable_kmz = None
             try:
@@ -605,8 +359,8 @@ def main():
                     domain_label=domain_config.label)
                 if playable_kmz:
                     logger.info(f"Playable KMZ: {playable_kmz}")
-            except Exception as e:
-                logger.error(f"Playable KMZ failed: {e}")
+            except Exception as exc:
+                logger.error(f"Playable KMZ failed: {exc}")
 
             if do_upload and playable_kmz and os.path.exists(playable_kmz):
                 latest_name = ("latest_reanalysis.kmz"
@@ -630,11 +384,11 @@ def main():
 
         logger.info("Done.")
 
-    except Exception as e:
-        logger.error(f"FAILED: {e}")
+    except Exception as exc:
+        logger.error(f"FAILED: {exc}")
         if do_upload:
             gcs.upload_status(run_params["label"], args.model, "failure",
-                              error=str(e))
+                              error=str(exc))
         raise
 
 

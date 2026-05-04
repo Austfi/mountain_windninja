@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import zipfile
 from pathlib import Path
@@ -197,6 +198,13 @@ def test_get_run_parameters_reanalysis():
     assert (params["stop"] - params["start"]).total_seconds() == 12 * 3600
 
 
+def test_get_run_parameters_rejects_non_positive_hours():
+    with pytest.raises(ValueError, match="--hours must be >= 1"):
+        daily_run.get_run_parameters("forecast", 0)
+    with pytest.raises(ValueError, match="--hours must be >= 1"):
+        daily_run.get_run_parameters("reanalysis", -1)
+
+
 def test_build_run_parameters_accepts_explicit_reanalysis_window():
     start = dt.datetime(2026, 1, 1, 0, 0)
     end = dt.datetime(2026, 1, 8, 0, 0)
@@ -207,6 +215,43 @@ def test_build_run_parameters_accepts_explicit_reanalysis_window():
     assert params["label"] == "reanalysis_168h"
     assert params["start"] == start
     assert params["stop"] == end
+
+
+def test_run_identity_includes_full_start_time_and_domain():
+    start_midnight = dt.datetime(2026, 1, 1, 0, 0)
+    start_noon = dt.datetime(2026, 1, 1, 12, 0)
+
+    first_dir = daily_run.build_output_dir_name(
+        "loveland", start_midnight, "reanalysis_12h", "HRRR",
+    )
+    second_dir = daily_run.build_output_dir_name(
+        "loveland", start_noon, "reanalysis_12h", "HRRR",
+    )
+    first_archive = daily_run.build_archive_name_base(
+        "loveland", start_midnight, "reanalysis_12h", "HRRR",
+    )
+    second_archive = daily_run.build_archive_name_base(
+        "loveland", start_noon, "reanalysis_12h", "HRRR",
+    )
+
+    assert first_dir == "loveland_20260101_0000_reanalysis_12h_HRRR"
+    assert second_dir == "loveland_20260101_1200_reanalysis_12h_HRRR"
+    assert first_archive == "loveland_reanalysis_12h_HRRR_20260101_0000"
+    assert second_archive == "loveland_reanalysis_12h_HRRR_20260101_1200"
+    assert first_dir != second_dir
+    assert first_archive != second_archive
+
+
+def test_domain_average_identity_includes_domain_and_timestamp():
+    output_dir = daily_run.build_domain_average_output_dir_name(
+        "loveland", "20260101_1200",
+    )
+    archive = daily_run.build_domain_average_archive_name(
+        "loveland", "20260101_1200", 10.0, "mph", 270.0,
+    )
+
+    assert output_dir == "loveland_domavg_20260101_1200"
+    assert archive == "loveland_domavg_20260101_1200_10mph_270deg"
 
 
 def test_build_run_parameters_rejects_non_hour_aligned_windows():
@@ -306,6 +351,75 @@ def test_generate_domain_average_config_uses_template_thread_cap(tmp_path, monke
     assert "num_threads = 6" in contents
 
 
+def test_generate_domain_average_config_uses_template_momentum_flag(tmp_path):
+    template = _make_template(tmp_path)
+    template.write_text(
+        template.read_text(encoding="utf-8") + "\nmomentum_flag = false\n",
+        encoding="utf-8",
+    )
+    domain = DomainConfig(
+        key="test",
+        label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    config_path, _ = daily_run.generate_domain_average_config(
+        domain,
+        wind_speed=12.0,
+        wind_direction=225.0,
+        sub_dir=str(tmp_path / "domavg_out"),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "momentum_flag = false" in contents
+
+
+def test_generate_gridded_config_uses_gridded_initialization(tmp_path):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    run_time = dt.datetime(2026, 1, 1, 12, 0)
+
+    config_path, output_dir = daily_run.generate_gridded_config(
+        domain,
+        tmp_path / "speed.asc",
+        tmp_path / "direction.asc",
+        run_time,
+        label="case one",
+        surface_vegetation="grass",
+        sub_dir=str(tmp_path / "grid_out"),
+        output_wind_height=20,
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "initialization_method = griddedInitialization" in contents
+    assert f"input_speed_grid = {(tmp_path / 'speed.asc').as_posix()}" in contents
+    assert f"input_dir_grid = {(tmp_path / 'direction.asc').as_posix()}" in contents
+    assert "input_speed_units = mps" in contents
+    assert "diurnal_winds = false" in contents
+    assert "year  = 2026" in contents
+    assert "hour  = 12" in contents
+    assert "vegetation = grass" in contents
+    assert "output_wind_height = 20" in contents
+    assert "wx_model_type" not in contents
+    assert "forecast_duration" not in contents
+    assert output_dir == str(tmp_path / "grid_out")
+
+
+def test_grid_identity_helpers_sanitize_label():
+    start = dt.datetime(2026, 1, 1, 12, 0)
+
+    output_dir = daily_run.build_grid_output_dir_name("loveland", start, "case one")
+    archive = daily_run.build_grid_archive_name("loveland", "case one", start)
+
+    assert output_dir == "loveland_20260101_1200_grid_case_one"
+    assert archive == "loveland_grid_case_one_20260101_1200"
+
+
 def test_build_windninja_env_enables_unsigned_gcs_for_reanalysis(monkeypatch):
     monkeypatch.delenv("GS_NO_SIGN_REQUEST", raising=False)
     monkeypatch.delenv("GS_SECRET_ACCESS_KEY", raising=False)
@@ -330,6 +444,78 @@ def test_build_windninja_env_preserves_explicit_gcs_auth_for_reanalysis(monkeypa
     assert "GS_NO_SIGN_REQUEST" not in env
     assert env["GS_ACCESS_KEY_ID"] == "access"
     assert env["GS_SECRET_ACCESS_KEY"] == "secret"
+
+
+def test_point_sampling_rejects_momentum_template(tmp_path, capsys):
+    template = _make_template(tmp_path)
+    template.write_text(
+        template.read_text(encoding="utf-8") + "\nmomentum_flag = true\n",
+        encoding="utf-8",
+    )
+    domain = DomainConfig(
+        key="test",
+        label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    parser = argparse.ArgumentParser(prog="daily_run.py")
+
+    with pytest.raises(SystemExit) as excinfo:
+        daily_run.validate_point_sampling_supported(parser, domain, tmp_path / "points.csv")
+
+    assert excinfo.value.code == 2
+    assert "validate-rasters" in capsys.readouterr().err
+
+
+def test_point_sampling_allows_mass_only_template(tmp_path):
+    template = _make_template(tmp_path)
+    template.write_text(
+        template.read_text(encoding="utf-8") + "\nmomentum_flag = false\n",
+        encoding="utf-8",
+    )
+    domain = DomainConfig(
+        key="test",
+        label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    parser = argparse.ArgumentParser(prog="daily_run.py")
+
+    daily_run.validate_point_sampling_supported(parser, domain, tmp_path / "points.csv")
+
+
+def test_rename_reanalysis_outputs_preserves_parent_weather_rasters(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    files = [
+        "windninja_202601010000_vel.asc",
+        "windninja_202601010000_ang.asc",
+        "PASTCAST-GCP-HRRR-CONUS-3-KM-202601010000_vel.asc",
+        "PASTCAST-GCP-HRRR-CONUS-3-KM-202601010000_ang.asc",
+    ]
+    for name in files:
+        (run_dir / name).write_text(name, encoding="utf-8")
+
+    daily_run.rename_reanalysis_outputs(str(run_dir), "loveland")
+
+    assert (run_dir / "loveland_20260101_0000_vel.asc").read_text(
+        encoding="utf-8"
+    ) == "windninja_202601010000_vel.asc"
+    assert (run_dir / "loveland_20260101_0000_ang.asc").read_text(
+        encoding="utf-8"
+    ) == "windninja_202601010000_ang.asc"
+    assert (run_dir / "PASTCAST-GCP-HRRR-CONUS-3-KM-202601010000_vel.asc").exists()
+    assert (run_dir / "PASTCAST-GCP-HRRR-CONUS-3-KM-202601010000_ang.asc").exists()
+
+
+def test_rename_reanalysis_outputs_refuses_collisions(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "windninja_202601010000_vel.asc").write_text("new", encoding="utf-8")
+    (run_dir / "loveland_20260101_0000_vel.asc").write_text("existing", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        daily_run.rename_reanalysis_outputs(str(run_dir), "loveland")
 
 
 def test_archive_results_keeps_ascii_outputs_and_skips_grids_dir(tmp_path, monkeypatch):

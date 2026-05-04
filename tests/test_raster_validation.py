@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
 
 from scripts import raster_validation as rv
 
@@ -11,6 +10,7 @@ UTC = dt.timezone.utc
 
 def test_parse_run_label():
     assert rv.parse_run_label("01-01-2026_0000") == dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    assert rv.parse_run_label("20260101_0000") == dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
 
 
 def test_collect_raster_sets_requires_complete_pairs(tmp_path):
@@ -26,6 +26,26 @@ def test_collect_raster_sets_requires_complete_pairs(tmp_path):
     ]
 
     for name in complete + incomplete:
+        (tmp_path / name).write_text("0", encoding="utf-8")
+
+    raster_sets = rv.collect_raster_sets(tmp_path)
+
+    assert list(raster_sets) == [dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)]
+    paths = raster_sets[dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)]
+    assert paths["wn_vel"] == tmp_path / complete[0]
+    assert paths["wn_ang"] == tmp_path / complete[1]
+    assert paths["wx_vel"] == tmp_path / complete[2]
+    assert paths["wx_ang"] == tmp_path / complete[3]
+
+
+def test_collect_raster_sets_accepts_normalized_reanalysis_names(tmp_path):
+    complete = [
+        "loveland_validation_20260101_0000_vel.asc",
+        "loveland_validation_20260101_0000_ang.asc",
+        "PASTCAST-GCP-HRRR-CONUS-3-KM-20260101_0000_vel.asc",
+        "PASTCAST-GCP-HRRR-CONUS-3-KM-20260101_0000_ang.asc",
+    ]
+    for name in complete:
         (tmp_path / name).write_text("0", encoding="utf-8")
 
     raster_sets = rv.collect_raster_sets(tmp_path)

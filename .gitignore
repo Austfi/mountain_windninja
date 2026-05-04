@@ -25,6 +25,8 @@ runtime/
 
 # Data files
 *.csv
+!config/stations/
+!config/stations/*.csv
 *.grib2
 *.nc
 
@@ -41,6 +43,8 @@ Thumbs.db
 # Credentials (never commit)
 *.json
 !config/domains.json
+!config/studies/
+!config/studies/*.json
 *.key
 *.pem
 *credentials*

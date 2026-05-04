@@ -11,8 +11,8 @@ cd "$REPO_DIR"
 mkdir -p "$REPO_DIR/runtime" "$REPO_DIR/static_data"
 
 if [ ! -f "$REPO_DIR/config/runtime.env" ]; then
-  cp "$REPO_DIR/config/runtime.container.env.example" "$REPO_DIR/config/runtime.env"
-  echo "Created config/runtime.env from container example."
+  cp "$REPO_DIR/config/runtime.env.example" "$REPO_DIR/config/runtime.env"
+  echo "Created config/runtime.env from example."
 else
   echo "config/runtime.env already exists. Leaving it unchanged."
 fi
@@ -29,16 +29,18 @@ Next steps:
    nano config/runtime.env
    Set: CUSTOM_SRTM_API_KEY=your_key_here
 
-3. Build the Docker image (~30 min first time, needs 50 GB disk):
-   ./deploy/gcp/mwn.sh build
+3. Initialize local config and pull the default image:
+   ./deploy/gcp/mwn.sh init
 
-4. Download terrain for your area (use your lat/lon bounding box):
-   ./deploy/gcp/mwn.sh fetch-dem <north> <east> <south> <west> static_data/my_area.tif
+   If the image pull fails, build locally (~30 min first time, needs 50 GB disk):
+   ./deploy/gcp/mwn.sh build-local
 
-5. Update config/domains.json so elevation_file matches your filename.
+4. Download and register DEM + LCP terrain for your area (use your center point):
+   ./deploy/gcp/mwn.sh fetch-terrain --center <lat> <lon> --size-km 10 --domain my_area --label "My Area"
 
-6. Verify and run:
+5. Verify and run:
    ./deploy/gcp/mwn.sh check
+   ./deploy/gcp/mwn.sh smoke
    ./deploy/gcp/mwn.sh run --hours 6
 
 See docs/gcp_setup.md for the full walkthrough.

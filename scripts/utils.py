@@ -32,7 +32,7 @@ def ensure_dir(path):
     if not os.path.exists(path):
         try:
             os.makedirs(path)
-        except OSError as e:
+        except OSError:
             # Re-raise if it's not "File exists"
             if not os.path.isdir(path):
                 raise

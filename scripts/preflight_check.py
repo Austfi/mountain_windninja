@@ -123,14 +123,14 @@ def _gcs_status(bucket_name: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def build_report(check_gcs: bool) -> dict:
-    domain = config_loader.get_domain_config()
+def build_report(check_gcs: bool, domain_key: str | None = None) -> dict:
+    domain = config_loader.get_domain_config(domain_key)
     runtime_env = config_loader.BASE_DIR / "config" / "runtime.env"
     windninja_cli = Path(config_loader.WINDNINJA_CLI)
     openfoam_bashrc = Path(config_loader.OPENFOAM_BASHRC)
 
     report = {
-        "domain_id": config_loader.DEFAULT_DOMAIN,
+        "domain_id": domain.key,
         "bucket": config_loader.GCS_BUCKET,
         "checks": [],
     }
@@ -169,11 +169,14 @@ def main() -> int:
     )
     parser.add_argument("--check-gcs", action="store_true",
                         help="Attempt a live Cloud Storage access check.")
+    parser.add_argument("--domain", choices=config_loader.list_domains(),
+                        default=None,
+                        help="Domain key from config/domains.json to validate.")
     parser.add_argument("--json", action="store_true",
                         help="Emit JSON instead of human-readable output.")
     args = parser.parse_args()
 
-    report = build_report(check_gcs=args.check_gcs)
+    report = build_report(check_gcs=args.check_gcs, domain_key=args.domain)
     failed = [c for c in report["checks"] if not c["passed"]]
 
     if args.json:

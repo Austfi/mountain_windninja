@@ -5,12 +5,28 @@ This document is the quickest orientation point for another agent or operator pi
 ## Current State
 
 - Forecast runs are host-invoked through `./deploy/gcp/mwn.sh run` and execute inside the Docker image.
+- Beginner setup is `mwn.sh init`, `mwn.sh fetch-terrain --center LAT LON --size-km N --domain KEY`, `mwn.sh check`, `mwn.sh smoke`, then `mwn.sh run`.
+- `fetch-terrain` downloads DEM first as fallback and LCP second as active terrain. It accepts center/size, KML/KMZ area files, or explicit bbox. `fetch-dem`, `fetch-lcp`, and `domain create` remain available as advanced/manual paths.
 - Historical reanalysis supports fixed windows through `--start` and `--end`.
 - Reanalysis currently only supports HRRR (`PASTCAST-GCP-HRRR-CONUS-3-KM`).
 - Point validation workflow exists through:
   - `./deploy/gcp/mwn.sh synoptic-points`
   - `./deploy/gcp/mwn.sh validate`
-- WindNinja point output includes both downscaled vectors (`u,v`) and parent-model vectors (`wx_u,wx_v`), so HRRR-vs-WindNinja comparisons are aligned from the same samples.
+- Raster validation workflow exists through:
+  - `./deploy/gcp/mwn.sh validate-rasters`
+- Chunked validation studies exist through:
+  - `./deploy/gcp/mwn.sh validate-study berthoud_pass ...`
+- Synoptic is observation truth only. HRRR remains the model input to WindNinja.
+- Current recommended Berthoud validation path is:
+  - `validate-study berthoud_pass --start YYYYMMDDHHMM --pilot-hours 3`
+  - inspect `runtime/validation/berthoud_pass/summary.json`
+  - scale to `--end ... --chunk-hours 24`
+- Berthoud station selection is explicit in
+  `config/stations/berthoud_pass_validation_manifest.csv`. Add/remove station
+  rows there before running `validate-study`.
+- Berthoud sampling geometry is documented in
+  `docs/assets/berthoud_validation_points.png`: K0CO, nearest WindNinja output
+  cell, and nearest parent-HRRR cell.
 
 ## Critical Operational Notes
 
@@ -46,6 +62,15 @@ Expected operator dependencies:
 - `MWN_SYNOPTIC_TOKEN` in `config/runtime.env`
 - active Synoptic weather-data access
 
+Additional field-learned notes:
+
+- If Synoptic metadata lacks a usable wind sensor height for one or more stations, `synoptic-points --default-height 10` is a practical pilot-time fallback.
+- Upstream WindNinja rejects `input_points_file` when `momentum_flag = true` with `Conflicting options 'momentum_flag' and 'input_points_file'`.
+- For momentum runs, do not use `--points-file` for validation. Use `validate-rasters` after the run instead.
+- Interrupted reanalysis runs do not resume from the last completed hour. Rerun the chunk cleanly.
+- On spot/preemptible instances, prefer daily or 72-hour chunks over one monolithic seasonal run.
+- Use `validate-study --plan` to inspect long-window chunk paths before spending VM time.
+
 ## Common Failure Modes
 
 ### `moveDynamicMesh` / `Can't open log.ninja`
@@ -63,6 +88,12 @@ Expected operator dependencies:
 
 - Verify account access in Synoptic customer console before changing repo code.
 
+### `Conflicting options 'momentum_flag' and 'input_points_file'`
+
+- This is an upstream WindNinja limitation, not a Synoptic auth problem.
+- Remove `--points-file` from the run.
+- Use `./deploy/gcp/mwn.sh validate-rasters` on the completed run directory instead.
+
 ## Recommended Verification Sequence
 
 1. `git rev-parse --short HEAD`
@@ -70,18 +101,43 @@ Expected operator dependencies:
 3. `./deploy/gcp/mwn.sh clean`
 4. Run a 1-hour forecast smoke test if the issue is generic runtime stability.
 5. Run a short reanalysis smoke test if the issue is historical/archive-specific.
-6. Use `pytest -q` locally before pushing repo changes.
+6. For Synoptic validation, run a short `validate-rasters` smoke test on a completed reanalysis directory before scaling up to 24h+.
+7. Use `pytest -q` locally before pushing repo changes.
 
 ## Important Files
 
 - [deploy/gcp/mwn.sh](../deploy/gcp/mwn.sh)
 - [scripts/daily_run.py](../scripts/daily_run.py)
+- [scripts/validation_study.py](../scripts/validation_study.py)
+- [scripts/raster_validation.py](../scripts/raster_validation.py)
 - [scripts/synoptic_validation.py](../scripts/synoptic_validation.py)
 - [Dockerfile](../Dockerfile)
 - [docker/patch_windninja_public_pastcast.py](../docker/patch_windninja_public_pastcast.py)
 - [config/template.cfg](../config/template.cfg)
+- [config/template_validation.cfg](../config/template_validation.cfg)
 - [config/domains.json](../config/domains.json)
+- [config/studies/berthoud_pass.json](../config/studies/berthoud_pass.json)
+- [config/stations/berthoud_pass_validation_manifest.csv](../config/stations/berthoud_pass_validation_manifest.csv)
 - [config/stations/loveland_pass_validation_manifest.csv](../config/stations/loveland_pass_validation_manifest.csv)
+- [docs/assets/berthoud_validation_points.png](assets/berthoud_validation_points.png)
+
+## Recent Validation Snapshot
+
+Berthoud validation now uses a 10 km terrain box and K0CO only. Start with:
+
+```bash
+./deploy/gcp/mwn.sh validate-study berthoud_pass --start 202601010000 --pilot-hours 3
+```
+
+The 2026-01-01 00:00 UTC through 2026-01-04 00:00 UTC pilot produced 73 matched
+K0CO station-hours. WindNinja was low on speed but improved every headline
+metric versus parent HRRR: speed MAE 7.20 mph vs 8.85 mph, direction MAE
+11.1 deg vs 18.4 deg, and vector RMSE 10.26 mph vs 12.53 mph. Use daily chunks
+for month/year runs.
+
+For the current K0CO geometry, the nearest sampled WindNinja 100 m cell is about
+44 m from the station. The nearest sampled parent-HRRR 3 km cell is about
+1.58 km from the station.
 
 ## Handoff Checklist
 

@@ -78,10 +78,10 @@ def add_global_overlays(doc_element, legend_files, gcs_base_url):
         href.text = f"{gcs_base_url}/{lfile}"
         
         # Position: Bottom Left
-        overlayXY = SubElement(overlay, 'overlayXY', x="0", y="0", xunits="fraction", yunits="fraction")
-        screenXY = SubElement(overlay, 'screenXY', x="0", y="0", xunits="fraction", yunits="fraction")
-        rotationXY = SubElement(overlay, 'rotationXY', x="0", y="0", xunits="fraction", yunits="fraction")
-        size = SubElement(overlay, 'size', x="0", y="0", xunits="fraction", yunits="fraction")
+        SubElement(overlay, 'overlayXY', x="0", y="0", xunits="fraction", yunits="fraction")
+        SubElement(overlay, 'screenXY', x="0", y="0", xunits="fraction", yunits="fraction")
+        SubElement(overlay, 'rotationXY', x="0", y="0", xunits="fraction", yunits="fraction")
+        SubElement(overlay, 'size', x="0", y="0", xunits="fraction", yunits="fraction")
 
 def create_timeseries_kml(run_dir, gcs_base_url, run_label, domain_label="WindNinja"):
     """
@@ -255,7 +255,6 @@ def create_playable_kmz(run_dir, output_name, domain_label="WindNinja"):
         # Add each hourly KMZ's contents
         for dt, kmz_path in entries:
             dt_end = dt + datetime.timedelta(hours=1)
-            basename = os.path.basename(kmz_path)
             folder_name = dt.strftime("%Y%m%d_%H%M")
             
             # Create folder for this hour

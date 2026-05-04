@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import gcs_manager
@@ -56,6 +55,32 @@ def test_update_index_uploads_json_and_html(tmp_path, monkeypatch):
         content_type="text/html",
         cache_control="public, max-age=60",
     )
+
+
+def test_parse_timestamped_archive_metadata():
+    metadata = gcs_manager._parse_archive_metadata(
+        "archives/20260101/my_area_forecast_18h_HRRR_20260101_1200.zip"
+    )
+
+    assert metadata == {
+        "date": "20260101_1200",
+        "run_type": "forecast_18h",
+        "model": "HRRR",
+        "filename": "my_area_forecast_18h_HRRR_20260101_1200.zip",
+    }
+
+
+def test_parse_timestamped_reanalysis_archive_metadata():
+    metadata = gcs_manager._parse_archive_metadata(
+        "archives/20260101/loveland_pass_reanalysis_12h_HRRR_20260101_0000.zip"
+    )
+
+    assert metadata == {
+        "date": "20260101_0000",
+        "run_type": "reanalysis_12h",
+        "model": "HRRR",
+        "filename": "loveland_pass_reanalysis_12h_HRRR_20260101_0000.zip",
+    }
 
 
 def test_upload_file_returns_false_when_upload_disabled(monkeypatch):

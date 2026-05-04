@@ -6,7 +6,7 @@ Step-by-step instructions to get WindNinja running on a Google Cloud VM from scr
 
 - A Google account
 - A credit card for GCP billing (new accounts get $300 free credit)
-- Know the area you want to simulate (latitude/longitude bounding box)
+- Know one center point for the area you want to simulate
 
 You do **not** need to pre-download terrain files. This guide shows how to download them directly on the VM.
 
@@ -131,13 +131,26 @@ exit
 cd /opt/mountain_windninja
 ```
 
-## Step 5: Build the Docker Image
+Create the local runtime directories and config file:
 
 ```bash
-./deploy/gcp/mwn.sh build
+./deploy/gcp/mwn.sh init
 ```
 
-This takes **~30 minutes** the first time. It compiles WindNinja, OpenFOAM, GDAL, and all dependencies from source inside the Docker image. Subsequent builds are fast because Docker caches the layers.
+## Step 5: Pull Or Build the Docker Image
+
+```bash
+./deploy/gcp/mwn.sh pull
+```
+
+If pulling fails, build locally:
+
+```bash
+./deploy/gcp/mwn.sh build-local
+```
+
+Local build takes **~30 minutes** the first time. It compiles WindNinja,
+OpenFOAM, GDAL, and dependencies from source inside the Docker image.
 
 ## Step 6: Get Your Terrain Data
 
@@ -145,21 +158,30 @@ You need elevation data for the area you want to simulate. There are two main op
 
 ### Option A: Download a DEM (simplest)
 
-A DEM (Digital Elevation Model) contains just elevation data. WindNinja will use a uniform vegetation type (grass, brush, or trees).
+For US domains, the easiest path downloads both a DEM fallback and an LCP active
+terrain file. The LCP includes vegetation/fuel bands; the DEM remains available
+if LANDFIRE fails or for debugging.
 
 **Method 1: Use the built-in downloader (recommended)**
 
-Find the bounding box coordinates for your area using Google Maps (right-click any point to see lat/lon). Then:
+Find a center point for your area using Google Maps (right-click any point to see lat/lon). Then:
 
 ```bash
-# Download a DEM for the Keystone, CO area
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/keystone.tif
+# Download/register DEM + LCP terrain for the Keystone, CO area
+./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.08 --size-km 12 \
+  --domain keystone \
+  --label "Keystone"
 
-# Download a DEM for a larger area in Summit County
-./deploy/gcp/mwn.sh fetch-dem 39.75 -106.3 39.45 -106.0 static_data/summit.tif
+# Download DEM + LCP terrain for a larger area in Summit County
+./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.15 --size-km 30 \
+  --domain summit \
+  --label "Summit County"
 ```
 
-This downloads 30m SRTM data from USGS via OpenTopography. You may need a free OpenTopography API key -- get one at [opentopography.org](https://opentopography.org/) and add it to `config/runtime.env`:
+The DEM defaults to USGS 3DEP (`us`) at 10 m and does not require an API key in
+the United States. For global DEM-only SRTM, use `fetch-dem`, pass an output
+path, `srtm`, and `30`, then add a free OpenTopography API key to
+`config/runtime.env`:
 
 ```
 CUSTOM_SRTM_API_KEY=your_key_here
@@ -196,7 +218,9 @@ An LCP (Landscape) file includes elevation plus 7 bands of vegetation and fuel d
 
 ```bash
 # Download LCP for the Keystone, CO area
-./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/keystone.lcp
+./deploy/gcp/mwn.sh fetch-lcp --center 39.60 -106.08 --size-km 12 \
+  --domain keystone \
+  --label "Keystone"
 ```
 
 This downloads from LANDFIRE (US Forest Service). It may take several minutes as the LANDFIRE server processes your request. Only available for the United States.
@@ -303,7 +327,8 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 
 | Setting                  | What it means                                                 | Default |
 | ------------------------ | ------------------------------------------------------------- | ------- |
-| `MWN_DOMAIN_ID`          | Which domain to run (must match a key in `domains.json`)      | `small` |
+| `MWN_DOMAIN_ID`          | Which domain to run (must match a key in `domains.json`)      | `my_area` |
+| `MWN_DOCKER_IMAGE`       | Docker image used by Compose                                  | `mountain-windninja:local` |
 | `MWN_SURFACE_VEGETATION` | Default vegetation for DEM runs: `grass`, `brush`, or `trees` | `trees` |
 | `MWN_GCS_UPLOAD_ENABLED` | Upload results to a GCS bucket                                | `false` |
 | `MWN_GCS_BUCKET`         | Your GCS bucket name (if uploading)                           | empty   |
@@ -316,8 +341,11 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 # Verify everything is set up
 ./deploy/gcp/mwn.sh check
 
-# Run a quick 3-hour test
-./deploy/gcp/mwn.sh run --hours 3
+# Run a quick domain-average smoke test on your active domain
+./deploy/gcp/mwn.sh smoke
+
+# Run a quick 6-hour forecast
+./deploy/gcp/mwn.sh run --hours 6
 
 # If that works, run a full 18-hour HRRR forecast
 ./deploy/gcp/mwn.sh run --hours 18
@@ -487,7 +515,7 @@ NOAA's NOMADS servers go down occasionally for maintenance or high load. Steps t
 ./deploy/gcp/mwn.sh run --model GFS --hours 6
 ```
 
-1. **Increase download timeout.** Add to `config/runtime.container.env`:
+1. **Increase download timeout.** Add to `config/runtime.env`:
 
 ```
 NOMADS_HTTP_TIMEOUT=60
@@ -535,7 +563,7 @@ This is a known OpenFOAM MPI bug in containers. Fix by adding this environment v
 export OMPI_MCA_btl_vader_single_copy_mechanism=none
 ```
 
-Our Docker setup should handle this, but if you see it, add the variable to `config/runtime.container.env`.
+Our Docker setup should handle this, but if you see it, add the variable to `config/runtime.env`.
 
 **"Error during decomposePar" with "Essential entry 'value' missing":**
 This means the wrong OpenFOAM version is being used. WindNinja requires OpenFOAM 8 (the version built in our Docker image). If you built OpenFOAM separately, make sure it's the correct version. In our Docker container, this should not happen.
@@ -582,11 +610,11 @@ An 18-hour HRRR forecast on a medium domain with momentum solver takes roughly 2
 If something fails and the error message isn't clear, enable debug output:
 
 ```bash
-# Add to config/runtime.container.env:
+# Add to config/runtime.env:
 CPL_DEBUG=NINJAFOAM
 
 # Then re-run your forecast
-./deploy/gcp/mwn.sh run --hours 3 --keep-temp
+./deploy/gcp/mwn.sh run --hours 6 --keep-temp
 ```
 
 This produces verbose output showing exactly where WindNinja fails. The `--keep-temp` flag keeps the raw output directory so you can inspect it.

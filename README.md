@@ -1,253 +1,155 @@
 # Mountain WindNinja
 
-Run [WindNinja](https://research.fs.usda.gov/firelab/products/dataandtools/windninja) on a cloud server with simple terminal commands. WindNinja simulates how wind flows over complex terrain. This project packages it inside Docker so you can run it on a Google Cloud VM (or any Linux server) without installing anything manually.
+Run [WindNinja](https://research.fs.usda.gov/firelab/products/dataandtools/windninja)
+from a Docker-based command line workflow. The wrapper downloads terrain, registers
+simulation domains, runs WindNinja inside a container, and writes Google Earth KMZ
+plus ASCII grid output.
 
-**Output:** KMZ files for Google Earth (animated wind vectors over terrain) + ASCII grids (raw speed/direction data).
+## First Successful Run
 
-**New to Google Cloud?** New accounts get **$300 free credits** (90 days). An `e2-standard-4` VM costs ~$0.13/hour. See the [GCP setup guide](docs/gcp_setup.md) for VM sizing, cost tips, and step-by-step instructions.
-
-## Quick Start
-
-**You need:** The lat/lon bounding box for your area of interest.
+You need one latitude/longitude point near the center of the area you want to
+simulate. A 10-12 km square is a good first domain. Docker must already be
+installed and running.
 
 ```bash
-# 1. Clone and set up
 git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
 cd /opt/mountain_windninja
-./deploy/gcp/bootstrap_repo.sh
 
-# 2. Build Docker image (~30 min first time, needs 50 GB disk)
-./deploy/gcp/mwn.sh build
+# Create runtime/, static_data/, config/runtime.env, and pull the default image.
+./deploy/gcp/mwn.sh init
 
-# 3. Download terrain data for your area
-#    Option A: USGS 3DEP 10m (US only, no API key needed)
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
+# Download DEM + LCP terrain, register a domain, and make it the default.
+./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.08 --size-km 12 \
+  --domain my_area \
+  --label "My Area"
 
-#    Option B: SRTM 30m via OpenTopography (global, needs free API key)
-#    Set CUSTOM_SRTM_API_KEY in config/runtime.env first
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
-
-#    Option C: LANDFIRE LCP (US only, includes vegetation/fuel data)
-./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
-
-# 4. Edit config/domains.json -- set elevation_file to your filename
-nano config/domains.json
-
-# 5. Verify setup and run
+# Check configuration and terrain.
 ./deploy/gcp/mwn.sh check
+
+# Run a deterministic one-hour domain-average test.
+./deploy/gcp/mwn.sh smoke
+
+# Run a short HRRR forecast using NOAA weather input.
 ./deploy/gcp/mwn.sh run --hours 6
 ```
 
-Output goes to `runtime/archives/` (zipped KMZ files, ASCII grids, and run config). Full walkthrough: [docs/gcp_setup.md](docs/gcp_setup.md).
+Output archives are written to `runtime/archives/`. Each zip contains the generated
+WindNinja config, KMZ files for Google Earth, and ASCII wind grids. Use `--keep-temp`
+on `smoke` or `run` when you want raw output left under `runtime/temp/`.
 
-## How It Works
+## Docker Images
 
-1. You provide a terrain file (DEM `.tif` or LCP `.lcp`) in `static_data/`
-2. You define a domain in `config/domains.json` pointing to your terrain + the config template
-3. `mwn.sh run` starts a Docker container with WindNinja + OpenFOAM, generates config, runs simulation
-4. WindNinja downloads forecast data from NOAA automatically, and reanalysis data from the public HRRR archive
-5. Output files (KMZ, ASCII grids) go to `runtime/`
-
-## Three Run Modes
+`mwn.sh init` tries to pull the published GHCR image:
 
 ```bash
-# Forecast: live weather data from NOAA (default)
-./deploy/gcp/mwn.sh run --hours 18 --model HRRR
-
-# Reanalysis: archived past weather (HRRR only, back to 2014)
-./deploy/gcp/mwn.sh run --mode reanalysis --hours 12
-./deploy/gcp/mwn.sh run --mode reanalysis --start 202601010000 --end 202601080000
-
-# Domain-average: manual wind input, no internet needed
-./deploy/gcp/mwn.sh run --mode domain-average --speed 20 --direction 270
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
 ```
 
-## Validation Workflow
-
-You can validate a historical WindNinja run against Synoptic stations and against the parent HRRR vectors at the exact same station points.
-
-Notes:
-- Reanalysis uses the patched Docker image in this repo and should not require manual GCS credentials for public HRRR archive access after `./deploy/gcp/mwn.sh build`.
-- Validation requires a working Synoptic token with data access.
+If the pull fails or you are changing image-level dependencies, build locally:
 
 ```bash
-# 1. Build a WindNinja points CSV from a Synoptic station manifest
-./deploy/gcp/mwn.sh synoptic-points \
-  --station-file config/stations/loveland_pass_validation_manifest.csv \
-  --points-output runtime/validation/loveland_points.csv \
-  --metadata-output runtime/validation/loveland_metadata.json \
-  --start 202601010000 --end 202601080000
-
-# 2. Run a fixed historical HRRR archive window with point sampling enabled
-./deploy/gcp/mwn.sh run --mode reanalysis \
-  --start 202601010000 --end 202601080000 \
-  --model HRRR \
-  --points-file runtime/validation/loveland_points.csv \
-  --keep-temp --no-upload
-
-# 3. Compare Synoptic observations vs WindNinja and raw HRRR at the same points
-./deploy/gcp/mwn.sh validate \
-  --points-output runtime/temp/20260101_reanalysis_168h_HRRR/my_area_sample_points.csv \
-  --metadata-file runtime/validation/loveland_metadata.json \
-  --start 202601010000 --end 202601080000 \
-  --samples-csv runtime/validation/jan2026_samples.csv \
-  --station-summary-csv runtime/validation/jan2026_station_summary.csv \
-  --group-summary-csv runtime/validation/jan2026_group_summary.csv \
-  --summary-json runtime/validation/jan2026_summary.json
+./deploy/gcp/mwn.sh build-local
 ```
 
-The validation outputs include per-sample comparisons, per-station summaries, grouped summaries, and an overall JSON summary. WindNinja point sampling carries both `u,v` and parent-weather-model `wx_u,wx_v`, so the baseline HRRR comparison is generated from the same station/time matches as the downscaled output.
+The first local build takes about 30 minutes.
 
-## Commands
+## Common Commands
 
+| Command | Purpose |
+|---------|---------|
+| `mwn.sh init` | Create local runtime directories and `config/runtime.env` if missing |
+| `mwn.sh fetch-terrain ... --domain KEY` | Download DEM + LCP terrain and register a domain |
+| `mwn.sh check [--domain KEY]` | Run preflight checks |
+| `mwn.sh smoke [--domain KEY]` | Run a fixed `10 mph`, `270 deg`, one-hour smoke test |
+| `mwn.sh run --hours N` | Run a forecast |
+| `mwn.sh run --mode reanalysis ...` | Run historical HRRR reanalysis |
+| `mwn.sh validate-study berthoud_pass ...` | Run chunked HRRR/WindNinja/Synoptic validation |
+| `mwn.sh clean` | Clear cached OpenFOAM mesh and temp output |
 
-| Command                                      | What it does                                  |
-| -------------------------------------------- | --------------------------------------------- |
-| `mwn.sh build`                               | Build Docker image                            |
-| `mwn.sh check`                               | Verify setup                                  |
-| `mwn.sh run [flags]`                         | Run simulation                                |
-| `mwn.sh shell`                               | Open container shell                          |
-| `mwn.sh fetch-dem N E S W [out] [src] [res]` | Download DEM (source: `us`, `srtm`, `gmted`) |
-| `mwn.sh clean`                               | Clear cached mesh and temp files              |
-| `mwn.sh fetch-lcp N E S W [out]`             | Download LCP from LANDFIRE (US only)          |
-| `mwn.sh lcp-build input.tif [out.lcp]`       | Convert LANDFIRE GeoTIFF to LCP               |
-| `mwn.sh synoptic-points`                     | Build WindNinja point CSV from Synoptic metadata |
-| `mwn.sh validate`                            | Compare WindNinja/HRRR point output vs Synoptic |
-| `mwn.sh schedule`                            | Start hourly auto-forecasts                   |
-| `mwn.sh stop`                                | Stop scheduler                                |
-| `mwn.sh logs`                                | View scheduler logs                           |
-| `mwn.sh update`                              | Pull code + rebuild                           |
+Run `./deploy/gcp/mwn.sh help` for the beginner command list, or
+`./deploy/gcp/mwn.sh help advanced` for lower-level tools.
 
+## Terrain Sources
 
-Full flags, weather models, and examples: [docs/commands.md](docs/commands.md).
+Terrain sources:
 
-## Terrain Data
+| Source | Coverage | Notes |
+|--------|----------|-------|
+| `us` | United States | USGS 3DEP DEM, no API key |
+| `srtm` | Global between 60N and 56S | Requires `CUSTOM_SRTM_API_KEY` |
+| `gmted` | Global | Coarse, useful for large domains |
+| `lcp` | United States | LANDFIRE landscape file with vegetation/fuel bands |
 
-WindNinja needs elevation data for your area. Three ways to get it:
-
-### Option 1: DEM (elevation only)
+Examples:
 
 ```bash
-# USGS 3DEP -- true 10m resolution, US only, no API key needed
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif us 10
+./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.08 --size-km 12 \
+  --domain keystone \
+  --label "Keystone"
 
-# SRTM -- 30m resolution, global coverage, needs free OpenTopography API key
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif srtm 30
+./deploy/gcp/mwn.sh fetch-terrain --area-file keystone.kml --padding-km 1 \
+  --domain keystone \
+  --label "Keystone"
 
-# GMTED -- coarser (~250m), global, good for large areas
-./deploy/gcp/mwn.sh fetch-dem 39.65 -106.0 39.55 -106.15 static_data/my_area.tif gmted
+./deploy/gcp/mwn.sh fetch-dem 45.5 7.0 45.0 6.5 static_data/alps.tif srtm 30 \
+  --domain alps \
+  --label "Alps" \
+  --no-set-default
+
+./deploy/gcp/mwn.sh domain create keystone \
+  --bbox 39.65 -106.0 39.55 -106.15 \
+  --terrain-source us \
+  --resolution 10
 ```
-
-WindNinja applies a uniform vegetation type (`grass`, `brush`, or `trees` -- set via `MWN_SURFACE_VEGETATION` in `config/runtime.env`).
-
-### Option 2: LCP from LANDFIRE (elevation + vegetation)
-
-LCP files include elevation plus 7 bands of vegetation/fuel data. More accurate than DEM + uniform vegetation. US only.
-
-```bash
-# Download directly from LANDFIRE (may take several minutes)
-./deploy/gcp/mwn.sh fetch-lcp 39.65 -106.0 39.55 -106.15 static_data/my_area.lcp
-```
-
-### Option 3: Convert a LANDFIRE GeoTIFF to LCP
-
-If you downloaded a landscape GeoTIFF from [LANDFIRE](https://www.landfire.gov/viewer/) or [IFTDSS](https://iftdss.firenet.gov/), convert it to LCP format:
-
-```bash
-./deploy/gcp/mwn.sh lcp-build static_data/landscape_download.tif static_data/my_area.lcp
-```
-
-This creates both the `.lcp` file and its required `.prj` sidecar.
-
-### After downloading terrain
-
-Edit `config/domains.json` to point to your file:
-
-```json
-{
-  "default_domain": "my_area",
-  "domains": {
-    "my_area": {
-      "label": "My Area",
-      "template": "config/template.cfg",
-      "elevation_file": "my_area.tif"
-    }
-  }
-}
-```
-
-Make sure `MWN_DOMAIN_ID` in `config/runtime.env` matches the domain key. Run `./deploy/gcp/mwn.sh check` to verify.
-
-### DEM vs LCP
-
-
-|                  | DEM (.tif)                                | LCP (.lcp)                                  |
-| ---------------- | ----------------------------------------- | ------------------------------------------- |
-| **Data**         | Elevation only                            | Elevation + vegetation/fuel (8 bands)       |
-| **Accuracy**     | Good (uniform vegetation assumption)      | Best (real vegetation data)                 |
-| **Availability** | US (3DEP 10m), global (SRTM 30m)          | US only (LANDFIRE)                          |
-| **Best for**     | Quick runs, non-US areas                  | Fire modeling, forested terrain, production |
-
-
-For detailed terrain instructions, see the [terrain data guide](docs/gcp_setup.md#step-6-get-your-terrain-data).
-
-## Project Layout
-
-```
-config/
-  domains.json         # Domain catalog (name → terrain file + template)
-  template.cfg         # WindNinja config template (shared by all domains)
-  runtime.env          # Your settings (created from .example)
-
-static_data/           # Terrain files (DEM .tif or LCP .lcp)
-runtime/               # Output (auto-created): archives/, temp/, logs/
-
-scripts/
-  daily_run.py         # Core: generates config, runs WindNinja, archives output
-  config_loader.py     # Loads settings from runtime.env + domains.json
-  run_windninja.sh     # Entry wrapper (sources OpenFOAM env)
-  gcs_manager.py       # Optional GCS upload
-  preflight_check.py   # Readiness checks
-  synoptic_validation.py  # Station metadata prep + validation metrics
-  build_lcp_from_geotiff.py  # GeoTIFF → LCP converter
-
-deploy/gcp/
-  mwn.sh               # Main CLI
-  bootstrap_repo.sh    # One-time server setup
-
-docker/
-  patch_windninja_public_pastcast.py  # Build-time upstream WindNinja patch for public HRRR pastcast
-
-docs/
-  gcp_setup.md         # Full GCP walkthrough + cost guide + troubleshooting
-  commands.md          # Detailed command reference
-  agent_handoff.md     # Current repo state, known constraints, handoff checklist
-  windninja_reference.md  # WindNinja internals reference
-```
-
-## Key Config Settings
-
-Edit `config/template.cfg` to tune WindNinja behavior:
-
-
-| Setting                | What it controls                                         | Default |
-| ---------------------- | -------------------------------------------------------- | ------- |
-| `mesh_resolution`      | Grid cell size in meters (smaller = more detail, slower) | `100.0` |
-| `momentum_flag`        | OpenFOAM solver (`true` = better accuracy, slower)       | `true`  |
-| `num_threads`          | CPU threads                                              | `4`     |
-| `number_of_iterations` | Solver iterations                                        | `300`   |
-| `diurnal_winds`        | Thermal slope winds                                      | `true`  |
-| `output_wind_height`   | Height above ground for output (set via `--height` flag) | `10.0`  |
-
 
 ## Docs
 
-- **[Beginner Tutorial](docs/tutorial.md)** -- start here. Step-by-step walkthrough from zero to your first forecast.
-- **[GCP Setup Guide](docs/gcp_setup.md)** -- VM creation, costs, terrain data, troubleshooting
-- **[Command Reference](docs/commands.md)** -- all flags, weather models, examples
-- **[Agent Handoff](docs/agent_handoff.md)** -- current repo capabilities, operational caveats, and handoff checklist
-- **[WindNinja Reference](docs/windninja_reference.md)** -- internals, config options, upstream docs
+- [Quickstart](docs/quickstart.md) - first successful run
+- [Command reference](docs/commands.md) - every command and flag
+- [Terrain guide](docs/terrain.md) - DEM, LCP, source selection, and troubleshooting
+- [Scheduling guide](docs/scheduling.md) - automatic forecast runs
+- [Validation guide](docs/validation.md) - Synoptic and raster validation workflow
+- [Development guide](docs/development.md) - local Python/dev overrides
+- [GCP setup guide](docs/gcp_setup.md) - VM sizing, cost notes, and operations
+- [WindNinja reference](docs/windninja_reference.md) - upstream config details
 
-## License
+## Operational Notes
 
-WindNinja is developed by the USDA Forest Service, Rocky Mountain Research Station, Missoula Fire Sciences Laboratory. This project wraps WindNinja for cloud deployment and is not affiliated with or endorsed by the USDA.
+`config/domains.json` is a local domain catalog. The starter entries are examples;
+`fetch-terrain` downloads both `KEY.tif` and `KEY.lcp` under `MWN_STATIC_DATA_ROOT`
+(default `static_data/`).
+The domain uses the LCP when both downloads succeed; the DEM remains available
+as a fallback. `fetch-dem --domain`, `fetch-lcp --domain`, and `domain create`
+remain available for advanced/manual terrain workflows.
+
+Changes under `scripts/`, `config/`, and `docker/` are bind-mounted into the
+container for normal runs. Rebuild the image after changes to `Dockerfile`,
+dependency lists, or compiled WindNinja/OpenFOAM/GDAL behavior.
+
+If a run fails with `moveDynamicMesh` or `Can't open log.ninja`, clear the mesh
+cache:
+
+```bash
+./deploy/gcp/mwn.sh clean
+```
+
+For historical validation, do not pass `--points-file` to momentum runs. Run
+reanalysis normally, keep the temp directory, then use `validate-rasters`.
+For Berthoud Pass validation, use the higher-level study wrapper:
+
+```bash
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --pilot-hours 3
+```
+
+The study command reads explicit stations from
+`config/stations/berthoud_pass_validation_manifest.csv`, runs HRRR reanalysis in
+chunks, validates WindNinja and parent HRRR rasters, and writes aggregate outputs
+under `runtime/validation/berthoud_pass/`.
+The Berthoud sampling geometry is shown in
+[`docs/assets/berthoud_validation_points.png`](docs/assets/berthoud_validation_points.png).
+
+Generated runtime output, terrain downloads, caches, and local runtime config are
+ignored by git. Source inputs such as `config/stations/*.csv` and
+`config/studies/*.json` are intentionally trackable.

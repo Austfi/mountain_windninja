@@ -17,16 +17,23 @@ import synoptic_validation as sv
 
 UTC = dt.timezone.utc
 
+RUN_LABEL_RE = r"(?:\d{2}-\d{2}-\d{4}|\d{8})_\d{4}"
 WINDNINJA_RASTER_RE = re.compile(
-    r"^(?P<domain>.+)_(?P<label>\d{2}-\d{2}-\d{4}_\d{4})_(?P<resolution>\d+)m_(?P<kind>vel|ang)\.asc$"
+    rf"^(?P<domain>.+)_(?P<label>{RUN_LABEL_RE})(?:_(?P<resolution>\d+)m)?_"
+    r"(?P<kind>vel|ang)\.asc$"
 )
 WX_MODEL_RASTER_RE = re.compile(
-    r"^(?P<model>.+)-(?P<label>\d{2}-\d{2}-\d{4}_\d{4})_(?P<kind>vel|ang)\.asc$"
+    rf"^(?P<model>.+?)[-_](?P<label>{RUN_LABEL_RE})_(?P<kind>vel|ang)\.asc$"
 )
 
 
 def parse_run_label(label: str) -> dt.datetime:
-    return dt.datetime.strptime(label, "%m-%d-%Y_%H%M").replace(tzinfo=UTC)
+    for fmt in ("%m-%d-%Y_%H%M", "%Y%m%d_%H%M"):
+        try:
+            return dt.datetime.strptime(label, fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported raster timestamp: {label}")
 
 
 def sample_raster_value(path: Path, lon: float, lat: float) -> float | None:

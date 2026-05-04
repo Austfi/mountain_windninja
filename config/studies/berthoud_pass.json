@@ -1,0 +1,19 @@
+{
+  "key": "berthoud_pass",
+  "label": "Berthoud Pass",
+  "domain": "berthoud_pass",
+  "model": "HRRR",
+  "chunk_hours": 24,
+  "tolerance_minutes": 30,
+  "speed_units": "mph",
+  "default_height_m": 10.0,
+  "padding_km": 2.0,
+  "validation_root": "runtime/validation/berthoud_pass",
+  "station_manifest": "config/stations/berthoud_pass_validation_manifest.csv",
+  "metadata_file": "runtime/validation/berthoud_pass/station_metadata.json",
+  "bbox_file": "runtime/validation/berthoud_pass/station_bbox.json",
+  "notes": {
+    "center": "Berthoud Pass summit",
+    "awos": "K0CO Berthoud Pass / Mines Peak AWOS is the first validation station."
+  }
+}

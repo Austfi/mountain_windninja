@@ -90,6 +90,68 @@ Upstream WindNinja 3.12.2 hard-checks for GCS credentials before attempting to r
 
 `mwn.sh synoptic-points` and `mwn.sh validate` require a Synoptic token with actual weather-data access. A 32-character token string in `config/runtime.env` is not enough if the Synoptic account itself is unauthorized.
 
+### 9. momentum_flag conflicts with input_points_file
+
+Upstream WindNinja rejects `input_points_file` when `momentum_flag = true` with:
+
+```bash
+Conflicting options 'momentum_flag' and 'input_points_file'
+```
+
+**Implication:** for momentum validation runs, do **not** use `--points-file`. Run the reanalysis normally and validate afterward with `mwn.sh validate-rasters`, which samples the output rasters at station coordinates.
+
+### 10. Interrupted reanalysis runs do not resume
+
+If a spot/preemptible instance dies mid-run, assume the active chunk is lost and rerun that chunk cleanly. There is no built-in checkpoint/resume behavior for partially completed reanalysis windows.
+
+**Implication:** run historical validation studies in 24h or 72h chunks, not as one monolithic seasonal job.
+
+### 11. Berthoud validation is intentionally small and manifest-driven
+
+The current Berthoud validation setup is a 10 km square centered on Berthoud Pass
+and currently validates K0CO Berthoud Pass / Mines Peak AWOS. Station selection
+is explicit through `config/stations/berthoud_pass_validation_manifest.csv`; add
+or remove rows there to compare more stations.
+
+Current measured scale:
+
+- LCP: 337 x 336 cells at 30 m, about 10.1 x 10.1 km
+- WindNinja output grid: 100 m cells from `config/template_validation.cfg`
+- HRRR parent grid: about 3 km cells
+- OpenFOAM mesh cache: `static_data/NINJAFOAM_berthoud_pass_158_4`
+- Mesh: about 6,250 cells / 7,436 points
+- Mesh cache size: about 29 MB
+- Sampling map: `docs/assets/berthoud_validation_points.png`
+
+For K0CO, raster validation samples the nearest WindNinja 100 m output cell
+about 44 m from the station and the nearest parent-HRRR cell about 1.58 km from
+the station.
+
+The 2026-01-01 00:00 UTC through 2026-01-04 00:00 UTC pilot produced 73 matched
+K0CO station-hours. WindNinja was biased low on speed but improved every
+headline error metric versus parent HRRR:
+
+- Speed MAE: 7.20 mph WindNinja vs 8.85 mph HRRR
+- Direction MAE: 11.1 deg WindNinja vs 18.4 deg HRRR
+- Vector RMSE: 10.26 mph WindNinja vs 12.53 mph HRRR
+
+Use 24h chunks for month/year studies. `validate-study` reuses completed chunk
+run directories and chunk summaries, so extending a window is safe:
+
+```bash
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+```
+
+### 12. Validation template avoids visual artifacts
+
+`berthoud_pass` uses `config/template_validation.cfg`, not `config/template.cfg`.
+It keeps the same HRRR/momentum/diurnal/100 m physics path but disables KMZ and
+shapefile output, while keeping WindNinja ASCII and parent-HRRR ASCII rasters
+needed by `validate-rasters`.
+
 ## DEM Data Sources
 
 | Source | Resolution | Coverage | API Key | mwn.sh arg |
@@ -123,8 +185,11 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/config_loader.py` | Reads `runtime.env` + `domains.json`, provides typed config objects |
 | `scripts/preflight_check.py` | Pre-run validation (files exist, CRS ok, WindNinja works) |
 | `scripts/create_time_series.py` | Bundles hourly KMZ files into playable time-series KMZ |
+| `scripts/raster_validation.py` | Samples nearest WindNinja and parent-HRRR rasters at station coordinates and compares against Synoptic |
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
+| `scripts/validation_study.py` | Chunked Synoptic/HRRR/WindNinja validation workflow using explicit station manifests |
 | `config/template.cfg` | WindNinja config template with placeholders |
+| `config/template_validation.cfg` | Lean validation template, ASCII outputs only |
 | `config/domains.json` | Maps domain names to terrain files and templates |
 | `compose.yaml` | Docker Compose config (services, volumes, env_file) |
 | `Dockerfile` | Builds the WindNinja + OpenFOAM environment |

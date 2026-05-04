@@ -85,7 +85,7 @@ forecast_filename = /path/to/forecast.nc
 time_zone = America/Denver
 ```
 
-### 4. griddedInitialization (CLI only)
+### 4. griddedInitialization
 
 Supply your own wind speed and direction grids. Grids must be AAIGrid (.asc) format,
 same projection as the DEM, and completely overlap the DEM.
@@ -101,6 +101,9 @@ input_speed_units = mps
 Note: This method does not support multiple time steps in a single run. Each time step
 requires a separate run. Diurnal winds require additional settings: `uni_air_temp`,
 `air_temp_units`, `uni_cloud_cover`, `cloud_cover_units`, plus date/time fields.
+In this repo, use `mwn.sh run-grid` for prepared grids or `mwn.sh forcing-from-grib`
+to convert one U/V GRIB/NetCDF timestep first. Use a DEM `.tif` domain; LCP-backed
+domains are rejected for gridded initialization in v1.
 
 ---
 
@@ -239,6 +242,14 @@ The `vegetation` config option is ignored.
 | `forecast_duration` | integer | Hours to forecast |
 | `forecast_filename` | path | Pre-downloaded forecast file |
 | `forecast_time` | UTC string | Specific time(s) to simulate |
+
+### Gridded Forcing (griddedInitialization)
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `input_speed_grid` | path | AAIGrid speed grid |
+| `input_dir_grid` | path | AAIGrid meteorological direction grid |
+| `input_speed_units` | `mps` | Units for speed grid values |
 
 ### Date/Time (for domain-average and point runs)
 
@@ -394,7 +405,7 @@ export ${SLURM_ENV}
 ### Our Dockerfile vs Official
 
 Our Dockerfile (`/Dockerfile`) follows the 22.04 wiki instructions with these additions:
-- Python venv with project dependencies (google-cloud-storage, python-dotenv, pytest)
+- Python venv with runtime dependencies (google-cloud-storage, python-dotenv)
 - Cron support for scheduled forecasts
 - Project files copied into `/opt/mountain_windninja`
 - Poppler, PROJ, and GDAL built from source (per `build_deps_ubuntu_2204.sh`)
