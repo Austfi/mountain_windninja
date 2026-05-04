@@ -23,15 +23,14 @@ Then scale the same command to a longer window:
   --chunk-hours 24
 ```
 
-To run the same validation wrapper with archived NBM forcing:
+To run the same station/time-window comparison with archived NBM forcing, use
+the separate NBM study config so HRRR and NBM outputs do not mix:
 
 ```bash
-./deploy/gcp/mwn.sh validate-study berthoud_pass \
-  --start 202601010100 \
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
+  --start 202601010000 \
   --end 202601080000 \
-  --chunk-hours 24 \
-  --model NBM \
-  --lead-hours 1
+  --chunk-hours 24
 ```
 
 The study wrapper:
@@ -41,7 +40,8 @@ The study wrapper:
 - runs HRRR reanalysis or archived NBM gridded forcing without `--points-file`
 - keeps per-chunk run directories under `runtime/temp/`
 - compares WindNinja and parent-model rasters with `validate-rasters`
-- writes aggregate outputs under `runtime/validation/berthoud_pass/`
+- writes aggregate HRRR outputs under `runtime/validation/berthoud_pass/`
+- writes aggregate NBM outputs under `runtime/validation/berthoud_pass_nbm/`
 
 Station selection is intentionally simple: edit the manifest CSV to choose one
 station or a short list of stations, then rerun the same command. The study
@@ -53,12 +53,17 @@ The Berthoud manifest currently includes:
 |---------|-------|-----------------|
 | K0CO | Berthoud Pass - Mines Peak AWOS | Uses Synoptic wind sensor metadata when available |
 | CABTP | Berthoud Pass CAIC | Height override intentionally blank; uses Synoptic wind sensor metadata when available, otherwise the 10 m study default |
+| USGS-394759105464101 | Berthoud Pass USGS Meteorological Station | USGS wind speed/direction observations; height unknown, uses the 10 m study default for now |
 
 NBM historical validation is not WindNinja native pastcast. The study wrapper
 fetches only archived NBM `WIND` and `WDIR` 10 m records by byte range, converts
 them to local `run-grid` inputs, runs one WindNinja timestep per valid hour, and
 deletes intermediate forcing/run directories after copying the rasters needed
 for validation.
+
+NBM does not publish `f000` in this archive path. The current NBM validation
+uses `lead_hours = 1`, so the valid timestamps match the HRRR study window but
+the parent NBM fields are f001 forecasts.
 
 ## Berthoud Sampling Points
 
@@ -69,20 +74,34 @@ For the current K0CO setup, raster validation samples the nearest WindNinja
 HRRR 3 km cell, about 1.58 km from the AWOS location. Synoptic observations are
 truth data only; HRRR still drives WindNinja.
 
-## Current Berthoud Pilot
+## Current Berthoud Baseline
 
-The 2026-01-01 00:00 UTC through 2026-01-04 00:00 UTC pilot produced 73 matched
-K0CO station-hours. WindNinja remained biased low on speed, but improved the
-main comparison metrics versus parent HRRR:
+The current multistation HRRR baseline covers completed chunks from
+2026-01-01 00:00 UTC through 2026-02-01 00:00 UTC: 3 stations and 2,145
+deduplicated matched station-hours in the plotting output. This is a useful
+proof of concept, not yet a final
+research-quality result, because CABTP and the USGS station still need verified
+anemometer heights. For now all unresolved heights use the 10 m study default.
+
+Pooled headline metrics:
 
 | Metric | WindNinja | HRRR |
 |--------|-----------|------|
-| Speed MAE | 7.20 mph | 8.85 mph |
-| Speed RMSE | 8.57 mph | 9.82 mph |
-| Direction MAE | 11.1 deg | 18.4 deg |
-| Vector RMSE | 10.26 mph | 12.53 mph |
+| Speed MAE | 7.88 mph | 10.10 mph |
+| Speed bias | 1.41 mph | 3.98 mph |
+| Direction MAE | 56.20 deg | 51.36 deg |
+| Vector RMSE | 13.67 mph | 14.56 mph |
 
-That is reasonable enough to continue with daily chunks for a month-scale run.
+Station-level metrics are more important than pooled values. The plotting
+workflow writes `station_metrics.csv` with sample counts, observation height
+source, parent/WindNinja sample distance, speed bias, speed MAE/RMSE, vector
+RMSE, skill scores, bootstrap confidence intervals, and direction MAE filtered
+to observed speed >= 5 mph and >= 10 mph.
+
+The clean research question is:
+
+> Does WindNinja terrain downscaling improve parent-model winds at point
+> stations in complex terrain near Berthoud Pass?
 
 ## Plotting Results
 
@@ -106,8 +125,24 @@ Outputs include:
 - direction absolute error time series
 - observed-vs-modeled speed scatter
 - daily error metrics
-- station location plot when `station_metadata.json` is present
+- terrain-backed station sampling maps when `station_metadata.json` and rasters are present
+- `station_metrics.csv` with station-level skill, bias, and confidence intervals
 - `plot_summary.json` with the plotted sample count and headline metrics
+
+After both HRRR and NBM roots have completed at least some matching chunks, make
+the direct parent-model comparison with:
+
+```bash
+./deploy/gcp/mwn.sh compare-validation \
+  runtime/validation/berthoud_pass \
+  runtime/validation/berthoud_pass_nbm \
+  --output-dir runtime/validation/model_comparison \
+  --title "Berthoud Pass HRRR vs NBM - January 2026"
+```
+
+This joins only station-hours common to both roots and reports parent HRRR,
+WindNinja forced by HRRR, parent NBM, and WindNinja forced by NBM in one station
+metrics table plus speed-MAE and vector-RMSE bar charts.
 
 For manual HRRR validation, use the lower-level flow:
 
@@ -143,8 +178,11 @@ For manual HRRR validation, use the lower-level flow:
 - Start with a 3-hour smoke test, then a 24-hour pilot, before scaling to longer
   windows.
 - `validate-study --plan` prints chunk/run paths without network calls or writes.
-- `validate-study --model NBM --lead-hours 1` validates archived NBM f001
-  forcing. Increase `--lead-hours` for a true forecast-lead skill comparison.
+- `berthoud_pass_nbm` validates archived NBM f001 forcing in a separate output
+  root from the HRRR study. Increase `lead_hours` in the study config for a true
+  forecast-lead skill comparison.
+- `MWN_NUM_THREADS=6` is the current high-thread test setting on a 6-physical /
+  12-logical CPU machine. OpenFOAM should not be set above physical cores.
 
 ## More Detail
 

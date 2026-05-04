@@ -167,7 +167,7 @@ def ensure_station_inputs(
     study: StudyConfig,
     start: dt.datetime,
     end: dt.datetime,
-    token: str,
+    token: str | None,
 ) -> None:
     if not study.station_manifest.exists():
         raise ValueError(f"Station manifest does not exist: {study.station_manifest}")
@@ -256,13 +256,23 @@ def copy_hour_outputs(
     forcing_dir: Path,
     chunk_run_dir: Path,
 ) -> None:
-    for path in sorted(grid_run_dir.glob("*.asc")):
-        shutil.copy2(path, chunk_run_dir / path.name)
-        prj_path = path.with_suffix(".prj")
-        if prj_path.exists():
-            shutil.copy2(prj_path, chunk_run_dir / prj_path.name)
-
     label = run_time.strftime("%Y%m%d_%H%M")
+    for kind in ("vel", "ang"):
+        matches = sorted(grid_run_dir.glob(f"*_{kind}.asc"))
+        if not matches:
+            continue
+        source = matches[0]
+        resolution = ""
+        for part in source.stem.split("_"):
+            if part.endswith("m") and part[:-1].isdigit():
+                resolution = f"_{part}"
+                break
+        target = chunk_run_dir / f"{study.domain}_{label}{resolution}_{kind}.asc"
+        shutil.copy2(source, target)
+        prj_path = source.with_suffix(".prj")
+        if prj_path.exists():
+            shutil.copy2(prj_path, target.with_suffix(".prj"))
+
     parent_vel = chunk_run_dir / f"{study.model}-{label}_vel.asc"
     parent_ang = chunk_run_dir / f"{study.model}-{label}_ang.asc"
     shutil.copy2(forcing_dir / "parent_vel.asc", parent_vel)
@@ -640,16 +650,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    try:
-        token = sv.get_synoptic_token(args.token)
-    except ValueError as exc:
-        parser.error(str(exc))
-
     ensure_station_inputs(
         study,
         start,
         end,
-        token,
+        args.token,
     )
 
     sample_paths = []

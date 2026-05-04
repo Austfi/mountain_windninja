@@ -44,6 +44,98 @@ def test_build_station_records_prefers_synoptic_sensor_height():
     assert records[0]["height_source"] == "synoptic_sensor_metadata"
 
 
+def test_load_station_manifest_accepts_provider_column(tmp_path):
+    manifest = tmp_path / "stations.csv"
+    manifest.write_text(
+        "station_id,label,group,height_m_override,provider\n"
+        "USGS-394759105464101,Berthoud Pass USGS,pass,,usgs\n",
+        encoding="utf-8",
+    )
+
+    rows = sv.load_station_manifest(manifest)
+
+    assert rows == [{
+        "station_id": "USGS-394759105464101",
+        "label": "Berthoud Pass USGS",
+        "group": "pass",
+        "height_m_override": "",
+        "provider": "usgs",
+    }]
+
+
+def test_build_usgs_station_records_uses_default_height(monkeypatch):
+    def fake_metadata(station_id):
+        assert station_id == "USGS-394759105464101"
+        return {
+            "properties": {
+                "monitoring_location_name": "BERTHOUD PASS METEOROLOGICAL STATION, CO",
+                "altitude": 11291.0,
+                "agency_code": "USGS",
+                "agency_name": "U.S. Geological Survey",
+            },
+            "geometry": {
+                "coordinates": [-105.77806111111111, 39.799788888888884],
+            },
+        }
+
+    monkeypatch.setattr(sv, "fetch_usgs_monitoring_location", fake_metadata)
+    records = sv.build_usgs_station_records(
+        [{
+            "station_id": "USGS-394759105464101",
+            "label": "Berthoud Pass USGS",
+            "group": "pass",
+            "height_m_override": "",
+            "provider": "usgs",
+        }],
+        default_height_m=10.0,
+    )
+
+    assert records[0]["provider"] == "usgs"
+    assert records[0]["latitude"] == 39.799788888888884
+    assert records[0]["longitude"] == -105.77806111111111
+    assert records[0]["height_m"] == 10.0
+    assert records[0]["height_source"] == "default_height"
+
+
+def test_fetch_usgs_observations_normalizes_speed_direction(monkeypatch):
+    def fake_fetch(url):
+        return {
+            "features": [
+                {
+                    "properties": {
+                        "parameter_code": "00035",
+                        "time": "2026-01-01T00:00:00+00:00",
+                        "value": "10",
+                        "unit_of_measure": "mph",
+                    }
+                },
+                {
+                    "properties": {
+                        "parameter_code": "00036",
+                        "time": "2026-01-01T00:00:00+00:00",
+                        "value": "270",
+                        "unit_of_measure": "deg",
+                    }
+                },
+            ],
+            "links": [],
+        }
+
+    monkeypatch.setattr(sv, "fetch_json_url", fake_fetch)
+    rows = sv.fetch_usgs_observations(
+        {"station_id": "USGS-394759105464101"},
+        dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        dt.datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+        tolerance_minutes=30,
+        speed_units="mph",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["datetime"] == dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
+    assert rows[0]["speed_obs"] == 10.0
+    assert rows[0]["dir_obs_deg"] == 270.0
+
+
 def test_extract_station_observations_matches_set_keys_to_sensor_metadata():
     station = {
         "OBSERVATIONS": {

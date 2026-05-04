@@ -8,6 +8,9 @@ import datetime as dt
 import html
 import json
 import math
+import os
+import random
+import re
 from pathlib import Path
 
 UTC = dt.timezone.utc
@@ -47,12 +50,23 @@ COLORS = {
     "bg": "#ffffff",
 }
 
+CONTAINER_REPO_PREFIX = "/opt/mountain_windninja/"
+
 
 def resolve_repo_path(raw_path: str | Path) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
         return path
     return (BASE_DIR / path).resolve()
+
+
+def resolve_artifact_path(raw_path: str | Path | None) -> Path | None:
+    if not raw_path:
+        return None
+    value = str(raw_path)
+    if value.startswith(CONTAINER_REPO_PREFIX):
+        return (BASE_DIR / value[len(CONTAINER_REPO_PREFIX):]).resolve()
+    return resolve_repo_path(value)
 
 
 def parse_time(raw_value: str) -> dt.datetime:
@@ -165,6 +179,310 @@ def metric_summary(rows: list[dict], model_label: str = "HRRR") -> dict:
         "hrrr": parent_model,
         "parent_model": parent_model,
     }
+
+
+def finite(value: float | None) -> bool:
+    return value is not None and not math.isnan(value)
+
+
+def field_values(
+    rows: list[dict],
+    field: str,
+    *,
+    absolute: bool = False,
+    obs_speed_min: float | None = None,
+) -> list[float]:
+    out = []
+    for row in rows:
+        if obs_speed_min is not None:
+            obs_speed = row.get("speed_obs")
+            if obs_speed is None or obs_speed < obs_speed_min:
+                continue
+        value = row.get(field)
+        if not finite(value):
+            continue
+        out.append(abs(value) if absolute else value)
+    return out
+
+
+def paired_rows(rows: list[dict], fields: tuple[str, ...]) -> list[dict]:
+    return [
+        row
+        for row in rows
+        if all(finite(row.get(field)) for field in fields)
+    ]
+
+
+def skill_score(model_error: float | None, baseline_error: float | None) -> float | None:
+    if not finite(model_error) or not finite(baseline_error) or math.isclose(baseline_error, 0.0):
+        return None
+    return 1.0 - (model_error / baseline_error)
+
+
+def percentile(values: list[float], pct: float) -> float | None:
+    clean = sorted(value for value in values if finite(value))
+    if not clean:
+        return None
+    if len(clean) == 1:
+        return clean[0]
+    position = (len(clean) - 1) * (pct / 100.0)
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return clean[int(position)]
+    fraction = position - lower
+    return clean[lower] * (1.0 - fraction) + clean[upper] * fraction
+
+
+def bootstrap_ci(
+    rows: list[dict],
+    metric_fn,
+    *,
+    iterations: int = 500,
+    seed: int = 20260504,
+) -> tuple[float | None, float | None]:
+    if len(rows) < 2:
+        return None, None
+    rng = random.Random(seed)
+    values = []
+    count = len(rows)
+    for _ in range(iterations):
+        sample = [rows[rng.randrange(count)] for _ in range(count)]
+        value = metric_fn(sample)
+        if finite(value):
+            values.append(value)
+    return percentile(values, 2.5), percentile(values, 97.5)
+
+
+def regression_stats(rows: list[dict], model_field: str) -> dict[str, float | None]:
+    points = [
+        (row["speed_obs"], row[model_field])
+        for row in rows
+        if finite(row.get("speed_obs")) and finite(row.get(model_field))
+    ]
+    if len(points) < 2:
+        return {"slope": None, "intercept": None, "r2": None}
+
+    x_values = [point[0] for point in points]
+    y_values = [point[1] for point in points]
+    x_mean = mean(x_values)
+    y_mean = mean(y_values)
+    denominator = sum((value - x_mean) ** 2 for value in x_values)
+    if math.isclose(denominator, 0.0):
+        return {"slope": None, "intercept": None, "r2": None}
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in points) / denominator
+    intercept = y_mean - slope * x_mean
+    ss_tot = sum((value - y_mean) ** 2 for value in y_values)
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in points)
+    r2 = None if math.isclose(ss_tot, 0.0) else 1.0 - (ss_res / ss_tot)
+    return {"slope": slope, "intercept": intercept, "r2": r2}
+
+
+def station_sample_distances(rows: list[dict], stations: list[dict]) -> dict[str, dict[str, float]]:
+    rows_by_station: dict[str, dict] = {}
+    for row in rows:
+        station_id = row["station_id"]
+        if station_id in rows_by_station:
+            continue
+        wn_path = resolve_artifact_path(row.get("wn_vel_path"))
+        wx_path = resolve_artifact_path(row.get("wx_vel_path"))
+        if wn_path and wx_path and wn_path.exists() and wx_path.exists():
+            rows_by_station[station_id] = row
+    if not rows_by_station or not stations:
+        return {}
+
+    try:
+        import rasterio
+        from rasterio.warp import transform
+    except Exception:
+        return {}
+
+    wgs84_proj = "+proj=longlat +datum=WGS84 +no_defs"
+
+    def project(crs, lon: float, lat: float) -> tuple[float, float]:
+        xs, ys = transform(wgs84_proj, crs, [lon], [lat])
+        return xs[0], ys[0]
+
+    def sample_distance(path: Path, lon: float, lat: float) -> float | None:
+        try:
+            with rasterio.open(path) as dataset:
+                x, y = project(dataset.crs, lon, lat)
+                row_index, col_index = dataset.index(x, y)
+                if (
+                    row_index < 0
+                    or col_index < 0
+                    or row_index >= dataset.height
+                    or col_index >= dataset.width
+                ):
+                    return None
+                center_x, center_y = dataset.xy(row_index, col_index)
+                return math.hypot(center_x - x, center_y - y)
+        except Exception:
+            return None
+
+    station_by_id = {str(station["station_id"]).upper(): station for station in stations}
+    distances = {}
+    for station_id, row in rows_by_station.items():
+        station = station_by_id.get(station_id.upper())
+        if not station:
+            continue
+        station_lon = float(station["longitude"])
+        station_lat = float(station["latitude"])
+        wn_path = resolve_artifact_path(row.get("wn_vel_path"))
+        wx_path = resolve_artifact_path(row.get("wx_vel_path"))
+        if not wn_path or not wx_path:
+            continue
+        distances[station_id] = {
+            "wn_sample_distance_m": sample_distance(wn_path, station_lon, station_lat),
+            "wx_sample_distance_m": sample_distance(wx_path, station_lon, station_lat),
+        }
+    return distances
+
+
+STATION_METRIC_FIELDS = [
+    "station_id",
+    "station_label",
+    "sample_count",
+    "obs_height_m",
+    "height_source",
+    "wn_sample_distance_m",
+    "wx_sample_distance_m",
+    "wn_speed_bias",
+    "wx_speed_bias",
+    "wn_speed_mae",
+    "wx_speed_mae",
+    "speed_mae_skill",
+    "speed_mae_improvement",
+    "speed_mae_improvement_ci_low",
+    "speed_mae_improvement_ci_high",
+    "wn_speed_rmse",
+    "wx_speed_rmse",
+    "wn_vector_rmse",
+    "wx_vector_rmse",
+    "vector_rmse_skill",
+    "vector_rmse_improvement",
+    "vector_rmse_improvement_ci_low",
+    "vector_rmse_improvement_ci_high",
+    "wn_dir_mae_deg",
+    "wx_dir_mae_deg",
+    "dir_count_ge_5mph",
+    "wn_dir_mae_ge_5mph",
+    "wx_dir_mae_ge_5mph",
+    "dir_count_ge_10mph",
+    "wn_dir_mae_ge_10mph",
+    "wx_dir_mae_ge_10mph",
+    "wn_speed_slope",
+    "wx_speed_slope",
+    "wn_speed_intercept",
+    "wx_speed_intercept",
+    "wn_speed_r2",
+    "wx_speed_r2",
+]
+
+
+def build_station_metrics(rows: list[dict], stations: list[dict]) -> list[dict]:
+    station_metadata = {str(station["station_id"]).upper(): station for station in stations}
+    distances = station_sample_distances(rows, stations)
+    metrics = []
+
+    for station_id in sorted({row["station_id"] for row in rows}):
+        station_rows = [row for row in rows if row["station_id"] == station_id]
+        metadata = station_metadata.get(station_id.upper(), {})
+        label = (
+            metadata.get("label")
+            or metadata.get("name")
+            or station_rows[0].get("station_label")
+            or station_id
+        )
+        obs_height = (
+            metadata.get("height_m")
+            if metadata.get("height_m") is not None
+            else station_rows[0].get("height_m")
+        )
+        height_source = metadata.get("height_source") or "sample"
+
+        wn_speed_mae = mean(field_values(station_rows, "wn_speed_error", absolute=True))
+        wx_speed_mae = mean(field_values(station_rows, "wx_speed_error", absolute=True))
+        wn_vector_rmse = rmse(field_values(station_rows, "wn_vector_error"))
+        wx_vector_rmse = rmse(field_values(station_rows, "wx_vector_error"))
+
+        def speed_improvement(sample: list[dict]) -> float:
+            paired = paired_rows(sample, ("wn_speed_error", "wx_speed_error"))
+            if not paired:
+                return float("nan")
+            return (
+                mean(field_values(paired, "wx_speed_error", absolute=True))
+                - mean(field_values(paired, "wn_speed_error", absolute=True))
+            )
+
+        def vector_improvement(sample: list[dict]) -> float:
+            paired = paired_rows(sample, ("wn_vector_error", "wx_vector_error"))
+            if not paired:
+                return float("nan")
+            return rmse(field_values(paired, "wx_vector_error")) - rmse(field_values(paired, "wn_vector_error"))
+
+        speed_ci_low, speed_ci_high = bootstrap_ci(station_rows, speed_improvement)
+        vector_ci_low, vector_ci_high = bootstrap_ci(station_rows, vector_improvement)
+        dir_rows_ge_5 = [
+            row
+            for row in station_rows
+            if finite(row.get("speed_obs"))
+            and row["speed_obs"] >= 5.0
+            and finite(row.get("wn_dir_abs_error_deg"))
+            and finite(row.get("wx_dir_abs_error_deg"))
+        ]
+        dir_rows_ge_10 = [
+            row
+            for row in station_rows
+            if finite(row.get("speed_obs"))
+            and row["speed_obs"] >= 10.0
+            and finite(row.get("wn_dir_abs_error_deg"))
+            and finite(row.get("wx_dir_abs_error_deg"))
+        ]
+        wn_regression = regression_stats(station_rows, "wn_speed")
+        wx_regression = regression_stats(station_rows, "wx_speed")
+        station_distances = distances.get(station_id, {})
+
+        metrics.append({
+            "station_id": station_id,
+            "station_label": label,
+            "sample_count": len(station_rows),
+            "obs_height_m": clean_number(float(obs_height), 2) if obs_height is not None else None,
+            "height_source": height_source,
+            "wn_sample_distance_m": clean_number(station_distances.get("wn_sample_distance_m"), 1),
+            "wx_sample_distance_m": clean_number(station_distances.get("wx_sample_distance_m"), 1),
+            "wn_speed_bias": clean_number(mean(field_values(station_rows, "wn_speed_error"))),
+            "wx_speed_bias": clean_number(mean(field_values(station_rows, "wx_speed_error"))),
+            "wn_speed_mae": clean_number(wn_speed_mae),
+            "wx_speed_mae": clean_number(wx_speed_mae),
+            "speed_mae_skill": clean_number(skill_score(wn_speed_mae, wx_speed_mae), 3),
+            "speed_mae_improvement": clean_number(wx_speed_mae - wn_speed_mae),
+            "speed_mae_improvement_ci_low": clean_number(speed_ci_low),
+            "speed_mae_improvement_ci_high": clean_number(speed_ci_high),
+            "wn_speed_rmse": clean_number(rmse(field_values(station_rows, "wn_speed_error"))),
+            "wx_speed_rmse": clean_number(rmse(field_values(station_rows, "wx_speed_error"))),
+            "wn_vector_rmse": clean_number(wn_vector_rmse),
+            "wx_vector_rmse": clean_number(wx_vector_rmse),
+            "vector_rmse_skill": clean_number(skill_score(wn_vector_rmse, wx_vector_rmse), 3),
+            "vector_rmse_improvement": clean_number(wx_vector_rmse - wn_vector_rmse),
+            "vector_rmse_improvement_ci_low": clean_number(vector_ci_low),
+            "vector_rmse_improvement_ci_high": clean_number(vector_ci_high),
+            "wn_dir_mae_deg": clean_number(mean(field_values(station_rows, "wn_dir_abs_error_deg"))),
+            "wx_dir_mae_deg": clean_number(mean(field_values(station_rows, "wx_dir_abs_error_deg"))),
+            "dir_count_ge_5mph": len(dir_rows_ge_5),
+            "wn_dir_mae_ge_5mph": clean_number(mean(field_values(dir_rows_ge_5, "wn_dir_abs_error_deg"))),
+            "wx_dir_mae_ge_5mph": clean_number(mean(field_values(dir_rows_ge_5, "wx_dir_abs_error_deg"))),
+            "dir_count_ge_10mph": len(dir_rows_ge_10),
+            "wn_dir_mae_ge_10mph": clean_number(mean(field_values(dir_rows_ge_10, "wn_dir_abs_error_deg"))),
+            "wx_dir_mae_ge_10mph": clean_number(mean(field_values(dir_rows_ge_10, "wx_dir_abs_error_deg"))),
+            "wn_speed_slope": clean_number(wn_regression["slope"], 3),
+            "wx_speed_slope": clean_number(wx_regression["slope"], 3),
+            "wn_speed_intercept": clean_number(wn_regression["intercept"]),
+            "wx_speed_intercept": clean_number(wx_regression["intercept"]),
+            "wn_speed_r2": clean_number(wn_regression["r2"], 3),
+            "wx_speed_r2": clean_number(wx_regression["r2"], 3),
+        })
+    return metrics
 
 
 def average_by_time(rows: list[dict], fields: list[str]) -> list[dict]:
@@ -417,11 +735,19 @@ def scatter_plot(
     units: str,
     model_label: str = "HRRR",
 ) -> None:
-    width = 720
-    height = 640
-    margin = {"left": 78, "right": 34, "top": 70, "bottom": 78}
+    width = 1080
+    height = 700
+    margin = {"left": 78, "right": 42, "top": 70, "bottom": 78}
     plot_width = width - margin["left"] - margin["right"]
     plot_height = height - margin["top"] - margin["bottom"]
+    station_colors = [
+        "#111111",
+        "#6f42c1",
+        "#0f766e",
+        "#b45309",
+        "#7f1d1d",
+        "#334155",
+    ]
 
     values = []
     for row in rows:
@@ -436,6 +762,27 @@ def scatter_plot(
 
     def scale_y(value: float) -> float:
         return margin["top"] + (1 - ((value - low) / (high - low))) * plot_height
+
+    def station_color(station_id: str) -> str:
+        stations = sorted({row["station_id"] for row in rows})
+        return station_colors[stations.index(station_id) % len(station_colors)]
+
+    def station_label(station_id: str) -> str:
+        if station_id.startswith("USGS-"):
+            return "USGS met station"
+        return station_id
+
+    def trend_line(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+        if len(points) < 2:
+            return None
+        x_mean = mean([point[0] for point in points])
+        y_mean = mean([point[1] for point in points])
+        denominator = sum((point[0] - x_mean) ** 2 for point in points)
+        if math.isclose(denominator, 0.0):
+            return None
+        slope = sum((point[0] - x_mean) * (point[1] - y_mean) for point in points) / denominator
+        intercept = y_mean - slope * x_mean
+        return slope, intercept
 
     parts = svg_header(width, height, title)
     for tick in tick_values(low, high):
@@ -468,15 +815,40 @@ def scatter_plot(
         obs = row.get("speed_obs")
         if obs is None:
             continue
+        color = station_color(row["station_id"])
         if row.get("wn_speed") is not None:
             parts.append(
                 f'<circle cx="{scale_x(obs):.1f}" cy="{scale_y(row["wn_speed"]):.1f}" '
-                f'r="3.3" fill="{COLORS["windninja"]}" opacity="0.58"/>'
+                f'r="3.2" fill="{color}" opacity="0.45"/>'
             )
         if row.get("wx_speed") is not None:
             parts.append(
-                f'<circle cx="{scale_x(obs):.1f}" cy="{scale_y(row["wx_speed"]):.1f}" '
-                f'r="3.3" fill="{COLORS["hrrr"]}" opacity="0.48"/>'
+                f'<rect x="{scale_x(obs) - 2.7:.1f}" y="{scale_y(row["wx_speed"]) - 2.7:.1f}" '
+                f'width="5.4" height="5.4" fill="{color}" opacity="0.35"/>'
+            )
+
+    for station_id in sorted({row["station_id"] for row in rows}):
+        station_rows = [row for row in rows if row["station_id"] == station_id]
+        color = station_color(station_id)
+        for field, dash in (("wn_speed", ""), ("wx_speed", "6 4")):
+            points = [
+                (row["speed_obs"], row[field])
+                for row in station_rows
+                if row.get("speed_obs") is not None and row.get(field) is not None
+            ]
+            line = trend_line(points)
+            if not line:
+                continue
+            slope, intercept = line
+            x1 = min(point[0] for point in points)
+            x2 = max(point[0] for point in points)
+            y1 = slope * x1 + intercept
+            y2 = slope * x2 + intercept
+            dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+            parts.append(
+                f'<line x1="{scale_x(x1):.1f}" y1="{scale_y(y1):.1f}" '
+                f'x2="{scale_x(x2):.1f}" y2="{scale_y(y2):.1f}" '
+                f'stroke="{color}" stroke-width="2.4" opacity="0.9"{dash_attr}/>'
             )
 
     parts.append(
@@ -497,127 +869,301 @@ def scatter_plot(
         f'transform="rotate(-90 20 {margin["top"] + plot_height / 2:.1f})" '
         f'text-anchor="middle" class="axis">Modeled speed ({html.escape(units)})</text>'
     )
-    parts.append(f'<circle cx="90" cy="{height - 24}" r="4" fill="{COLORS["windninja"]}"/>')
-    parts.append(f'<text x="102" y="{height - 20}" class="legend">WindNinja</text>')
-    parts.append(f'<circle cx="220" cy="{height - 24}" r="4" fill="{COLORS["hrrr"]}"/>')
-    parts.append(f'<text x="232" y="{height - 20}" class="legend">{html.escape(model_label)}</text>')
+    legend_x = margin["left"] + 24
+    legend_y = margin["top"] + 24
+    legend_height = 154 + 24 * len({row["station_id"] for row in rows})
+    parts.append(
+        f'<rect x="{legend_x - 16}" y="{legend_y - 24}" width="250" height="{legend_height}" '
+        'fill="#ffffff" opacity="0.88" stroke="#d8dee9" rx="4"/>'
+    )
+    parts.append(f'<circle cx="{legend_x}" cy="{legend_y}" r="4" fill="#333333"/>')
+    parts.append(f'<text x="{legend_x + 12}" y="{legend_y + 4}" class="legend">WindNinja points</text>')
+    parts.append(f'<rect x="{legend_x - 4}" y="{legend_y + 18}" width="8" height="8" fill="#333333" opacity="0.6"/>')
+    parts.append(f'<text x="{legend_x + 12}" y="{legend_y + 26}" class="legend">{html.escape(model_label)} points</text>')
+    parts.append(f'<line x1="{legend_x - 5}" x2="{legend_x + 22}" y1="{legend_y + 48}" y2="{legend_y + 48}" stroke="#333333" stroke-width="2.4"/>')
+    parts.append(f'<text x="{legend_x + 32}" y="{legend_y + 52}" class="legend">WN fit</text>')
+    parts.append(f'<line x1="{legend_x - 5}" x2="{legend_x + 22}" y1="{legend_y + 72}" y2="{legend_y + 72}" stroke="#333333" stroke-width="2.4" stroke-dasharray="6 4"/>')
+    parts.append(f'<text x="{legend_x + 32}" y="{legend_y + 76}" class="legend">{html.escape(model_label)} fit</text>')
+    parts.append(f'<text x="{legend_x}" y="{legend_y + 112}" class="axis">Stations</text>')
+    for index, station_id in enumerate(sorted({row["station_id"] for row in rows})):
+        y = legend_y + 138 + index * 24
+        color = station_color(station_id)
+        parts.append(f'<circle cx="{legend_x}" cy="{y}" r="4.5" fill="{color}"/>')
+        parts.append(f'<text x="{legend_x + 12}" y="{y + 4}" class="legend">{html.escape(station_label(station_id))}</text>')
     parts.append(svg_footer())
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
-def station_location_plot(path: Path, stations: list[dict], *, title: str) -> None:
-    width = 900
-    height = 560
-    margin = {"left": 82, "right": 44, "top": 70, "bottom": 74}
-    plot_width = width - margin["left"] - margin["right"]
-    plot_height = height - margin["top"] - margin["bottom"]
+def safe_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_") or "station"
 
-    lats = [float(station["latitude"]) for station in stations]
-    lons = [float(station["longitude"]) for station in stations]
-    lat_low, lat_high = nice_range(lats)
-    lon_low, lon_high = nice_range(lons)
 
-    def x_scale(lon: float) -> float:
-        return margin["left"] + ((lon - lon_low) / (lon_high - lon_low)) * plot_width
+def infer_domain_from_windninja_path(path: Path) -> str | None:
+    match = re.match(r"^(.+?)_(?:\d{2}-\d{2}-\d{4}|\d{8})_\d{4}", path.name)
+    return match.group(1) if match else None
 
-    def y_scale(lat: float) -> float:
-        return margin["top"] + (1 - ((lat - lat_low) / (lat_high - lat_low))) * plot_height
 
-    parts = svg_header(width, height, title)
-    for tick in tick_values(lon_low, lon_high):
-        x = x_scale(tick)
-        parts.append(
-            f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{margin["top"]}" '
-            f'y2="{height - margin["bottom"]}" class="grid"/>'
+def terrain_path_for_domain(domain: str | None) -> Path | None:
+    if not domain:
+        return None
+    config_path = BASE_DIR / "config" / "domains.json"
+    if not config_path.exists():
+        return None
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    domain_config = (payload.get("domains") or {}).get(domain) or {}
+    elevation_file = domain_config.get("elevation_file")
+    if not elevation_file:
+        return None
+    terrain = BASE_DIR / "static_data" / elevation_file
+    if terrain.suffix.lower() == ".lcp":
+        tif = terrain.with_suffix(".tif")
+        if tif.exists():
+            return tif
+    return terrain if terrain.exists() else None
+
+
+def sampling_point_maps(
+    output_dir: Path,
+    rows: list[dict],
+    stations: list[dict],
+    *,
+    model_label: str,
+) -> list[str]:
+    rows_by_station: dict[str, dict] = {}
+    for row in rows:
+        station_id = row["station_id"]
+        if station_id in rows_by_station:
+            continue
+        wn_path = resolve_artifact_path(row.get("wn_vel_path"))
+        wx_path = resolve_artifact_path(row.get("wx_vel_path"))
+        if wn_path and wx_path and wn_path.exists() and wx_path.exists():
+            rows_by_station[station_id] = row
+    if not rows_by_station:
+        return []
+
+    try:
+        os.environ.setdefault("MPLCONFIGDIR", str((BASE_DIR / "runtime" / ".matplotlib").resolve()))
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import rasterio
+        from rasterio.plot import plotting_extent
+        from rasterio.warp import transform
+        from rasterio.windows import from_bounds, transform as window_transform
+    except Exception:
+        return []
+
+    wgs84_proj = "+proj=longlat +datum=WGS84 +no_defs"
+
+    def project(crs, lon: float, lat: float) -> tuple[float, float]:
+        xs, ys = transform(wgs84_proj, crs, [lon], [lat])
+        return xs[0], ys[0]
+
+    def lonlat(crs, x: float, y: float) -> tuple[float, float]:
+        lons, lats = transform(crs, wgs84_proj, [x], [y])
+        return lons[0], lats[0]
+
+    def sample_cell(path: Path, lon: float, lat: float) -> dict | None:
+        if not path.exists():
+            return None
+        with rasterio.open(path) as dataset:
+            x, y = project(dataset.crs, lon, lat)
+            row, col = dataset.index(x, y)
+            if row < 0 or col < 0 or row >= dataset.height or col >= dataset.width:
+                return None
+            center_x, center_y = dataset.xy(row, col)
+            sample_lon, sample_lat = lonlat(dataset.crs, center_x, center_y)
+            return {
+                "x": center_x,
+                "y": center_y,
+                "lon": sample_lon,
+                "lat": sample_lat,
+                "distance_m": math.hypot(center_x - x, center_y - y),
+            }
+
+    station_by_id = {station["station_id"]: station for station in stations}
+    written = []
+    for station_id, row in sorted(rows_by_station.items()):
+        station = station_by_id.get(station_id)
+        if not station:
+            continue
+        wn_path = resolve_artifact_path(row.get("wn_vel_path"))
+        wx_path = resolve_artifact_path(row.get("wx_vel_path"))
+        if not wn_path or not wx_path:
+            continue
+        terrain_path = terrain_path_for_domain(infer_domain_from_windninja_path(wn_path))
+        if not terrain_path:
+            continue
+
+        station_lon = float(station["longitude"])
+        station_lat = float(station["latitude"])
+        wn_sample = sample_cell(wn_path, station_lon, station_lat)
+        wx_sample = sample_cell(wx_path, station_lon, station_lat)
+        if not wn_sample or not wx_sample:
+            continue
+
+        with rasterio.open(terrain_path) as terrain:
+            station_x, station_y = project(terrain.crs, station_lon, station_lat)
+            wn_x, wn_y = project(terrain.crs, wn_sample["lon"], wn_sample["lat"])
+            wx_x, wx_y = project(terrain.crs, wx_sample["lon"], wx_sample["lat"])
+            xs = [station_x, wn_x, wx_x]
+            ys = [station_y, wn_y, wx_y]
+            span = max(max(xs) - min(xs), max(ys) - min(ys), 3500.0)
+            pad = max(span * 0.85, 1800.0)
+            left = min(xs) - pad
+            right = max(xs) + pad
+            bottom = min(ys) - pad
+            top = max(ys) + pad
+            window = from_bounds(left, bottom, right, top, transform=terrain.transform)
+            window = window.round_offsets().round_lengths()
+            data = terrain.read(1, window=window, masked=True)
+            transform_window = window_transform(window, terrain.transform)
+            extent = plotting_extent(data, transform_window)
+
+        rel_extent = [
+            (extent[0] - station_x) / 1000.0,
+            (extent[1] - station_x) / 1000.0,
+            (extent[2] - station_y) / 1000.0,
+            (extent[3] - station_y) / 1000.0,
+        ]
+        height, width = data.shape
+        x_coords = np.linspace(rel_extent[0], rel_extent[1], width)
+        y_coords = np.linspace(rel_extent[3], rel_extent[2], height)
+
+        fig, ax = plt.subplots(figsize=(10.5, 9.0), dpi=160)
+        ax.imshow(data, extent=rel_extent, cmap="terrain", alpha=0.82)
+        clean = np.asarray(data.filled(np.nan), dtype=float)
+        finite = clean[np.isfinite(clean)]
+        if finite.size:
+            low = math.floor(float(np.nanmin(finite)) / 100.0) * 100.0
+            high = math.ceil(float(np.nanmax(finite)) / 100.0) * 100.0
+            levels = np.arange(low, high + 1, 100.0)
+            if len(levels) > 1:
+                ax.contour(
+                    x_coords,
+                    y_coords,
+                    clean,
+                    levels=levels,
+                    colors="#2d3748",
+                    alpha=0.32,
+                    linewidths=0.45,
+                )
+
+        station_rel = (0.0, 0.0)
+        wn_rel = ((wn_x - station_x) / 1000.0, (wn_y - station_y) / 1000.0)
+        wx_rel = ((wx_x - station_x) / 1000.0, (wx_y - station_y) / 1000.0)
+        ax.plot(*station_rel, marker="*", color="#111111", markersize=15, markeredgecolor="white",
+                markeredgewidth=1.3, linestyle="none", label=f"{station_id} station")
+        ax.plot(*wn_rel, marker="o", color=COLORS["windninja"], markersize=8, linestyle="none",
+                label="WindNinja sampled cell")
+        ax.plot(*wx_rel, marker="s", color=COLORS["hrrr"], markersize=8, linestyle="none",
+                label=f"{model_label} sampled cell")
+        ax.plot([station_rel[0], wn_rel[0]], [station_rel[1], wn_rel[1]],
+                color=COLORS["windninja"], linewidth=1.2)
+        ax.plot([station_rel[0], wx_rel[0]], [station_rel[1], wx_rel[1]],
+                color=COLORS["hrrr"], linewidth=1.2)
+
+        ax.annotate(
+            f"WindNinja sample\nnearest output cell\n{wn_sample['distance_m']:.0f} m from station",
+            xy=wn_rel,
+            xytext=(18, -54),
+            textcoords="offset points",
+            color="#1f4f82",
+            fontsize=9.5,
+            bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#8ab6dd", "alpha": 0.92},
+            arrowprops={"arrowstyle": "-", "color": COLORS["windninja"], "lw": 1.0},
         )
-        parts.append(
-            f'<text x="{x:.1f}" y="{height - margin["bottom"] + 24}" '
-            f'text-anchor="middle" class="axis">{tick:.4f}</text>'
+        ax.annotate(
+            f"{model_label} parent sample\nnearest raster cell\n{wx_sample['distance_m'] / 1000.0:.2f} km from station",
+            xy=wx_rel,
+            xytext=(-132, 58),
+            textcoords="offset points",
+            color="#8b1e1e",
+            fontsize=9.5,
+            bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#dd9a9a", "alpha": 0.92},
+            arrowprops={"arrowstyle": "-", "color": COLORS["hrrr"], "lw": 1.0},
         )
-
-    for tick in tick_values(lat_low, lat_high):
-        y = y_scale(tick)
-        parts.append(
-            f'<line x1="{margin["left"]}" x2="{width - margin["right"]}" '
-            f'y1="{y:.1f}" y2="{y:.1f}" class="grid"/>'
+        ax.annotate(
+            f"{station_id}\n{station_lat:.5f}, {station_lon:.5f}",
+            xy=station_rel,
+            xytext=(22, 18),
+            textcoords="offset points",
+            fontsize=10.5,
+            fontweight="bold",
+            bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#d8dee9", "alpha": 0.92},
         )
-        parts.append(
-            f'<text x="{margin["left"] - 10}" y="{y + 4:.1f}" '
-            f'text-anchor="end" class="axis">{tick:.4f}</text>'
+        ax.set_title(f"{station_id} Validation Sampling Points", fontsize=16, fontweight="bold")
+        ax.set_xlabel(f"Kilometers east/west of {station_id}")
+        ax.set_ylabel(f"Kilometers north/south of {station_id}")
+        ax.grid(color="white", alpha=0.45, linewidth=0.8)
+        ax.legend(loc="lower left", framealpha=0.92)
+        fig.text(
+            0.02,
+            0.018,
+            "Background: domain DEM terrain with 100 m contours. "
+            "Samples are nearest WindNinja output and parent-model raster cells.",
+            fontsize=9,
+            color="#333333",
         )
+        fig.tight_layout(rect=(0, 0.04, 1, 1))
 
-    parts.append(
-        f'<line x1="{margin["left"]}" x2="{margin["left"]}" y1="{margin["top"]}" '
-        f'y2="{height - margin["bottom"]}" class="axis-line"/>'
-    )
-    parts.append(
-        f'<line x1="{margin["left"]}" x2="{width - margin["right"]}" '
-        f'y1="{height - margin["bottom"]}" y2="{height - margin["bottom"]}" '
-        'class="axis-line"/>'
-    )
+        filename = f"sampling_map_{safe_name(station_id)}.png"
+        fig.savefig(output_dir / filename, facecolor="white")
+        plt.close(fig)
+        written.append(filename)
 
-    for station in sorted(stations, key=lambda item: item["station_id"]):
-        lat = float(station["latitude"])
-        lon = float(station["longitude"])
-        x = x_scale(lon)
-        y = y_scale(lat)
-
-        label_x = x - 320 if x > margin["left"] + plot_width * 0.55 else x + 18
-        label_x = min(max(label_x, margin["left"] + 8), width - margin["right"] - 330)
-        dy = -30 if y > margin["top"] + plot_height * 0.65 else 28
-        if y + dy < margin["top"] + 18:
-            dy = 42
-        if y + dy > height - margin["bottom"] - 18:
-            dy = -42
-        label_y = y + dy
-        station_id = str(station["station_id"])
-        label = str(station.get("label") or station.get("name") or station_id)
-        height_m = station.get("height_m")
-        height_source = station.get("height_source") or "unknown"
-        source_labels = {
-            "default_height": "10 m fallback",
-            "synoptic_sensor_metadata": "Synoptic metadata",
-        }
-        source_text = source_labels.get(str(height_source), str(height_source))
-        height_text = f"{float(height_m):.1f} m wind height" if height_m is not None else "wind height unknown"
-
-        parts.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{COLORS["windninja"]}" '
-            'stroke="#ffffff" stroke-width="2"/>'
-        )
-        parts.append(
-            f'<text x="{label_x:.1f}" y="{label_y:.1f}" text-anchor="start" class="legend">'
-            f'<tspan font-weight="700">{html.escape(station_id)}</tspan>'
-            f'<tspan x="{label_x:.1f}" dy="17">{html.escape(label)}</tspan>'
-            f'<tspan x="{label_x:.1f}" dy="17" class="axis">{html.escape(height_text)}; '
-            f'{html.escape(source_text)}</tspan>'
-            "</text>"
-        )
-
-    parts.append(
-        f'<text x="{width / 2:.1f}" y="{height - 26}" text-anchor="middle" class="axis">'
-        "Longitude</text>"
-    )
-    parts.append(
-        f'<text x="22" y="{margin["top"] + plot_height / 2:.1f}" '
-        f'transform="rotate(-90 22 {margin["top"] + plot_height / 2:.1f})" '
-        'text-anchor="middle" class="axis">Latitude</text>'
-    )
-    parts.append(svg_footer())
-    path.write_text("\n".join(parts), encoding="utf-8")
+    return written
 
 
-def write_summary_json(path: Path, summary: dict, source_paths: list[Path], plots: list[str]) -> None:
+def write_station_metrics(path: Path, station_metrics: list[dict]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=STATION_METRIC_FIELDS)
+        writer.writeheader()
+        writer.writerows(station_metrics)
+
+
+def write_summary_json(
+    path: Path,
+    summary: dict,
+    source_paths: list[Path],
+    plots: list[str],
+    station_metrics: list[dict],
+) -> None:
     payload = {
         "generated_at_utc": dt.datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source_paths": [str(path) for path in source_paths],
         "plots": plots,
         "summary": summary,
+        "station_metrics": station_metrics,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def write_index(path: Path, summary: dict, plots: list[str], title: str) -> None:
+def format_table_value(value, suffix: str = "") -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        if math.isnan(value):
+            return "n/a"
+        if abs(value) >= 100:
+            text = f"{value:.0f}"
+        elif abs(value) >= 10:
+            text = f"{value:.1f}"
+        else:
+            text = f"{value:.2f}".rstrip("0").rstrip(".")
+    else:
+        text = str(value)
+    return f"{text}{suffix}"
+
+
+def write_index(
+    path: Path,
+    summary: dict,
+    plots: list[str],
+    title: str,
+    station_metrics: list[dict],
+) -> None:
     def card(label: str, value: str) -> str:
         return (
             '<div class="card">'
@@ -640,6 +1186,63 @@ def write_index(path: Path, summary: dict, plots: list[str], title: str) -> None
         card("WN Direction MAE", f'{wn["dir_mae_deg"]} deg'),
         card(f"{model_label} Direction MAE", f'{wx["dir_mae_deg"]} deg'),
     ]
+    metric_rows = "\n".join(
+        "<tr>"
+        f"<td>{html.escape(str(row['station_id']))}</td>"
+        f"<td>{html.escape(str(row['sample_count']))}</td>"
+        f"<td>{html.escape(format_table_value(row['obs_height_m'], ' m'))}</td>"
+        f"<td>{html.escape(format_table_value(row['wx_sample_distance_m'], ' m'))}</td>"
+        f"<td>{html.escape(format_table_value(row['wn_sample_distance_m'], ' m'))}</td>"
+        f"<td>{html.escape(format_table_value(row['wx_speed_mae']))}</td>"
+        f"<td>{html.escape(format_table_value(row['wn_speed_mae']))}</td>"
+        f"<td>{html.escape(format_table_value(row['speed_mae_skill']))}</td>"
+        f"<td>{html.escape(format_table_value(row['wx_vector_rmse']))}</td>"
+        f"<td>{html.escape(format_table_value(row['wn_vector_rmse']))}</td>"
+        f"<td>{html.escape(format_table_value(row['vector_rmse_skill']))}</td>"
+        f"<td>{html.escape(format_table_value(row['wx_dir_mae_ge_5mph'], ' deg'))}</td>"
+        f"<td>{html.escape(format_table_value(row['wn_dir_mae_ge_5mph'], ' deg'))}</td>"
+        f"<td>{html.escape(format_table_value(row['speed_mae_improvement_ci_low']))}"
+        " to "
+        f"{html.escape(format_table_value(row['speed_mae_improvement_ci_high']))}</td>"
+        "</tr>"
+        for row in station_metrics
+    )
+    metrics_table = ""
+    if metric_rows:
+        metrics_table = f"""
+  <section>
+    <h2>Station-Level Metrics</h2>
+    <p class="note">
+      Skill is 1 - WindNinja error / parent-model error. Direction MAE is also reported
+      for observed speed >= 5 mph to reduce light-wind direction noise.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Station</th>
+            <th>N</th>
+            <th>Obs height</th>
+            <th>{html.escape(model_label)} dist</th>
+            <th>WN dist</th>
+            <th>{html.escape(model_label)} speed MAE</th>
+            <th>WN speed MAE</th>
+            <th>Speed skill</th>
+            <th>{html.escape(model_label)} vector RMSE</th>
+            <th>WN vector RMSE</th>
+            <th>Vector skill</th>
+            <th>{html.escape(model_label)} dir MAE >=5</th>
+            <th>WN dir MAE >=5</th>
+            <th>Speed improvement 95% CI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {metric_rows}
+        </tbody>
+      </table>
+    </div>
+  </section>
+"""
     images = "\n".join(
         f'<section><h2>{html.escape(Path(plot).stem.replace("_", " ").title())}</h2>'
         f'<img src="{html.escape(plot)}" alt="{html.escape(plot)}"></section>'
@@ -681,6 +1284,12 @@ def write_index(path: Path, summary: dict, plots: list[str], title: str) -> None
       padding: 16px;
       margin-bottom: 18px;
     }}
+    .note {{ margin: 0 0 12px; color: #52616f; font-size: 14px; }}
+    .table-wrap {{ overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+    th, td {{ border-bottom: 1px solid #e2e8f0; padding: 8px 10px; text-align: right; }}
+    th:first-child, td:first-child {{ text-align: left; }}
+    th {{ color: #52616f; font-weight: 700; white-space: nowrap; }}
     img {{ display: block; width: 100%; height: auto; }}
   </style>
 </head>
@@ -690,6 +1299,7 @@ def write_index(path: Path, summary: dict, plots: list[str], title: str) -> None
   <div class="cards">
     {"".join(cards)}
   </div>
+  {metrics_table}
   {images}
 </main>
 </body>
@@ -771,8 +1381,15 @@ def main(argv: list[str] | None = None) -> int:
         "daily_metrics.svg",
     ]
     station_metadata = load_station_metadata(study_root, args.station_id)
+    station_metrics = build_station_metrics(rows, station_metadata)
+    write_station_metrics(output_dir / "station_metrics.csv", station_metrics)
     if station_metadata:
-        plots.append("station_locations.svg")
+        plots.extend(sampling_point_maps(
+            output_dir,
+            rows,
+            station_metadata,
+            model_label=model_label,
+        ))
     line_plot(
         output_dir / plots[0],
         time_records,
@@ -827,15 +1444,15 @@ def main(argv: list[str] | None = None) -> int:
         y_label=f"Error ({args.speed_units})",
         include_zero=True,
     )
-    if station_metadata:
-        station_location_plot(
-            output_dir / "station_locations.svg",
-            station_metadata,
-            title="Station Locations",
-        )
 
-    write_summary_json(output_dir / "plot_summary.json", summary, source_paths, plots)
-    write_index(output_dir / "index.html", summary, plots, args.title)
+    write_summary_json(
+        output_dir / "plot_summary.json",
+        summary,
+        source_paths,
+        plots,
+        station_metrics,
+    )
+    write_index(output_dir / "index.html", summary, plots, args.title, station_metrics)
 
     print(f"Wrote validation plots to {output_dir}")
     print(f"Samples: {summary['sample_count']} | Stations: {summary['station_count']}")

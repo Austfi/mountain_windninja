@@ -351,6 +351,26 @@ def test_generate_domain_average_config_uses_template_thread_cap(tmp_path, monke
     assert "num_threads = 6" in contents
 
 
+def test_generate_domain_average_config_allows_env_thread_override(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    monkeypatch.setenv("MWN_NUM_THREADS", "6")
+
+    config_path, _ = daily_run.generate_domain_average_config(
+        domain,
+        wind_speed=12.0,
+        wind_direction=225.0,
+        sub_dir=str(tmp_path / "domavg_out"),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "num_threads = 6" in contents
+
+
 def test_generate_domain_average_config_uses_template_momentum_flag(tmp_path):
     template = _make_template(tmp_path)
     template.write_text(
@@ -400,6 +420,8 @@ def test_generate_gridded_config_uses_gridded_initialization(tmp_path):
     assert f"input_speed_grid = {(tmp_path / 'speed.asc').as_posix()}" in contents
     assert f"input_dir_grid = {(tmp_path / 'direction.asc').as_posix()}" in contents
     assert "input_speed_units = mps" in contents
+    assert "input_wind_height = 10.0" in contents
+    assert "units_input_wind_height = m" in contents
     assert "diurnal_winds = false" in contents
     assert "year  = 2026" in contents
     assert "hour  = 12" in contents

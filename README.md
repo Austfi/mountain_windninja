@@ -64,6 +64,7 @@ The first local build takes about 30 minutes.
 | `mwn.sh run --hours N` | Run a forecast |
 | `mwn.sh run --mode reanalysis ...` | Run historical HRRR reanalysis |
 | `mwn.sh validate-study berthoud_pass ...` | Run chunked HRRR/WindNinja/Synoptic validation |
+| `mwn.sh validate-study berthoud_pass_nbm ...` | Run the same station validation with archived NBM f001 forcing |
 | `mwn.sh clean` | Clear cached OpenFOAM mesh and temp output |
 
 Run `./deploy/gcp/mwn.sh help` for the beginner command list, or
@@ -147,10 +148,35 @@ The study command reads explicit stations from
 `config/stations/berthoud_pass_validation_manifest.csv`, runs HRRR reanalysis in
 chunks, validates WindNinja and parent HRRR rasters, and writes aggregate outputs
 under `runtime/validation/berthoud_pass/`.
-The Berthoud manifest includes K0CO and CABTP. CABTP's wind sensor height is not
+The Berthoud manifest includes K0CO, CABTP, and
+`USGS-394759105464101`. CABTP and the USGS station wind sensor heights are not
 confirmed in this repo; leave `height_m_override` blank unless the actual
-anemometer height is known. The plot command writes a station-location SVG
-beside the comparison plots.
+anemometer height is known. The plot command writes station-level metrics and
+terrain-backed sampling maps beside the comparison plots.
+
+NBM validation uses the separate `berthoud_pass_nbm` study so HRRR and NBM
+outputs stay separate:
+
+```bash
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+```
+
+`MWN_NUM_THREADS=6` is the current high-thread setting for a 6-physical /
+12-logical CPU machine. OpenFOAM momentum runs should stay at or below physical
+core count.
+
+After both validation roots have matching completed chunks, compare parent HRRR,
+WindNinja(HRRR), parent NBM, and WindNinja(NBM) on the same station-hours:
+
+```bash
+./deploy/gcp/mwn.sh compare-validation \
+  runtime/validation/berthoud_pass \
+  runtime/validation/berthoud_pass_nbm \
+  --output-dir runtime/validation/model_comparison
+```
 
 Generated runtime output, terrain downloads, caches, and local runtime config are
 ignored by git. Source inputs such as `config/stations/*.csv` and

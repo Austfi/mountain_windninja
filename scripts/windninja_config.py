@@ -100,6 +100,13 @@ def generate_config(date_str, start_time, stop_time, domain_config,
 
 
 def _read_template_num_threads(template_path, fallback=4):
+    override = os.getenv("MWN_NUM_THREADS")
+    if override:
+        try:
+            return max(1, int(override))
+        except ValueError:
+            logger.warning(f"Ignoring invalid MWN_NUM_THREADS={override!r}; using template value.")
+
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -268,6 +275,8 @@ def generate_gridded_config(
         f"input_speed_grid = {Path(speed_grid).as_posix()}",
         f"input_dir_grid = {Path(direction_grid).as_posix()}",
         "input_speed_units = mps",
+        "input_wind_height = 10.0",
+        "units_input_wind_height = m",
         "",
     ]
 

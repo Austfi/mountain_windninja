@@ -85,6 +85,37 @@ def test_validate_grid_inputs_rejects_missing_crs(tmp_path, monkeypatch):
         gridded_run.validate_grid_inputs(speed, direction, domain)
 
 
+def test_raster_info_uses_prj_sidecar_when_gdalinfo_lacks_crs(tmp_path, monkeypatch):
+    speed = tmp_path / "speed.asc"
+    speed.write_text("grid", encoding="utf-8")
+    speed.with_suffix(".prj").write_text('PROJCS["Test"]', encoding="utf-8")
+
+    monkeypatch.setattr(
+        gridded_run,
+        "_run_json",
+        lambda command: {
+            "size": [2, 2],
+            "geoTransform": [0, 1, 0, 2, 0, -1],
+            "bands": [{"noDataValue": -9999}],
+        },
+    )
+
+    def fake_run(command, capture_output, text, check):
+        assert command[:3] == ["gdalsrsinfo", "-o", "wkt"]
+        return gridded_run.subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='PROJCS["Test"]\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr(gridded_run.subprocess, "run", fake_run)
+
+    info = gridded_run._raster_info(speed)
+
+    assert info.wkt == 'PROJCS["Test"]'
+
+
 def test_validate_grid_inputs_rejects_nodata_overlap(tmp_path, monkeypatch):
     speed = tmp_path / "speed.asc"
     direction = tmp_path / "direction.asc"

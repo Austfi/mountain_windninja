@@ -635,13 +635,11 @@ recommended path for Berthoud Pass and other long-period comparisons.
   --end 202601080000 \
   --chunk-hours 24
 
-# Run the same study with archived NBM f001 forcing
-./deploy/gcp/mwn.sh validate-study berthoud_pass \
-  --start 202601010100 \
+# Run the same station/time window with archived NBM f001 forcing
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
+  --start 202601010000 \
   --end 202601080000 \
-  --chunk-hours 24 \
-  --model NBM \
-  --lead-hours 1
+  --chunk-hours 24
 ```
 
 The command prepares Synoptic metadata for the configured station manifest,
@@ -675,6 +673,15 @@ grid, runs one WindNinja `run-grid` timestep per valid hour, copies only the
 needed parent/WindNinja ASCII rasters into the chunk directory, and removes
 intermediate forcing/run directories.
 
+Use `config/studies/berthoud_pass_nbm.json` for the Berthoud NBM comparison so
+NBM output lands under `runtime/validation/berthoud_pass_nbm/` instead of mixing
+with HRRR output under `runtime/validation/berthoud_pass/`.
+
+`MWN_NUM_THREADS=N` overrides `num_threads` for generated WindNinja configs in
+`mwn.sh run`, `run-grid`, and `validate-study`. Keep this at or below physical
+CPU cores for OpenFOAM momentum runs; on the current 6-physical / 12-logical CPU
+machine, use `MWN_NUM_THREADS=6` for the high-thread trial.
+
 ## plot-validation
 
 Build static SVG plots and an HTML index from completed validation samples. This
@@ -696,7 +703,8 @@ hours, and writes:
 - `runtime/validation/berthoud_pass/plots/direction_error_timeseries.svg`
 - `runtime/validation/berthoud_pass/plots/speed_scatter.svg`
 - `runtime/validation/berthoud_pass/plots/daily_metrics.svg`
-- `runtime/validation/berthoud_pass/plots/station_locations.svg` when station metadata exists
+- `runtime/validation/berthoud_pass/plots/sampling_map_<station>.png` when station metadata and rasters exist
+- `runtime/validation/berthoud_pass/plots/station_metrics.csv`
 - `runtime/validation/berthoud_pass/plots/plot_summary.json`
 
 Useful flags:
@@ -705,6 +713,33 @@ Useful flags:
 - `--output-dir PATH`: override the output directory
 - `--station-id ID`: plot one station from a multi-station validation
 - `--speed-units mph|mps|kph|kts`: label plot units
+
+## compare-validation
+
+Compare completed HRRR and NBM validation roots on only the station/timestamp
+samples that exist in both roots:
+
+```bash
+./deploy/gcp/mwn.sh compare-validation \
+  runtime/validation/berthoud_pass \
+  runtime/validation/berthoud_pass_nbm \
+  --output-dir runtime/validation/model_comparison \
+  --title "Berthoud Pass HRRR vs NBM - January 2026"
+```
+
+This command does not run WindNinja or fetch observations. It reads existing
+`samples.csv` files and writes:
+
+- `runtime/validation/model_comparison/metrics.csv`
+- `runtime/validation/model_comparison/summary.json`
+- `runtime/validation/model_comparison/index.html`
+- `runtime/validation/model_comparison/speed_mae_by_station.svg`
+- `runtime/validation/model_comparison/vector_rmse_by_station.svg`
+
+The comparison rows include parent HRRR, WindNinja forced by HRRR, parent NBM,
+and WindNinja forced by NBM. Because it joins on common station-hours, it can be
+rerun while the NBM month job is still active, but the clean final comparison
+should be regenerated after both month roots are complete.
 
 ## schedule
 

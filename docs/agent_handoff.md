@@ -8,7 +8,9 @@ This document is the quickest orientation point for another agent or operator pi
 - Beginner setup is `mwn.sh init`, `mwn.sh fetch-terrain --center LAT LON --size-km N --domain KEY`, `mwn.sh check`, `mwn.sh smoke`, then `mwn.sh run`.
 - `fetch-terrain` downloads DEM first as fallback and LCP second as active terrain. It accepts center/size, KML/KMZ area files, or explicit bbox. `fetch-dem`, `fetch-lcp`, and `domain create` remain available as advanced/manual paths.
 - Historical reanalysis supports fixed windows through `--start` and `--end`.
-- Reanalysis currently only supports HRRR (`PASTCAST-GCP-HRRR-CONUS-3-KM`).
+- Native WindNinja reanalysis currently only supports HRRR
+  (`PASTCAST-GCP-HRRR-CONUS-3-KM`); NBM historical validation is handled by
+  archived gridded forcing in `scripts/nbm_archive.py`.
 - Point validation workflow exists through:
   - `./deploy/gcp/mwn.sh synoptic-points`
   - `./deploy/gcp/mwn.sh validate`
@@ -16,6 +18,7 @@ This document is the quickest orientation point for another agent or operator pi
   - `./deploy/gcp/mwn.sh validate-rasters`
 - Chunked validation studies exist through:
   - `./deploy/gcp/mwn.sh validate-study berthoud_pass ...`
+  - `MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm ...`
 - Synoptic is observation truth only. HRRR remains the model input to WindNinja.
 - Current recommended Berthoud validation path is:
   - `validate-study berthoud_pass --start YYYYMMDDHHMM --pilot-hours 3`
@@ -25,8 +28,11 @@ This document is the quickest orientation point for another agent or operator pi
   `config/stations/berthoud_pass_validation_manifest.csv`. Add/remove station
   rows there before running `validate-study`.
 - Berthoud sampling geometry is documented in
-  `docs/assets/berthoud_validation_points.png`: K0CO, nearest WindNinja output
-  cell, and nearest parent-HRRR cell.
+  validation plot outputs: `plots/sampling_map_<station>.png`, showing station,
+  nearest WindNinja output cell, and nearest parent-model cell.
+- The current local machine has 6 physical / 12 logical CPUs. Use
+  `MWN_NUM_THREADS=6` for the high-thread trial; do not use 12 for OpenFOAM
+  momentum runs.
 
 ## Critical Operational Notes
 
@@ -123,21 +129,43 @@ Additional field-learned notes:
 
 ## Recent Validation Snapshot
 
-Berthoud validation now uses a 10 km terrain box and K0CO only. Start with:
+Berthoud validation uses a 10 km terrain box and explicit station manifest rows
+for K0CO, CABTP, and USGS-394759105464101. Start with:
 
 ```bash
 ./deploy/gcp/mwn.sh validate-study berthoud_pass --start 202601010000 --pilot-hours 3
 ```
 
-The 2026-01-01 00:00 UTC through 2026-01-04 00:00 UTC pilot produced 73 matched
-K0CO station-hours. WindNinja was low on speed but improved every headline
-metric versus parent HRRR: speed MAE 7.20 mph vs 8.85 mph, direction MAE
-11.1 deg vs 18.4 deg, and vector RMSE 10.26 mph vs 12.53 mph. Use daily chunks
-for month/year runs.
+The 2026-01-01 00:00 UTC through 2026-02-01 00:00 UTC multistation HRRR
+snapshot produced 2,145 deduplicated matched station-hours in the plotting
+output. Pooled HRRR comparison: WindNinja speed MAE 7.88 mph vs HRRR
+10.10 mph, WindNinja vector RMSE 13.67 mph vs HRRR 14.56 mph, and WindNinja
+direction MAE 56.20 deg vs HRRR 51.36 deg.
 
-For the current K0CO geometry, the nearest sampled WindNinja 100 m cell is about
-44 m from the station. The nearest sampled parent-HRRR 3 km cell is about
-1.58 km from the station.
+Use station-level metrics before making claims. `plots/station_metrics.csv`
+shows CABTP speed improved but vector RMSE worsened, K0CO modestly improved,
+and the USGS low-wind site improved speed/vector metrics while direction
+metrics are mostly light-wind noise.
+
+For the month-scale NBM comparison, use:
+
+```bash
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+```
+
+After both roots have matching completed chunks, use `compare-validation` to
+join common station-hours and compare parent HRRR, WindNinja(HRRR), parent NBM,
+and WindNinja(NBM):
+
+```bash
+./deploy/gcp/mwn.sh compare-validation \
+  runtime/validation/berthoud_pass \
+  runtime/validation/berthoud_pass_nbm \
+  --output-dir runtime/validation/model_comparison
+```
 
 ## Handoff Checklist
 

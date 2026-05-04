@@ -78,6 +78,13 @@ def row(stamp: str, obs: float, wn: float, wx: float) -> dict:
     }
 
 
+def station_row(station_id: str, stamp: str, obs: float, wn: float, wx: float) -> dict:
+    out = row(stamp, obs, wn, wx)
+    out["station_id"] = station_id
+    out["station_label"] = station_id
+    return out
+
+
 def test_plot_validation_outputs_svg_html_and_summary(tmp_path):
     study_root = tmp_path / "validation" / "berthoud_pass"
     write_samples(
@@ -106,6 +113,7 @@ def test_plot_validation_outputs_svg_html_and_summary(tmp_path):
         "direction_error_timeseries.svg",
         "speed_scatter.svg",
         "daily_metrics.svg",
+        "station_metrics.csv",
         "index.html",
         "plot_summary.json",
     }
@@ -114,9 +122,11 @@ def test_plot_validation_outputs_svg_html_and_summary(tmp_path):
     assert summary["summary"]["sample_count"] == 3
     assert summary["summary"]["windninja"]["speed_mae"] == 2.67
     assert summary["summary"]["hrrr"]["vector_rmse"] == 5.0
+    assert summary["station_metrics"][0]["station_id"] == "K0CO"
+    assert (study_root / "plots" / "station_metrics.csv").exists()
 
 
-def test_plot_validation_writes_station_location_plot_when_metadata_exists(tmp_path):
+def test_plot_validation_omits_redundant_station_location_plot(tmp_path):
     study_root = tmp_path / "validation" / "berthoud_pass"
     write_samples(
         study_root / "chunks" / "20260101_0000_20260102_0000" / "samples.csv",
@@ -154,10 +164,35 @@ def test_plot_validation_writes_station_location_plot_when_metadata_exists(tmp_p
     ])
 
     assert result == 0
-    location_svg = (study_root / "plots" / "station_locations.svg").read_text(encoding="utf-8")
-    assert "CABTP" in location_svg
     summary = json.loads((study_root / "plots" / "plot_summary.json").read_text())
-    assert "station_locations.svg" in summary["plots"]
+    assert "station_locations.svg" not in summary["plots"]
+
+
+def test_speed_scatter_includes_station_fit_lines(tmp_path):
+    study_root = tmp_path / "validation" / "berthoud_pass"
+    write_samples(
+        study_root / "chunks" / "20260101_0000_20260102_0000" / "samples.csv",
+        [
+            station_row("K0CO", "2026-01-01T00:00:00Z", 10.0, 9.0, 8.0),
+            station_row("K0CO", "2026-01-01T01:00:00Z", 20.0, 19.0, 17.0),
+            station_row("CABTP", "2026-01-01T00:00:00Z", 10.0, 6.0, 14.0),
+            station_row("CABTP", "2026-01-01T01:00:00Z", 20.0, 12.0, 24.0),
+        ],
+    )
+
+    result = vp.main([
+        "--study-root",
+        str(study_root),
+        "--output-dir",
+        str(study_root / "plots"),
+    ])
+
+    assert result == 0
+    scatter = (study_root / "plots" / "speed_scatter.svg").read_text(encoding="utf-8")
+    assert "CABTP" in scatter
+    assert "K0CO" in scatter
+    assert "WN fit" in scatter
+    assert "stroke-dasharray" in scatter
 
 
 def test_plot_validation_uses_model_label_from_summary(tmp_path):

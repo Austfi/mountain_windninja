@@ -94,6 +94,22 @@ def test_write_speed_direction_pair_grids_converts_speed_units(tmp_path):
     assert direction_lines[6:] == ["270.000000 -9999", "-9999 1.000000"]
 
 
+def test_write_prj_sidecars_uses_esri_wkt(tmp_path, monkeypatch):
+    speed_grid = tmp_path / "speed.asc"
+    direction_grid = tmp_path / "direction.asc"
+
+    def fake_run(command, capture_output, text, check):
+        assert command[:3] == ["gdalsrsinfo", "-o", "wkt_esri"]
+        return subprocess.CompletedProcess(command, 0, stdout='PROJCS["Test"]\n', stderr="")
+
+    monkeypatch.setattr(forcing.subprocess, "run", fake_run)
+
+    forcing.write_prj_sidecars(speed_grid, direction_grid, 'PROJCRS["Test"]')
+
+    assert speed_grid.with_suffix(".prj").read_text(encoding="utf-8") == 'PROJCS["Test"]\n'
+    assert direction_grid.with_suffix(".prj").read_text(encoding="utf-8") == 'PROJCS["Test"]\n'
+
+
 def test_warp_candidate_to_terrain_builds_gdalwarp_command(tmp_path, monkeypatch):
     commands = []
 
@@ -118,5 +134,11 @@ def test_warp_candidate_to_terrain_builds_gdalwarp_command(tmp_path, monkeypatch
     command = commands[1]
     assert command[:6] == ["gdalwarp", "-overwrite", "-of", "AAIGrid", "-r", "bilinear"]
     assert "-b" not in command
-    assert command[command.index("-ts") + 1:command.index("-ts") + 3] == ["10", "20"]
+    assert command[command.index("-te") + 1:command.index("-te") + 5] == [
+        "70.0",
+        "-430.0",
+        "430.0",
+        "230.0",
+    ]
+    assert command[command.index("-ts") + 1:command.index("-ts") + 3] == ["12", "22"]
     assert command[-1:] == [str(tmp_path / "u.asc")]

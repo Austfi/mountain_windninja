@@ -96,19 +96,13 @@ def load_metadata(path: Path) -> list[dict]:
 
 def build_sample_rows(station_records: list[dict],
                       raster_sets: dict[dt.datetime, dict[str, Path]],
-                      observations_payload: dict[str, dict],
+                      observations_by_station: dict[str, list[dict]],
                       tolerance_minutes: int) -> list[dict]:
     sample_rows = []
     station_by_id = {record["station_id"]: record for record in station_records}
 
     for station_id, station_meta in sorted(station_by_id.items()):
-        station_payload = observations_payload.get(station_id)
-        if not station_payload:
-            continue
-        station_obs_rows = sv.extract_station_observations(
-            station_payload,
-            target_height_m=station_meta["height_m"],
-        )
+        station_obs_rows = observations_by_station.get(station_id) or []
         if not station_obs_rows:
             continue
 
@@ -232,7 +226,6 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
-    token = sv.get_synoptic_token(args.token)
     run_dir = sv.resolve_repo_path(args.run_dir)
     metadata_file = sv.resolve_repo_path(args.metadata_file)
     samples_csv = sv.resolve_repo_path(args.samples_csv)
@@ -251,19 +244,19 @@ def main() -> int:
         raise ValueError(f"No complete WindNinja/parent-model raster sets found in {run_dir}")
 
     station_ids = [record["station_id"] for record in station_records]
-    observations_payload = sv.fetch_synoptic_observations(
-        station_ids,
+    observations_by_station = sv.fetch_observations(
+        station_records,
         start_time,
         end_time,
         args.tolerance_minutes,
-        token,
+        args.token,
         args.speed_units,
     )
 
     sample_rows = build_sample_rows(
         station_records,
         raster_sets,
-        observations_payload,
+        observations_by_station,
         args.tolerance_minutes,
     )
     if not sample_rows:

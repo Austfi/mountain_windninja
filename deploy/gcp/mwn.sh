@@ -227,6 +227,7 @@ Validation:
   validate-rasters     Compare nearest WindNinja/HRRR rasters against Synoptic
   validate-study       Run a chunked Synoptic/HRRR/WindNinja validation study
   plot-validation      Build static SVG/HTML plots from validation samples
+  compare-validation   Compare HRRR/NBM validation roots on common station-hours
 
 Run flags:
   --mode forecast|reanalysis|domain-average
@@ -416,6 +417,10 @@ cmd_clean() {
 
 cmd_run() {
   pick_docker
+  local compose_env_args=()
+  if [ -n "${MWN_NUM_THREADS:-}" ]; then
+    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
+  fi
   local run_domain
   run_domain="$(extract_run_domain "$@")"
   local preflight_args=()
@@ -430,7 +435,7 @@ cmd_run() {
     print_preflight_guidance
     return 1
   fi
-  if ! compose run --rm shell bash -lc \
+  if ! compose run --rm "${compose_env_args[@]}" shell bash -lc \
     'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
      export FOAM_USER_LIBBIN=/usr/local/lib/
      cd /opt/mountain_windninja/runtime
@@ -448,7 +453,11 @@ cmd_run() {
 
 cmd_run_grid() {
   pick_docker
-  if ! compose run --rm shell bash -lc \
+  local compose_env_args=()
+  if [ -n "${MWN_NUM_THREADS:-}" ]; then
+    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
+  fi
+  if ! compose run --rm "${compose_env_args[@]}" shell bash -lc \
     'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
      export FOAM_USER_LIBBIN=/usr/local/lib/
      cd /opt/mountain_windninja/runtime
@@ -802,7 +811,11 @@ cmd_validate_rasters() {
 
 cmd_validate_study() {
   pick_docker
-  compose run --rm shell bash -lc \
+  local compose_env_args=()
+  if [ -n "${MWN_NUM_THREADS:-}" ]; then
+    compose_env_args=(-e "MWN_NUM_THREADS=${MWN_NUM_THREADS}")
+  fi
+  compose run --rm "${compose_env_args[@]}" shell bash -lc \
     'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
      export FOAM_USER_LIBBIN=/usr/local/lib/
      exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
@@ -811,6 +824,10 @@ cmd_validate_study() {
 
 cmd_plot_validation() {
   host_python ./scripts/validation_plots.py "$@"
+}
+
+cmd_compare_validation() {
+  host_python ./scripts/validation_model_compare.py "$@"
 }
 
 cmd_fetch_terrain() {
@@ -1767,6 +1784,7 @@ case "$COMMAND" in
   validate-rasters) cmd_validate_rasters "$@" ;;
   validate-study)  cmd_validate_study "$@" ;;
   plot-validation) cmd_plot_validation "$@" ;;
+  compare-validation) cmd_compare_validation "$@" ;;
   forcing-from-grib) cmd_forcing_from_grib "$@" ;;
   clean)           cmd_clean ;;
   fetch-terrain)   cmd_fetch_terrain "$@" ;;

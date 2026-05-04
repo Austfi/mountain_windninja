@@ -1,3 +1,4 @@
-station_id,label,group,height_m_override
-K0CO,Berthoud Pass - Mines Peak AWOS,ridge,
-CABTP,Berthoud Pass CAIC,ridge,
+station_id,label,group,height_m_override,provider
+K0CO,Berthoud Pass - Mines Peak AWOS,ridge,,synoptic
+CABTP,Berthoud Pass CAIC,ridge,,synoptic
+USGS-394759105464101,Berthoud Pass USGS Meteorological Station,pass,,usgs

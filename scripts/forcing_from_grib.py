@@ -301,6 +301,8 @@ def warp_candidate_to_terrain(
         source = str(vrt_path)
 
     xmin, ymin, xmax, ymax = _extent(terrain)
+    x_pad = abs(terrain.geo_transform[1])
+    y_pad = abs(terrain.geo_transform[5])
     command = [
         "gdalwarp",
         "-overwrite",
@@ -313,13 +315,13 @@ def warp_candidate_to_terrain(
         "-t_srs",
         terrain.wkt,
         "-te",
-        str(xmin),
-        str(ymin),
-        str(xmax),
-        str(ymax),
+        str(xmin - x_pad),
+        str(ymin - y_pad),
+        str(xmax + x_pad),
+        str(ymax + y_pad),
         "-ts",
-        str(terrain.size[0]),
-        str(terrain.size[1]),
+        str(terrain.size[0] + 2),
+        str(terrain.size[1] + 2),
     ]
     command.extend([source, str(output_path)])
 
@@ -455,8 +457,26 @@ def write_speed_direction_pair_grids(
 
 
 def write_prj_sidecars(speed_grid: Path, direction_grid: Path, wkt: str) -> None:
+    prj_wkt = _esri_prj_wkt(wkt)
     for grid_path in (speed_grid, direction_grid):
-        grid_path.with_suffix(".prj").write_text(wkt.rstrip() + "\n", encoding="utf-8")
+        grid_path.with_suffix(".prj").write_text(prj_wkt.rstrip() + "\n", encoding="utf-8")
+
+
+def _esri_prj_wkt(wkt: str) -> str:
+    """Convert GDAL WKT2 to an Arc/Info ASCII Grid-friendly .prj dialect."""
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".prj") as handle:
+        handle.write(wkt.rstrip() + "\n")
+        handle.flush()
+        result = subprocess.run(
+            ["gdalsrsinfo", "-o", "wkt_esri", handle.name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    logger.warning("Could not convert projection to ESRI WKT; writing original WKT.")
+    return wkt.rstrip()
 
 
 def main() -> int:

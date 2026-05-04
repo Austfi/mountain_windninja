@@ -22,6 +22,7 @@ import utils
 logger = utils.setup_logging("synoptic_validation")
 
 API_BASE = "https://api.synopticdata.com/v2/stations"
+USGS_API_BASE = "https://api.waterdata.usgs.gov/ogcapi/v0"
 UTC = dt.timezone.utc
 
 
@@ -91,6 +92,11 @@ def fetch_synoptic_json(service: str, params: dict[str, str], token: str) -> dic
     return payload
 
 
+def fetch_json_url(url: str) -> dict:
+    with urllib.request.urlopen(url) as response:
+        return json.load(response)
+
+
 def load_station_manifest(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -106,6 +112,7 @@ def load_station_manifest(path: Path) -> list[dict[str, str]]:
                 "label": (raw.get("label") or "").strip(),
                 "group": (raw.get("group") or "").strip(),
                 "height_m_override": (raw.get("height_m_override") or raw.get("height_m") or "").strip(),
+                "provider": (raw.get("provider") or "synoptic").strip().lower(),
             })
     if not rows:
         raise ValueError(f"No stations found in manifest: {path}")
@@ -196,6 +203,7 @@ def build_station_records(metadata_payload: dict,
 
         record = {
             "station_id": station_id,
+            "provider": "synoptic",
             "label": manifest_row["label"] or station.get("NAME") or station_id,
             "group": manifest_row["group"] or "ungrouped",
             "name": station.get("NAME") or station_id,
@@ -221,6 +229,69 @@ def build_station_records(metadata_payload: dict,
         missing = [row["station_id"] for row in manifest_rows if row["station_id"] not in found_ids]
         raise ValueError(f"Metadata lookup missing stations: {', '.join(missing)}")
 
+    return records
+
+
+def normalize_usgs_station_id(station_id: str) -> str:
+    value = station_id.strip().upper()
+    return value if value.startswith("USGS-") else f"USGS-{value}"
+
+
+def usgs_station_number(station_id: str) -> str:
+    return normalize_usgs_station_id(station_id).removeprefix("USGS-")
+
+
+def fetch_usgs_monitoring_location(station_id: str) -> dict:
+    item_id = urllib.parse.quote(normalize_usgs_station_id(station_id))
+    return fetch_json_url(
+        f"{USGS_API_BASE}/collections/monitoring-locations/items/{item_id}?f=json"
+    )
+
+
+def build_usgs_station_records(
+    manifest_rows: list[dict[str, str]],
+    default_height_m: float | None = None,
+) -> list[dict]:
+    records = []
+    for manifest_row in manifest_rows:
+        payload = fetch_usgs_monitoring_location(manifest_row["station_id"])
+        properties = payload.get("properties") or {}
+        geometry = payload.get("geometry") or {}
+        coordinates = geometry.get("coordinates") or [None, None]
+        override_height_m = parse_float(manifest_row["height_m_override"])
+        chosen_height_m = override_height_m or default_height_m
+        if chosen_height_m is None:
+            raise ValueError(
+                f"No wind sensor height available for {manifest_row['station_id']}. "
+                "Set height_m_override in the station manifest or pass --default-height."
+            )
+
+        record = {
+            "station_id": manifest_row["station_id"],
+            "provider": "usgs",
+            "provider_station_number": usgs_station_number(manifest_row["station_id"]),
+            "label": (
+                manifest_row["label"]
+                or properties.get("monitoring_location_name")
+                or manifest_row["station_id"]
+            ),
+            "group": manifest_row["group"] or "ungrouped",
+            "name": properties.get("monitoring_location_name") or manifest_row["station_id"],
+            "latitude": parse_float(coordinates[1]),
+            "longitude": parse_float(coordinates[0]),
+            "elevation_ft": parse_float(properties.get("altitude")),
+            "height_m": round(chosen_height_m, 3),
+            "height_source": (
+                "manifest_override" if override_height_m is not None else "default_height"
+            ),
+            "wind_speed_sensor_key": "00035",
+            "wind_direction_sensor_key": "00036",
+            "network_id": properties.get("agency_code") or "USGS",
+            "network_name": properties.get("agency_name") or "U.S. Geological Survey",
+        }
+        if record["latitude"] is None or record["longitude"] is None:
+            raise ValueError(f"Missing coordinates for station {manifest_row['station_id']}")
+        records.append(record)
     return records
 
 
@@ -259,32 +330,51 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def prepare_points(args) -> int:
-    token = get_synoptic_token(args.token)
     station_file = resolve_repo_path(args.station_file)
     points_output = resolve_repo_path(args.points_output)
     metadata_output = resolve_repo_path(args.metadata_output)
     bbox_output = resolve_repo_path(args.bbox_output) if args.bbox_output else None
 
     manifest_rows = load_station_manifest(station_file)
-    station_ids = ",".join(row["station_id"] for row in manifest_rows)
-    params = {
-        "stid": station_ids,
-        "complete": "1",
-        "sensorvars": "1",
-    }
+    synoptic_rows = [row for row in manifest_rows if row["provider"] == "synoptic"]
+    usgs_rows = [row for row in manifest_rows if row["provider"] == "usgs"]
+    unsupported = sorted({row["provider"] for row in manifest_rows} - {"synoptic", "usgs"})
+    if unsupported:
+        raise ValueError(f"Unsupported station provider(s): {', '.join(unsupported)}")
+
     if bool(args.start) != bool(args.end):
         raise ValueError("--start and --end must be provided together for prepare-points.")
+    params = {}
     if args.start and args.end:
         start_time = parse_utc_timestamp(args.start)
         end_time = parse_utc_timestamp(args.end)
         params["obrange"] = f"{ymdhm_utc(start_time)},{ymdhm_utc(end_time)}"
 
-    payload = fetch_synoptic_json("metadata", params, token)
-    station_records = build_station_records(
-        payload,
-        manifest_rows,
-        default_height_m=args.default_height,
-    )
+    station_records = []
+    if synoptic_rows:
+        token = get_synoptic_token(args.token)
+        station_ids = ",".join(row["station_id"] for row in synoptic_rows)
+        synoptic_params = {
+            "stid": station_ids,
+            "complete": "1",
+            "sensorvars": "1",
+            **params,
+        }
+        payload = fetch_synoptic_json("metadata", synoptic_params, token)
+        station_records.extend(
+            build_station_records(
+                payload,
+                synoptic_rows,
+                default_height_m=args.default_height,
+            )
+        )
+    if usgs_rows:
+        station_records.extend(
+            build_usgs_station_records(usgs_rows, default_height_m=args.default_height)
+        )
+
+    records_by_id = {record["station_id"]: record for record in station_records}
+    station_records = [records_by_id[row["station_id"]] for row in manifest_rows]
     bbox = compute_bbox(station_records, padding_km=args.padding_km)
 
     write_points_csv(points_output, station_records)
@@ -438,6 +528,151 @@ def fetch_synoptic_observations(station_ids: list[str],
     return {station["STID"].upper(): station for station in payload.get("STATION", [])}
 
 
+def convert_speed(value: float, from_unit: str, to_unit: str) -> float:
+    from_key = from_unit.lower()
+    to_key = to_unit.lower()
+    to_mps = {
+        "mph": 0.44704,
+        "mi/h": 0.44704,
+        "mps": 1.0,
+        "m/s": 1.0,
+        "kph": 0.2777777778,
+        "km/h": 0.2777777778,
+        "kts": 0.5144444444,
+        "kt": 0.5144444444,
+        "deg": 1.0,
+    }
+    if from_key not in to_mps or to_key not in to_mps:
+        return value
+    return value * to_mps[from_key] / to_mps[to_key]
+
+
+def usgs_continuous_url(
+    station_id: str,
+    start_time: dt.datetime,
+    end_time: dt.datetime,
+    *,
+    limit: int = 10000,
+) -> str:
+    params = {
+        "monitoring_location_id": normalize_usgs_station_id(station_id),
+        "parameter_code": "00035,00036",
+        "datetime": f"{isoformat_utc(start_time)}/{isoformat_utc(end_time)}",
+        "f": "json",
+        "limit": str(limit),
+    }
+    return (
+        f"{USGS_API_BASE}/collections/continuous/items?"
+        f"{urllib.parse.urlencode(params)}"
+    )
+
+
+def fetch_usgs_observations(
+    station_record: dict,
+    start_time: dt.datetime,
+    end_time: dt.datetime,
+    tolerance_minutes: int,
+    speed_units: str,
+) -> list[dict]:
+    expanded_start = start_time - dt.timedelta(minutes=tolerance_minutes)
+    expanded_end = end_time + dt.timedelta(minutes=tolerance_minutes)
+    url = usgs_continuous_url(station_record["station_id"], expanded_start, expanded_end)
+    by_time: dict[dt.datetime, dict[str, float]] = {}
+
+    while url:
+        payload = fetch_json_url(url)
+        for feature in payload.get("features", []):
+            properties = feature.get("properties") or {}
+            timestamp = parse_iso_time(properties["time"])
+            value = parse_float(properties.get("value"))
+            if value is None:
+                continue
+            parameter_code = str(properties.get("parameter_code") or "")
+            if parameter_code == "00035":
+                unit = properties.get("unit_of_measure") or "mph"
+                by_time.setdefault(timestamp, {})["speed"] = convert_speed(
+                    value,
+                    unit,
+                    speed_units,
+                )
+            elif parameter_code == "00036":
+                by_time.setdefault(timestamp, {})["direction"] = value
+
+        next_url = None
+        for link in payload.get("links", []):
+            if link.get("rel") == "next" and link.get("href"):
+                next_url = link["href"]
+                break
+        url = next_url
+
+    rows = []
+    for timestamp, values in sorted(by_time.items()):
+        if "speed" not in values:
+            continue
+        speed = values["speed"]
+        direction = values.get("direction")
+        if direction is None:
+            if abs(speed) < 1e-9:
+                direction = 0.0
+            else:
+                continue
+        u_obs, v_obs = obs_to_uv(speed, direction)
+        rows.append({
+            "datetime": timestamp,
+            "speed_obs": speed,
+            "dir_obs_deg": direction,
+            "u_obs": u_obs,
+            "v_obs": v_obs,
+        })
+    return rows
+
+
+def fetch_observations(
+    station_records: list[dict],
+    start_time: dt.datetime,
+    end_time: dt.datetime,
+    tolerance_minutes: int,
+    token: str | None,
+    speed_units: str,
+) -> dict[str, list[dict]]:
+    observations: dict[str, list[dict]] = {}
+    synoptic_records = [
+        record for record in station_records
+        if record.get("provider", "synoptic") == "synoptic"
+    ]
+    if synoptic_records:
+        synoptic_token = get_synoptic_token(token)
+        payload = fetch_synoptic_observations(
+            [record["station_id"] for record in synoptic_records],
+            start_time,
+            end_time,
+            tolerance_minutes,
+            synoptic_token,
+            speed_units,
+        )
+        for record in synoptic_records:
+            station_payload = payload.get(record["station_id"])
+            if not station_payload:
+                observations[record["station_id"]] = []
+                continue
+            observations[record["station_id"]] = extract_station_observations(
+                station_payload,
+                target_height_m=record["height_m"],
+            )
+
+    for record in station_records:
+        if record.get("provider") != "usgs":
+            continue
+        observations[record["station_id"]] = fetch_usgs_observations(
+            record,
+            start_time,
+            end_time,
+            tolerance_minutes,
+            speed_units,
+        )
+    return observations
+
+
 def nearest_observation(observations: list[dict],
                         target_time: dt.datetime,
                         tolerance_minutes: int) -> dict | None:
@@ -515,7 +750,6 @@ def rows_to_csv(path: Path, rows: list[dict]) -> None:
 
 
 def compare_against_synoptic(args) -> int:
-    token = get_synoptic_token(args.token)
     points_output = resolve_repo_path(args.points_output)
     metadata_file = resolve_repo_path(args.metadata_file)
     samples_csv = resolve_repo_path(args.samples_csv)
@@ -532,12 +766,12 @@ def compare_against_synoptic(args) -> int:
     end_time = parse_utc_timestamp(args.end)
     if start_time >= end_time:
         raise ValueError("--end must be later than --start.")
-    observations_payload = fetch_synoptic_observations(
-        list(station_by_id),
+    observations_by_station = fetch_observations(
+        station_records,
         start_time,
         end_time,
         args.tolerance_minutes,
-        token,
+        args.token,
         args.speed_units,
     )
 
@@ -550,13 +784,7 @@ def compare_against_synoptic(args) -> int:
         station_meta = station_by_id.get(station_id)
         if not station_meta:
             continue
-        station_payload = observations_payload.get(station_id)
-        if not station_payload:
-            continue
-        station_obs_rows = extract_station_observations(
-            station_payload,
-            target_height_m=station_meta["height_m"],
-        )
+        station_obs_rows = observations_by_station.get(station_id) or []
         obs_row = nearest_observation(
             station_obs_rows,
             model_row["datetime"],

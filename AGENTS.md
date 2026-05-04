@@ -35,6 +35,7 @@ Host (GCP VM or any Linux box)
 
 - `config/runtime.env` is injected via `env_file:` in `compose.yaml`
 - `MWN_*` vars are read by `scripts/config_loader.py`
+- `MWN_NUM_THREADS` overrides template `num_threads` for generated WindNinja configs
 - `NINJAFOAM_MESH_COUNT` is read directly by WindNinja C++ (not by Python)
 - `CUSTOM_SRTM_API_KEY` is read by WindNinja's `fetch_dem` tool
 
@@ -56,7 +57,10 @@ WindNinja caches OpenFOAM meshes in `static_data/NINJAFOAM_<domain>_*/`. If a ru
 - 20-50 km domain: `num_threads = 6-8`
 - 50+ km domain: `num_threads = 8+`
 
-Currently set to 4 (safe default).
+Currently set to 4 in templates (safe default). On the current local machine,
+`sysctl` reports 6 physical / 12 logical CPUs; use `MWN_NUM_THREADS=6` for a
+high-thread trial, not 12. OpenFOAM momentum solving does not benefit from
+hyperthreading.
 
 ### 3. Docker image vs bind mounts
 
@@ -130,10 +134,11 @@ for gridded forcing while keeping the same domain key.
 The current Berthoud validation setup is a 10 km square centered on Berthoud Pass
 and validates the explicit stations in
 `config/stations/berthoud_pass_validation_manifest.csv`. The manifest currently
-includes K0CO Berthoud Pass / Mines Peak AWOS and CABTP Berthoud Pass CAIC. Keep
-`height_m_override` blank for CABTP until the actual anemometer height is known;
-the workflow uses Synoptic wind sensor metadata when available, then the 10 m
-study default.
+includes K0CO Berthoud Pass / Mines Peak AWOS, CABTP Berthoud Pass CAIC, and
+USGS-394759105464101 Berthoud Pass USGS Meteorological Station. Keep
+`height_m_override` blank for CABTP and USGS until actual anemometer heights are
+known; the workflow uses provider wind sensor metadata when available, then the
+10 m study default.
 
 Current measured scale:
 
@@ -149,13 +154,23 @@ For K0CO, raster validation samples the nearest WindNinja 100 m output cell
 about 44 m from the station and the nearest parent-HRRR cell about 1.58 km from
 the station.
 
-The 2026-01-01 00:00 UTC through 2026-01-04 00:00 UTC pilot produced 73 matched
-K0CO station-hours. WindNinja was biased low on speed but improved every
-headline error metric versus parent HRRR:
+The 2026-01-01 00:00 UTC through 2026-02-01 00:00 UTC multistation HRRR
+snapshot produced 2,145 deduplicated matched station-hours across K0CO, CABTP,
+and USGS-394759105464101 in `plots/plot_summary.json`. Treat this as an
+operational baseline, not a final research result, until CABTP and USGS
+anemometer heights are verified.
 
-- Speed MAE: 7.20 mph WindNinja vs 8.85 mph HRRR
-- Direction MAE: 11.1 deg WindNinja vs 18.4 deg HRRR
-- Vector RMSE: 10.26 mph WindNinja vs 12.53 mph HRRR
+Pooled HRRR comparison from that snapshot:
+
+- Speed MAE: 7.88 mph WindNinja vs 10.10 mph HRRR
+- Speed bias: 1.41 mph WindNinja vs 3.98 mph HRRR
+- Direction MAE: 56.20 deg WindNinja vs 51.36 deg HRRR
+- Vector RMSE: 13.67 mph WindNinja vs 14.56 mph HRRR
+
+Station-level results are more important than pooled metrics. CABTP shows speed
+MAE improvement but worse vector RMSE due direction error; K0CO shows modest
+speed/vector improvement; the USGS low-wind site shows large speed/vector
+improvement but direction metrics are mostly light-wind noise.
 
 Use 24h chunks for month/year studies. `validate-study` reuses completed chunk
 run directories and chunk summaries, so extending a window is safe:
@@ -166,6 +181,33 @@ run directories and chunk summaries, so extending a window is safe:
   --end 202602010000 \
   --chunk-hours 24
 ```
+
+For NBM, use the separate study root so outputs do not mix with HRRR:
+
+```bash
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_nbm \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+```
+
+Plotting writes station-level metrics and terrain-backed sampling maps:
+`plots/station_metrics.csv`, `plots/plot_summary.json`, and
+`plots/sampling_map_<station>.png`. Do not reintroduce the old plain
+`station_locations.svg`; it is redundant with the sampling maps.
+
+After HRRR and NBM have matching completed chunks, run:
+
+```bash
+./deploy/gcp/mwn.sh compare-validation \
+  runtime/validation/berthoud_pass \
+  runtime/validation/berthoud_pass_nbm \
+  --output-dir runtime/validation/model_comparison
+```
+
+This is a reporting step only. It joins common station-hours and compares parent
+HRRR, WindNinja(HRRR), parent NBM, and WindNinja(NBM) without creating another
+validation pathway.
 
 ### 14. Validation template avoids visual artifacts
 

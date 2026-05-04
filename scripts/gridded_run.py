@@ -89,7 +89,7 @@ def _raster_info(path: Path) -> RasterInfo:
     if transform[2] != 0 or transform[4] != 0:
         raise GridValidationError(f"Raster must be north-up: {path}")
 
-    wkt = ((payload.get("coordinateSystem") or {}).get("wkt")) or ""
+    wkt = ((payload.get("coordinateSystem") or {}).get("wkt")) or _sidecar_wkt(path)
     if not wkt.strip():
         raise GridValidationError(f"Missing CRS/projection: {path}")
 
@@ -122,19 +122,39 @@ def _compact_wkt(value: str) -> str:
 
 
 def _epsg_token(path: Path) -> str | None:
+    candidates = [path]
+    prj_path = path.with_suffix(".prj")
+    if prj_path.exists():
+        candidates.append(prj_path)
+    for candidate in candidates:
+        result = subprocess.run(
+            ["gdalsrsinfo", "-o", "epsg", str(candidate)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            continue
+        for line in result.stdout.splitlines():
+            token = line.strip()
+            if token.upper().startswith("EPSG:"):
+                return token.upper()
+    return None
+
+
+def _sidecar_wkt(path: Path) -> str:
+    prj_path = path.with_suffix(".prj")
+    if not prj_path.exists():
+        return ""
     result = subprocess.run(
-        ["gdalsrsinfo", "-o", "epsg", str(path)],
+        ["gdalsrsinfo", "-o", "wkt", str(prj_path)],
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode != 0:
-        return None
-    for line in result.stdout.splitlines():
-        token = line.strip()
-        if token.upper().startswith("EPSG:"):
-            return token.upper()
-    return None
+    if result.returncode == 0:
+        return result.stdout.strip()
+    return prj_path.read_text(encoding="utf-8", errors="ignore").strip()
 
 
 def _crs_matches(left: RasterInfo, right: RasterInfo) -> bool:
