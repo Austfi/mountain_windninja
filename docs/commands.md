@@ -109,7 +109,10 @@ Uses archived HRRR data from Google Cloud to simulate past wind events. Useful f
 ./deploy/gcp/mwn.sh run --mode reanalysis --start 202601010000 --end 202601080000
 ```
 
-Only HRRR is available for reanalysis (other models don't have public archives accessible through WindNinja's pastcast system).
+Only HRRR is available through WindNinja's native `run --mode reanalysis`
+pastcast system. NBM historical validation is available through
+`validate-study --model NBM`, which fetches archived NBM wind records and feeds
+WindNinja with gridded initialization.
 
 Use `--start` and `--end` to pin a specific historical UTC window. Both values must be hour-aligned and use either `YYYYMMDDHHMM` or `YYYY-MM-DDTHH:MM`.
 
@@ -229,8 +232,8 @@ Optional:
 
 `run-grid` validates that both grids exist, have matching dimensions and CRS,
 match the terrain CRS, fully cover the terrain, and have no no-data cells over
-the domain. LCP-backed domains are rejected in v1; register/use the matching
-DEM `.tif` terrain for gridded forcing.
+the domain. Gridded forcing requires a DEM. If a domain points at `name.lcp`
+and `static_data/name.tif` exists, the command uses the `.tif` automatically.
 
 Output directories use:
 
@@ -241,8 +244,9 @@ runtime/archives/{domain}_grid_{label}_{YYYYMMDD_HHMM}.zip
 
 ## forcing-from-grib
 
-Convert one local GRIB/NetCDF timestep with U/V wind components into
-WindNinja-ready `speed.asc` and `direction.asc` files.
+Convert one local GRIB/NetCDF timestep with U/V wind components or direct
+speed/direction fields into WindNinja-ready `speed.asc` and `direction.asc`
+files.
 
 ```bash
 ./deploy/gcp/mwn.sh forcing-from-grib runtime/forcing/raw/input.grib2 \
@@ -255,7 +259,7 @@ WindNinja-ready `speed.asc` and `direction.asc` files.
 ```
 
 Inputs and output directories must be under mounted repo paths, normally
-`runtime/forcing/...`. The command uses `gdalinfo -json` to select matching U/V
+`runtime/forcing/...`. The command uses `gdalinfo -json` to select matching
 bands or subdatasets. If selection is ambiguous, rerun with exact GDAL dataset
 overrides:
 
@@ -276,6 +280,19 @@ direction = (270 - atan2(v, u) * 180/pi) % 360
 
 It writes `speed.asc`, `direction.asc`, matching `.prj` files, and
 `metadata.json`.
+
+For sources such as NBM that already publish speed and direction:
+
+```bash
+./deploy/gcp/mwn.sh forcing-from-grib runtime/forcing/raw/input.grib2 \
+  --domain berthoud_pass \
+  --time 202601010100 \
+  --speed-var WIND \
+  --direction-var WDIR \
+  --speed-units mps \
+  --level 10m \
+  --out runtime/forcing/case
+```
 
 ## smoke
 
@@ -617,11 +634,18 @@ recommended path for Berthoud Pass and other long-period comparisons.
   --start 202601010000 \
   --end 202601080000 \
   --chunk-hours 24
+
+# Run the same study with archived NBM f001 forcing
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010100 \
+  --end 202601080000 \
+  --chunk-hours 24 \
+  --model NBM \
+  --lead-hours 1
 ```
 
-The command prepares Synoptic metadata for the configured station manifest, runs
-HRRR reanalysis chunks with `--keep-temp --no-upload`, validates completed
-rasters, and writes:
+The command prepares Synoptic metadata for the configured station manifest,
+runs model chunks, validates completed rasters, and writes:
 
 - `runtime/validation/berthoud_pass/stations.csv`
 - `runtime/validation/berthoud_pass/station_metadata.json`
@@ -637,10 +661,19 @@ Useful flags:
 - `--dry-run`: print commands without running them
 - `--force`: rerun completed chunks and validations
 - `--skip-runs`: validate existing run directories only
+- `--model HRRR|NBM`: use native HRRR pastcast or archived NBM grid forcing
+- `--lead-hours`: NBM forecast lead to validate; default `1` because NBM does
+  not publish `f000`
 
 Requires `MWN_SYNOPTIC_TOKEN` with Synoptic weather-data access. Station
 selection is explicit: edit `config/stations/berthoud_pass_validation_manifest.csv`
 to choose K0CO or any other stations to compare.
+
+For `--model NBM`, the study fetches only the `WIND` and `WDIR` 10 m records
+from the public NOAA NBM archive by byte range, converts them to the local DEM
+grid, runs one WindNinja `run-grid` timestep per valid hour, copies only the
+needed parent/WindNinja ASCII rasters into the chunk directory, and removes
+intermediate forcing/run directories.
 
 ## plot-validation
 

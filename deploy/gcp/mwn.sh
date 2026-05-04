@@ -215,7 +215,7 @@ Terrain:
 Runtime:
   shell                Open a bash shell inside the container
   run-grid             Run one timestep from speed/direction .asc grids
-  forcing-from-grib    Convert one GRIB/NetCDF U/V timestep to .asc grids
+  forcing-from-grib    Convert one GRIB/NetCDF wind timestep to .asc grids
   upload               Upload latest results to GCS bucket
   schedule             Start the automatic scheduler
   stop                 Stop the scheduler
@@ -248,6 +248,7 @@ Run flags:
 Grid forcing:
   run-grid --speed-grid speed.asc --direction-grid direction.asc --time UTC --domain KEY
   forcing-from-grib INPUT --domain KEY --time UTC --u-var UGRD --v-var VGRD --level 10m --out DIR
+  forcing-from-grib INPUT --domain KEY --time UTC --speed-var WIND --direction-var WDIR --level 10m --out DIR
 
 Docs:
   docs/commands.md

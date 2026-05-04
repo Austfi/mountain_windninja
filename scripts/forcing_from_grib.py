@@ -19,6 +19,7 @@ try:
     from .wind_math import (
         asc_nodata_value,
         asc_shape,
+        convert_speed,
         iter_asc_data_rows,
         read_asc_header,
         speed_direction_from_uv,
@@ -30,6 +31,7 @@ except ImportError:
     from wind_math import (
         asc_nodata_value,
         asc_shape,
+        convert_speed,
         iter_asc_data_rows,
         read_asc_header,
         speed_direction_from_uv,
@@ -265,6 +267,39 @@ def warp_candidate_to_terrain(
     terrain: TerrainGrid,
     output_path: Path,
 ) -> None:
+    source = candidate.source
+    vrt_path: Path | None = None
+    if candidate.band is not None:
+        handle = tempfile.NamedTemporaryFile(
+            prefix="mwn-band-",
+            suffix=".vrt",
+            dir=output_path.parent,
+            delete=False,
+        )
+        handle.close()
+        vrt_path = Path(handle.name)
+        translate_command = [
+            "gdal_translate",
+            "-q",
+            "-of",
+            "VRT",
+            "-b",
+            str(candidate.band),
+            candidate.source,
+            str(vrt_path),
+        ]
+        result = subprocess.run(
+            translate_command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            vrt_path.unlink(missing_ok=True)
+            raise ForcingError(f"gdal_translate failed for {candidate.summary()}: {detail}")
+        source = str(vrt_path)
+
     xmin, ymin, xmax, ymax = _extent(terrain)
     command = [
         "gdalwarp",
@@ -286,15 +321,17 @@ def warp_candidate_to_terrain(
         str(terrain.size[0]),
         str(terrain.size[1]),
     ]
-    if candidate.band is not None:
-        command.extend(["-b", str(candidate.band)])
-    command.extend([candidate.source, str(output_path)])
+    command.extend([source, str(output_path)])
 
     logger.info(f"Running: {' '.join(command)}")
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise ForcingError(f"gdalwarp failed for {candidate.summary()}: {detail}")
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise ForcingError(f"gdalwarp failed for {candidate.summary()}: {detail}")
+    finally:
+        if vrt_path is not None:
+            vrt_path.unlink(missing_ok=True)
 
 
 def _header_with_nodata(header_lines: list[str], nodata: float) -> list[str]:
@@ -363,6 +400,60 @@ def write_speed_direction_grids(
             direction_out.write(" ".join(direction_values) + "\n")
 
 
+def write_speed_direction_pair_grids(
+    source_speed_grid: Path,
+    source_direction_grid: Path,
+    speed_grid: Path,
+    direction_grid: Path,
+    *,
+    input_speed_units: str = "mps",
+    output_speed_units: str = "mps",
+) -> None:
+    """Write aligned speed/direction AAIGrids, converting speed units if needed."""
+    if asc_shape(source_speed_grid) != asc_shape(source_direction_grid):
+        raise ForcingError("Aligned speed and direction grids have different dimensions.")
+
+    speed_header_lines, speed_header = read_asc_header(source_speed_grid)
+    _dir_header_lines, direction_header = read_asc_header(source_direction_grid)
+    speed_nodata = asc_nodata_value(speed_header, OUTPUT_NODATA)
+    direction_nodata = asc_nodata_value(direction_header, OUTPUT_NODATA)
+
+    header_lines = _header_with_nodata(speed_header_lines, OUTPUT_NODATA)
+    with speed_grid.open("w", encoding="utf-8") as speed_out, direction_grid.open(
+        "w", encoding="utf-8"
+    ) as direction_out:
+        speed_out.write("\n".join(header_lines) + "\n")
+        direction_out.write("\n".join(header_lines) + "\n")
+
+        rows = zip(
+            iter_asc_data_rows(source_speed_grid),
+            iter_asc_data_rows(source_direction_grid),
+        )
+        for speed_row, direction_row in rows:
+            if len(speed_row) != len(direction_row):
+                raise ForcingError("Aligned speed and direction grids have mismatched row lengths.")
+            speed_values: list[str] = []
+            direction_values: list[str] = []
+            for speed_value, direction_value in zip(speed_row, direction_row):
+                if (
+                    (speed_nodata is not None and speed_value == speed_nodata)
+                    or (direction_nodata is not None and direction_value == direction_nodata)
+                    or math.isnan(speed_value)
+                    or math.isnan(direction_value)
+                ):
+                    speed_values.append(f"{OUTPUT_NODATA:g}")
+                    direction_values.append(f"{OUTPUT_NODATA:g}")
+                    continue
+                speed_values.append(
+                    _format_grid_value(
+                        convert_speed(speed_value, input_speed_units, output_speed_units)
+                    )
+                )
+                direction_values.append(_format_grid_value(direction_value % 360.0))
+            speed_out.write(" ".join(speed_values) + "\n")
+            direction_out.write(" ".join(direction_values) + "\n")
+
+
 def write_prj_sidecars(speed_grid: Path, direction_grid: Path, wkt: str) -> None:
     for grid_path in (speed_grid, direction_grid):
         grid_path.with_suffix(".prj").write_text(wkt.rstrip() + "\n", encoding="utf-8")
@@ -371,18 +462,38 @@ def write_prj_sidecars(speed_grid: Path, direction_grid: Path, wkt: str) -> None
 def main() -> int:
     config_loader.init_directories()
     parser = argparse.ArgumentParser(
-        description="Convert one local GRIB/NetCDF U/V timestep into WindNinja AAIGrids."
+        description="Convert one local GRIB/NetCDF timestep into WindNinja AAIGrids."
     )
     parser.add_argument("input", help="Local GRIB/NetCDF file under runtime/ or static_data/.")
     parser.add_argument("--domain", required=True, choices=config_loader.list_domains())
     parser.add_argument("--time", required=True, help="UTC timestep to select.")
-    parser.add_argument("--u-var", required=True, help="U-wind variable token, e.g. UGRD.")
-    parser.add_argument("--v-var", required=True, help="V-wind variable token, e.g. VGRD.")
+    parser.add_argument("--u-var", help="U-wind variable token, e.g. UGRD.")
+    parser.add_argument("--v-var", help="V-wind variable token, e.g. VGRD.")
+    parser.add_argument("--speed-var", help="Speed variable token, e.g. WIND.")
+    parser.add_argument("--direction-var", help="Direction variable token, e.g. WDIR.")
+    parser.add_argument("--speed-units", default="mps",
+                        help="Units of --speed-var input values, default mps.")
     parser.add_argument("--level", required=True, help="Vertical level token, e.g. 10m.")
     parser.add_argument("--out", required=True, help="Output directory under runtime/ or static_data/.")
     parser.add_argument("--u-source", help="Exact GDAL dataset/subdataset override for U.")
     parser.add_argument("--v-source", help="Exact GDAL dataset/subdataset override for V.")
+    parser.add_argument("--speed-source", help="Exact GDAL dataset/subdataset override for speed.")
+    parser.add_argument("--direction-source", help="Exact GDAL dataset/subdataset override for direction.")
     args = parser.parse_args()
+
+    has_uv = bool(args.u_var or args.v_var or args.u_source or args.v_source)
+    has_speed_dir = bool(
+        args.speed_var
+        or args.direction_var
+        or args.speed_source
+        or args.direction_source
+    )
+    if has_uv == has_speed_dir:
+        parser.error("Pass either --u-var/--v-var or --speed-var/--direction-var.")
+    if has_uv and not (args.u_var and args.v_var):
+        parser.error("--u-var and --v-var must be passed together.")
+    if has_speed_dir and not (args.speed_var and args.direction_var):
+        parser.error("--speed-var and --direction-var must be passed together.")
 
     try:
         run_time = parse_utc_timestamp(args.time)
@@ -395,7 +506,7 @@ def main() -> int:
     require_mounted_path(output_dir, "--out", must_exist=False)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    domain_config = config_loader.get_domain_config(args.domain)
+    domain_config = config_loader.get_gridded_domain_config(args.domain)
     if domain_config.elevation_file.suffix.lower() == ".lcp":
         raise ForcingError(
             "forcing-from-grib requires a DEM domain in v1. Register/use the "
@@ -405,30 +516,71 @@ def main() -> int:
 
     source_payload = _gdalinfo_json(input_path)
     candidates = collect_candidates(input_path, source_payload)
-    u_candidate = select_candidate(
-        candidates,
-        var_name=args.u_var,
-        level=args.level,
-        raw_time=args.time,
-        exact_source=args.u_source,
-    )
-    v_candidate = select_candidate(
-        candidates,
-        var_name=args.v_var,
-        level=args.level,
-        raw_time=args.time,
-        exact_source=args.v_source,
-    )
-
     speed_grid = output_dir / "speed.asc"
     direction_grid = output_dir / "direction.asc"
 
     with tempfile.TemporaryDirectory(prefix="mwn-forcing-", dir=output_dir) as tmp_dir:
-        u_aligned = Path(tmp_dir) / "u.asc"
-        v_aligned = Path(tmp_dir) / "v.asc"
-        warp_candidate_to_terrain(u_candidate, terrain, u_aligned)
-        warp_candidate_to_terrain(v_candidate, terrain, v_aligned)
-        write_speed_direction_grids(u_aligned, v_aligned, speed_grid, direction_grid)
+        if has_uv:
+            u_candidate = select_candidate(
+                candidates,
+                var_name=args.u_var,
+                level=args.level,
+                raw_time=args.time,
+                exact_source=args.u_source,
+            )
+            v_candidate = select_candidate(
+                candidates,
+                var_name=args.v_var,
+                level=args.level,
+                raw_time=args.time,
+                exact_source=args.v_source,
+            )
+            u_aligned = Path(tmp_dir) / "u.asc"
+            v_aligned = Path(tmp_dir) / "v.asc"
+            warp_candidate_to_terrain(u_candidate, terrain, u_aligned)
+            warp_candidate_to_terrain(v_candidate, terrain, v_aligned)
+            write_speed_direction_grids(u_aligned, v_aligned, speed_grid, direction_grid)
+            source_metadata = {
+                "u_var": args.u_var,
+                "v_var": args.v_var,
+                "u_source": u_candidate.summary(),
+                "v_source": v_candidate.summary(),
+                "direction_formula": "(270 - atan2(v, u) * 180/pi) % 360",
+            }
+        else:
+            speed_candidate = select_candidate(
+                candidates,
+                var_name=args.speed_var,
+                level=args.level,
+                raw_time=args.time,
+                exact_source=args.speed_source,
+            )
+            direction_candidate = select_candidate(
+                candidates,
+                var_name=args.direction_var,
+                level=args.level,
+                raw_time=args.time,
+                exact_source=args.direction_source,
+            )
+            source_speed = Path(tmp_dir) / "source_speed.asc"
+            source_direction = Path(tmp_dir) / "source_direction.asc"
+            warp_candidate_to_terrain(speed_candidate, terrain, source_speed)
+            warp_candidate_to_terrain(direction_candidate, terrain, source_direction)
+            write_speed_direction_pair_grids(
+                source_speed,
+                source_direction,
+                speed_grid,
+                direction_grid,
+                input_speed_units=args.speed_units,
+                output_speed_units="mps",
+            )
+            source_metadata = {
+                "speed_var": args.speed_var,
+                "direction_var": args.direction_var,
+                "source_speed_units": args.speed_units,
+                "speed_source": speed_candidate.summary(),
+                "direction_source": direction_candidate.summary(),
+            }
 
     write_prj_sidecars(speed_grid, direction_grid, terrain.wkt)
     metadata = {
@@ -437,16 +589,12 @@ def main() -> int:
         "domain": domain_config.key,
         "terrain": str(domain_config.elevation_file),
         "time_utc": run_time.isoformat() + "Z",
-        "u_var": args.u_var,
-        "v_var": args.v_var,
         "level": args.level,
-        "u_source": u_candidate.summary(),
-        "v_source": v_candidate.summary(),
         "speed_grid": str(speed_grid),
         "direction_grid": str(direction_grid),
         "speed_units": "mps",
-        "direction_formula": "(270 - atan2(v, u) * 180/pi) % 360",
     }
+    metadata.update(source_metadata)
     (output_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2) + "\n",
         encoding="utf-8",

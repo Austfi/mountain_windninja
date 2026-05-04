@@ -23,18 +23,35 @@ Then scale the same command to a longer window:
   --chunk-hours 24
 ```
 
+To run the same validation wrapper with archived NBM forcing:
+
+```bash
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010100 \
+  --end 202601080000 \
+  --chunk-hours 24 \
+  --model NBM \
+  --lead-hours 1
+```
+
 The study wrapper:
 
 - reads explicit stations from `config/stations/berthoud_pass_validation_manifest.csv`
 - prepares Synoptic metadata and WindNinja point coordinates for those stations
-- runs HRRR reanalysis without `--points-file`
+- runs HRRR reanalysis or archived NBM gridded forcing without `--points-file`
 - keeps per-chunk run directories under `runtime/temp/`
-- compares WindNinja and parent HRRR rasters with `validate-rasters`
+- compares WindNinja and parent-model rasters with `validate-rasters`
 - writes aggregate outputs under `runtime/validation/berthoud_pass/`
 
 Station selection is intentionally simple: edit the manifest CSV to choose one
 station or a short list of stations, then rerun the same command. The study
 workflow does not search for stations automatically.
+
+NBM historical validation is not WindNinja native pastcast. The study wrapper
+fetches only archived NBM `WIND` and `WDIR` 10 m records by byte range, converts
+them to local `run-grid` inputs, runs one WindNinja timestep per valid hour, and
+deletes intermediate forcing/run directories after copying the rasters needed
+for validation.
 
 ## Berthoud Sampling Points
 
@@ -84,7 +101,7 @@ Outputs include:
 - daily error metrics
 - `plot_summary.json` with the plotted sample count and headline metrics
 
-For manual validation, use the lower-level flow:
+For manual HRRR validation, use the lower-level flow:
 
 1. Prepare station metadata with `synoptic-points`.
 2. Run HRRR reanalysis without `--points-file`.
@@ -118,6 +135,8 @@ For manual validation, use the lower-level flow:
 - Start with a 3-hour smoke test, then a 24-hour pilot, before scaling to longer
   windows.
 - `validate-study --plan` prints chunk/run paths without network calls or writes.
+- `validate-study --model NBM --lead-hours 1` validates archived NBM f001
+  forcing. Increase `--lead-hours` for a true forecast-lead skill comparison.
 
 ## More Detail
 

@@ -200,7 +200,7 @@ def summary_rows(sample_rows: list[dict], key: str) -> list[dict]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compare nearest WindNinja/HRRR raster cells against Synoptic observations."
+        description="Compare nearest WindNinja/parent-model raster cells against Synoptic observations."
     )
     parser.add_argument("--run-dir", required=True,
                         help="Run directory under runtime/temp containing *_vel.asc and *_ang.asc files.")
@@ -248,7 +248,7 @@ def main() -> int:
     station_records = load_metadata(metadata_file)
     raster_sets = collect_raster_sets(run_dir)
     if not raster_sets:
-        raise ValueError(f"No complete WindNinja/HRRR raster sets found in {run_dir}")
+        raise ValueError(f"No complete WindNinja/parent-model raster sets found in {run_dir}")
 
     station_ids = [record["station_id"] for record in station_records]
     observations_payload = sv.fetch_synoptic_observations(

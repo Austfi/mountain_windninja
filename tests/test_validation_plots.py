@@ -116,6 +116,31 @@ def test_plot_validation_outputs_svg_html_and_summary(tmp_path):
     assert summary["summary"]["hrrr"]["vector_rmse"] == 5.0
 
 
+def test_plot_validation_uses_model_label_from_summary(tmp_path):
+    study_root = tmp_path / "validation" / "berthoud_pass"
+    write_samples(
+        study_root / "chunks" / "20260101_0000_20260102_0000" / "samples.csv",
+        [row("2026-01-01T00:00:00Z", 20.0, 18.0, 15.0)],
+    )
+    (study_root / "summary.json").write_text(
+        json.dumps({"model": "NBM"}),
+        encoding="utf-8",
+    )
+
+    result = vp.main([
+        "--study-root",
+        str(study_root),
+        "--output-dir",
+        str(study_root / "plots"),
+    ])
+
+    assert result == 0
+    summary = json.loads((study_root / "plots" / "plot_summary.json").read_text())
+    assert summary["summary"]["model_label"] == "NBM"
+    index_html = (study_root / "plots" / "index.html").read_text(encoding="utf-8")
+    assert "NBM Speed MAE" in index_html
+
+
 def test_load_samples_deduplicates_overlapping_chunks(tmp_path):
     short_chunk = tmp_path / "chunks" / "20260101_0000_20260101_0100" / "samples.csv"
     full_chunk = tmp_path / "chunks" / "20260101_0000_20260102_0000" / "samples.csv"

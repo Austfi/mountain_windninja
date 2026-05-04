@@ -7,6 +7,15 @@ from typing import Iterable
 
 
 ASC_HEADER_LINE_COUNT = 6
+SPEED_TO_MPS = {
+    "mps": 1.0,
+    "m/s": 1.0,
+    "mph": 0.44704,
+    "kph": 1000.0 / 3600.0,
+    "km/h": 1000.0 / 3600.0,
+    "kts": 0.514444,
+    "kt": 0.514444,
+}
 
 
 def is_nodata(value: float, nodata: float | None) -> bool:
@@ -32,6 +41,21 @@ def speed_direction_from_uv(
     speed = math.hypot(u, v)
     direction = (270.0 - math.degrees(math.atan2(v, u))) % 360.0
     return speed, direction
+
+
+def normalize_speed_units(units: str) -> str:
+    normalized = units.strip().lower()
+    if normalized not in SPEED_TO_MPS:
+        choices = ", ".join(sorted(SPEED_TO_MPS))
+        raise ValueError(f"Unsupported speed units {units!r}. Use one of: {choices}")
+    return normalized
+
+
+def convert_speed(value: float, from_units: str, to_units: str) -> float:
+    """Convert a wind speed between common meteorological units."""
+    from_factor = SPEED_TO_MPS[normalize_speed_units(from_units)]
+    to_factor = SPEED_TO_MPS[normalize_speed_units(to_units)]
+    return value * from_factor / to_factor
 
 
 def read_asc_header(path: str | Path) -> tuple[list[str], dict[str, str]]:

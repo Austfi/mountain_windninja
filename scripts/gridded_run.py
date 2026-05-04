@@ -281,7 +281,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    domain_config = config_loader.get_domain_config(args.domain)
+    domain_config = config_loader.get_gridded_domain_config(args.domain)
     speed_grid = resolve_cli_path(args.speed_grid)
     direction_grid = resolve_cli_path(args.direction_grid)
     label = sanitize_label(args.label)

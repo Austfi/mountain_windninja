@@ -71,6 +71,29 @@ def test_write_speed_direction_grids_handles_cardinals_and_nodata(tmp_path):
     assert direction_lines[6:] == ["270.000000 180.000000", "90.000000 -9999"]
 
 
+def test_write_speed_direction_pair_grids_converts_speed_units(tmp_path):
+    source_speed = tmp_path / "source_speed.asc"
+    source_direction = tmp_path / "source_direction.asc"
+    speed_grid = tmp_path / "speed.asc"
+    direction_grid = tmp_path / "direction.asc"
+    _asc(source_speed, ["10 -9999", "1 2"])
+    _asc(source_direction, ["270 180", "-9999 361"])
+
+    forcing.write_speed_direction_pair_grids(
+        source_speed,
+        source_direction,
+        speed_grid,
+        direction_grid,
+        input_speed_units="mps",
+        output_speed_units="mph",
+    )
+
+    speed_lines = speed_grid.read_text(encoding="utf-8").splitlines()
+    direction_lines = direction_grid.read_text(encoding="utf-8").splitlines()
+    assert speed_lines[6:] == ["22.369363 -9999", "-9999 4.473873"]
+    assert direction_lines[6:] == ["270.000000 -9999", "-9999 1.000000"]
+
+
 def test_warp_candidate_to_terrain_builds_gdalwarp_command(tmp_path, monkeypatch):
     commands = []
 
@@ -89,9 +112,11 @@ def test_warp_candidate_to_terrain_builds_gdalwarp_command(tmp_path, monkeypatch
 
     forcing.warp_candidate_to_terrain(candidate, terrain, tmp_path / "u.asc")
 
-    command = commands[0]
+    translate_command = commands[0]
+    assert translate_command[:6] == ["gdal_translate", "-q", "-of", "VRT", "-b", "2"]
+
+    command = commands[1]
     assert command[:6] == ["gdalwarp", "-overwrite", "-of", "AAIGrid", "-r", "bilinear"]
-    assert "-b" in command
-    assert command[command.index("-b") + 1] == "2"
+    assert "-b" not in command
     assert command[command.index("-ts") + 1:command.index("-ts") + 3] == ["10", "20"]
-    assert command[-2:] == ["input.grib", str(tmp_path / "u.asc")]
+    assert command[-1:] == [str(tmp_path / "u.asc")]

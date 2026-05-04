@@ -6,6 +6,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -13,13 +14,13 @@ from pathlib import Path
 
 try:
     from . import config_loader, raster_validation, synoptic_validation as sv, utils
-    from .archive_manager import build_output_dir_name
+    from .archive_manager import build_grid_output_dir_name, build_output_dir_name
 except ImportError:
     import config_loader
     import raster_validation
     import synoptic_validation as sv
     import utils
-    from archive_manager import build_output_dir_name
+    from archive_manager import build_grid_output_dir_name, build_output_dir_name
 
 
 logger = utils.setup_logging("validation_study")
@@ -56,6 +57,7 @@ class StudyConfig:
     station_manifest: Path
     metadata_file: Path
     bbox_file: Path
+    lead_hours: int = 1
 
 
 def resolve_repo_path(raw_path: str | Path) -> Path:
@@ -109,6 +111,7 @@ def load_study_config(study_key: str) -> StudyConfig:
         station_manifest=station_manifest,
         metadata_file=metadata_file,
         bbox_file=bbox_file,
+        lead_hours=int(payload.get("lead_hours", 1)),
     )
 
 
@@ -131,6 +134,15 @@ def plan_chunks(start: dt.datetime, end: dt.datetime, chunk_hours: int) -> list[
 
 
 def run_dir_for_chunk(study: StudyConfig, chunk: Chunk) -> Path:
+    if study.model.upper() == "NBM":
+        run_label = f"nbm_archive_{chunk.hours}h"
+        return Path(config_loader.TEMP_DIR) / build_output_dir_name(
+            study.domain,
+            chunk.start.replace(tzinfo=None),
+            run_label,
+            study.model,
+        )
+
     run_label = f"reanalysis_{chunk.hours}h"
     return Path(config_loader.TEMP_DIR) / build_output_dir_name(
         study.domain,
@@ -201,6 +213,14 @@ def run_reanalysis_chunk(
     force: bool,
     dry_run: bool,
 ) -> Path:
+    if study.model.upper() == "NBM":
+        return run_nbm_archive_chunk(
+            study,
+            chunk,
+            force=force,
+            dry_run=dry_run,
+        )
+
     run_dir = run_dir_for_chunk(study, chunk)
     if run_dir.exists() and not force:
         logger.info(f"Using existing run directory: {run_dir}")
@@ -225,6 +245,139 @@ def run_reanalysis_chunk(
         ],
         dry_run=dry_run,
     )
+    return run_dir
+
+
+def copy_hour_outputs(
+    *,
+    study: StudyConfig,
+    run_time: dt.datetime,
+    grid_run_dir: Path,
+    forcing_dir: Path,
+    chunk_run_dir: Path,
+) -> None:
+    for path in sorted(grid_run_dir.glob("*.asc")):
+        shutil.copy2(path, chunk_run_dir / path.name)
+        prj_path = path.with_suffix(".prj")
+        if prj_path.exists():
+            shutil.copy2(prj_path, chunk_run_dir / prj_path.name)
+
+    label = run_time.strftime("%Y%m%d_%H%M")
+    parent_vel = chunk_run_dir / f"{study.model}-{label}_vel.asc"
+    parent_ang = chunk_run_dir / f"{study.model}-{label}_ang.asc"
+    shutil.copy2(forcing_dir / "parent_vel.asc", parent_vel)
+    shutil.copy2(forcing_dir / "parent_ang.asc", parent_ang)
+    for source, target in (
+        (forcing_dir / "parent_vel.prj", parent_vel.with_suffix(".prj")),
+        (forcing_dir / "parent_ang.prj", parent_ang.with_suffix(".prj")),
+    ):
+        if source.exists():
+            shutil.copy2(source, target)
+
+
+def run_nbm_archive_chunk(
+    study: StudyConfig,
+    chunk: Chunk,
+    *,
+    force: bool,
+    dry_run: bool,
+) -> Path:
+    run_dir = run_dir_for_chunk(study, chunk)
+    manifest_path = run_dir / "nbm_archive_manifest.json"
+    if manifest_path.exists() and not force:
+        logger.info(f"Using existing NBM archive run directory: {run_dir}")
+        return run_dir
+
+    if force and not dry_run:
+        shutil.rmtree(run_dir, ignore_errors=True)
+    if not dry_run:
+        utils.ensure_dir(str(run_dir))
+    forcing_root = (
+        Path(config_loader.RUNTIME_DIR)
+        / "forcing"
+        / "validation"
+        / study.key
+        / "NBM"
+    )
+
+    completed = []
+    cursor = chunk.start
+    while cursor < chunk.end:
+        run_time = cursor.replace(tzinfo=None)
+        stamp = ymdhm(cursor)
+        forcing_dir = forcing_root / stamp
+        grid_run_dir = Path(config_loader.TEMP_DIR) / build_grid_output_dir_name(
+            study.domain,
+            run_time,
+            "nbm",
+        )
+
+        if force and not dry_run:
+            shutil.rmtree(forcing_dir, ignore_errors=True)
+            shutil.rmtree(grid_run_dir, ignore_errors=True)
+
+        run_command(
+            [
+                sys.executable,
+                str(config_loader.SCRIPTS_DIR / "nbm_archive.py"),
+                "--time",
+                stamp,
+                "--domain",
+                study.domain,
+                "--lead-hours",
+                str(study.lead_hours),
+                "--out",
+                str(forcing_dir),
+                "--parent-speed-units",
+                study.speed_units,
+            ],
+            dry_run=dry_run,
+        )
+        run_command(
+            [
+                sys.executable,
+                str(config_loader.SCRIPTS_DIR / "gridded_run.py"),
+                "--speed-grid",
+                str(forcing_dir / "speed.asc"),
+                "--direction-grid",
+                str(forcing_dir / "direction.asc"),
+                "--time",
+                stamp,
+                "--domain",
+                study.domain,
+                "--label",
+                "nbm",
+                "--keep-temp",
+                "--no-upload",
+            ],
+            dry_run=dry_run,
+        )
+
+        if not dry_run:
+            copy_hour_outputs(
+                study=study,
+                run_time=run_time,
+                grid_run_dir=grid_run_dir,
+                forcing_dir=forcing_dir,
+                chunk_run_dir=run_dir,
+            )
+            shutil.rmtree(grid_run_dir, ignore_errors=True)
+            shutil.rmtree(forcing_dir, ignore_errors=True)
+            completed.append(stamp)
+        cursor += dt.timedelta(hours=1)
+
+    if not dry_run:
+        manifest = {
+            "generated_at_utc": sv.isoformat_utc(dt.datetime.now(UTC)),
+            "source": "NBM archive",
+            "model": study.model,
+            "domain": study.domain,
+            "lead_hours": study.lead_hours,
+            "start_utc": sv.isoformat_utc(chunk.start),
+            "end_utc": sv.isoformat_utc(chunk.end),
+            "valid_times": completed,
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return run_dir
 
 
@@ -335,6 +488,7 @@ def aggregate_outputs(study: StudyConfig, chunks: list[Chunk], sample_paths: lis
             "label": study.label,
             "domain": study.domain,
             "model": study.model,
+            "lead_hours": study.lead_hours,
             "chunk_count": len(chunks),
             "chunks": [
                 {
@@ -364,6 +518,7 @@ def print_plan(study: StudyConfig, chunks: list[Chunk]) -> None:
         "label": study.label,
         "domain": study.domain,
         "model": study.model,
+        "lead_hours": study.lead_hours,
         "station_manifest": str(study.station_manifest),
         "metadata_file": str(study.metadata_file),
         "validation_root": str(study.validation_root),
@@ -397,6 +552,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--chunk-hours", type=int, help="Override study chunk size.")
     parser.add_argument("--model", help="Override study weather model.")
+    parser.add_argument("--lead-hours", type=int,
+                        help="Forecast lead for archive-backed models such as NBM.")
     parser.add_argument("--domain", help="Override study domain.")
     parser.add_argument("--tolerance-minutes", type=int, help="Override observation match tolerance.")
     parser.add_argument("--speed-units", choices=["mph", "mps", "kph", "kts"])
@@ -429,6 +586,11 @@ def with_overrides(study: StudyConfig, args: argparse.Namespace) -> StudyConfig:
         station_manifest=study.station_manifest,
         metadata_file=study.metadata_file,
         bbox_file=study.bbox_file,
+        lead_hours=(
+            args.lead_hours
+            if args.lead_hours is not None
+            else study.lead_hours
+        ),
     )
 
 

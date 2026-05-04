@@ -106,7 +106,26 @@ If a spot/preemptible instance dies mid-run, assume the active chunk is lost and
 
 **Implication:** run historical validation studies in 24h or 72h chunks, not as one monolithic seasonal job.
 
-### 11. Berthoud validation is intentionally small and manifest-driven
+### 11. NBM historical validation uses archived grid forcing
+
+WindNinja does not expose an NBM `PASTCAST-*` model like HRRR. For
+`validate-study --model NBM`, this repo fetches only the public NBM archive
+`WIND` and `WDIR` 10 m GRIB records by HTTP byte range, converts them to
+`run-grid` speed/direction inputs, runs one WindNinja timestep per valid hour,
+and copies parent/WindNinja ASCII rasters into the same chunk validation layout
+used by HRRR.
+
+NBM has no `f000`; `--lead-hours` defaults to `1`. Use `--lead-hours 1` for the
+closest past-comparison workflow and larger leads for forecast-skill validation.
+
+### 12. Gridded forcing needs a DEM, not LCP
+
+`run-grid`, `forcing-from-grib`, and NBM archive forcing use DEM-backed
+gridded initialization. If a domain points at `name.lcp` and a sibling
+`name.tif` exists in `static_data/`, the scripts automatically use the `.tif`
+for gridded forcing while keeping the same domain key.
+
+### 13. Berthoud validation is intentionally small and manifest-driven
 
 The current Berthoud validation setup is a 10 km square centered on Berthoud Pass
 and currently validates K0CO Berthoud Pass / Mines Peak AWOS. Station selection
@@ -145,7 +164,7 @@ run directories and chunk summaries, so extending a window is safe:
   --chunk-hours 24
 ```
 
-### 12. Validation template avoids visual artifacts
+### 14. Validation template avoids visual artifacts
 
 `berthoud_pass` uses `config/template_validation.cfg`, not `config/template.cfg`.
 It keeps the same HRRR/momentum/diurnal/100 m physics path but disables KMZ and
@@ -187,7 +206,9 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/create_time_series.py` | Bundles hourly KMZ files into playable time-series KMZ |
 | `scripts/raster_validation.py` | Samples nearest WindNinja and parent-HRRR rasters at station coordinates and compares against Synoptic |
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
-| `scripts/validation_study.py` | Chunked Synoptic/HRRR/WindNinja validation workflow using explicit station manifests |
+| `scripts/validation_study.py` | Chunked Synoptic/model/WindNinja validation workflow using explicit station manifests |
+| `scripts/nbm_archive.py` | Fetches archived NBM 10 m wind records by byte range and builds run-grid forcing |
+| `scripts/forcing_from_grib.py` | Converts U/V or speed/direction GRIB/NetCDF fields into WindNinja grids |
 | `scripts/validation_plots.py` | Pure-stdlib SVG/HTML plotting for completed validation sample chunks |
 | `config/template.cfg` | WindNinja config template with placeholders |
 | `config/template_validation.cfg` | Lean validation template, ASCII outputs only |
@@ -222,7 +243,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - GCS upload integration for sharing results
 - Scheduled cron forecasts (scheduler service exists but needs production testing)
 - Performance profiling on larger domains (30+ km)
-- Support for additional weather models beyond HRRR
+- NDFD archive forcing and validation, following the NBM gridded-forcing pattern
 
 ## Handoff
 

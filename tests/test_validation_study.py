@@ -45,6 +45,29 @@ def test_run_dir_for_chunk_uses_daily_run_naming():
     assert run_dir.name == "berthoud_pass_20260101_0000_reanalysis_3h_HRRR"
 
 
+def test_run_dir_for_nbm_uses_archive_naming():
+    study = vs.with_overrides(
+        vs.load_study_config("berthoud_pass"),
+        type("Args", (), {
+            "domain": None,
+            "model": "NBM",
+            "chunk_hours": None,
+            "tolerance_minutes": None,
+            "speed_units": None,
+            "default_height": None,
+            "lead_hours": 1,
+        })(),
+    )
+    chunk = vs.Chunk(
+        dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        dt.datetime(2026, 1, 1, 3, 0, tzinfo=UTC),
+    )
+
+    run_dir = vs.run_dir_for_chunk(study, chunk)
+
+    assert run_dir.name == "berthoud_pass_20260101_0000_nbm_archive_3h_NBM"
+
+
 def _write_sample_csv(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -171,3 +194,44 @@ def test_main_plan_prints_without_running(capsys):
     assert payload["study"] == "berthoud_pass"
     assert payload["chunk_count"] == 1
     assert payload["chunks"][0]["end"] == "202601010300"
+
+
+def test_nbm_archive_chunk_dry_run_uses_existing_validation_flow(monkeypatch, tmp_path):
+    commands = []
+
+    def fake_run_command(command, *, dry_run=False):
+        commands.append(command)
+        assert dry_run is True
+
+    monkeypatch.setattr(vs, "run_command", fake_run_command)
+    monkeypatch.setattr(vs.config_loader, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(vs.config_loader, "TEMP_DIR", str(tmp_path / "temp"))
+    monkeypatch.setattr(vs.config_loader, "SCRIPTS_DIR", tmp_path / "scripts")
+    study = vs.StudyConfig(
+        key="test",
+        label="Test",
+        domain="berthoud_pass",
+        model="NBM",
+        chunk_hours=1,
+        tolerance_minutes=30,
+        speed_units="mph",
+        default_height_m=10.0,
+        padding_km=2.0,
+        validation_root=tmp_path / "validation",
+        station_manifest=tmp_path / "stations.csv",
+        metadata_file=tmp_path / "metadata.json",
+        bbox_file=tmp_path / "bbox.json",
+        lead_hours=1,
+    )
+    chunk = vs.Chunk(
+        dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        dt.datetime(2026, 1, 1, 1, 0, tzinfo=UTC),
+    )
+
+    run_dir = vs.run_reanalysis_chunk(study, chunk, force=False, dry_run=True)
+
+    assert run_dir.name == "berthoud_pass_20260101_0000_nbm_archive_1h_NBM"
+    assert len(commands) == 2
+    assert commands[0][1].endswith("nbm_archive.py")
+    assert commands[0][commands[0].index("--lead-hours") + 1] == "1"
+    assert commands[1][1].endswith("gridded_run.py")

@@ -128,7 +128,7 @@ def clean_number(value: float | None, digits: int = 2) -> float | None:
     return round(value, digits)
 
 
-def metric_summary(rows: list[dict]) -> dict:
+def metric_summary(rows: list[dict], model_label: str = "HRRR") -> dict:
     def values(field: str, *, absolute: bool = False) -> list[float]:
         out = []
         for row in rows:
@@ -141,10 +141,18 @@ def metric_summary(rows: list[dict]) -> dict:
     start_time = rows[0]["_time"]
     end_time = rows[-1]["_time"]
     stations = sorted({row["station_id"] for row in rows})
+    parent_model = {
+        "speed_bias": clean_number(mean(values("wx_speed_error"))),
+        "speed_mae": clean_number(mean(values("wx_speed_error", absolute=True))),
+        "speed_rmse": clean_number(rmse(values("wx_speed_error"))),
+        "dir_mae_deg": clean_number(mean(values("wx_dir_abs_error_deg"))),
+        "vector_rmse": clean_number(rmse(values("wx_vector_error"))),
+    }
     return {
         "sample_count": len(rows),
         "station_count": len(stations),
         "stations": stations,
+        "model_label": model_label,
         "start_utc": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "end_utc": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "windninja": {
@@ -154,13 +162,8 @@ def metric_summary(rows: list[dict]) -> dict:
             "dir_mae_deg": clean_number(mean(values("wn_dir_abs_error_deg"))),
             "vector_rmse": clean_number(rmse(values("wn_vector_error"))),
         },
-        "hrrr": {
-            "speed_bias": clean_number(mean(values("wx_speed_error"))),
-            "speed_mae": clean_number(mean(values("wx_speed_error", absolute=True))),
-            "speed_rmse": clean_number(rmse(values("wx_speed_error"))),
-            "dir_mae_deg": clean_number(mean(values("wx_dir_abs_error_deg"))),
-            "vector_rmse": clean_number(rmse(values("wx_vector_error"))),
-        },
+        "hrrr": parent_model,
+        "parent_model": parent_model,
     }
 
 
@@ -385,7 +388,14 @@ def line_plot(
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
-def scatter_plot(path: Path, rows: list[dict], *, title: str, units: str) -> None:
+def scatter_plot(
+    path: Path,
+    rows: list[dict],
+    *,
+    title: str,
+    units: str,
+    model_label: str = "HRRR",
+) -> None:
     width = 720
     height = 640
     margin = {"left": 78, "right": 34, "top": 70, "bottom": 78}
@@ -469,7 +479,7 @@ def scatter_plot(path: Path, rows: list[dict], *, title: str, units: str) -> Non
     parts.append(f'<circle cx="90" cy="{height - 24}" r="4" fill="{COLORS["windninja"]}"/>')
     parts.append(f'<text x="102" y="{height - 20}" class="legend">WindNinja</text>')
     parts.append(f'<circle cx="220" cy="{height - 24}" r="4" fill="{COLORS["hrrr"]}"/>')
-    parts.append(f'<text x="232" y="{height - 20}" class="legend">HRRR</text>')
+    parts.append(f'<text x="232" y="{height - 20}" class="legend">{html.escape(model_label)}</text>')
     parts.append(svg_footer())
     path.write_text("\n".join(parts), encoding="utf-8")
 
@@ -495,16 +505,17 @@ def write_index(path: Path, summary: dict, plots: list[str], title: str) -> None
 
     wn = summary["windninja"]
     wx = summary["hrrr"]
+    model_label = summary.get("model_label", "HRRR")
     cards = [
         card("Samples", str(summary["sample_count"])),
         card("Stations", str(summary["station_count"])),
         card("Window", f'{summary["start_utc"]} to {summary["end_utc"]}'),
         card("WN Speed MAE", f'{wn["speed_mae"]} mph'),
-        card("HRRR Speed MAE", f'{wx["speed_mae"]} mph'),
+        card(f"{model_label} Speed MAE", f'{wx["speed_mae"]} mph'),
         card("WN Vector RMSE", f'{wn["vector_rmse"]} mph'),
-        card("HRRR Vector RMSE", f'{wx["vector_rmse"]} mph'),
+        card(f"{model_label} Vector RMSE", f'{wx["vector_rmse"]} mph'),
         card("WN Direction MAE", f'{wn["dir_mae_deg"]} deg'),
-        card("HRRR Direction MAE", f'{wx["dir_mae_deg"]} deg'),
+        card(f"{model_label} Direction MAE", f'{wx["dir_mae_deg"]} deg'),
     ]
     images = "\n".join(
         f'<section><h2>{html.escape(Path(plot).stem.replace("_", " ").title())}</h2>'
@@ -585,7 +596,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--station-id", help="Optional station ID filter.")
     parser.add_argument("--title", default="Berthoud Pass Validation")
     parser.add_argument("--speed-units", default="mph")
+    parser.add_argument("--model-label", help="Parent weather model label for plot legends.")
     return parser
+
+
+def infer_model_label(study_root: Path, override: str | None) -> str:
+    if override:
+        return override
+    summary_path = study_root / "summary.json"
+    if summary_path.exists():
+        try:
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return "HRRR"
+        model = payload.get("model")
+        if model:
+            return str(model)
+    return "HRRR"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -599,8 +626,9 @@ def main(argv: list[str] | None = None) -> int:
     output_dir = resolve_repo_path(args.output_dir) if args.output_dir else study_root / "plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    model_label = infer_model_label(study_root, args.model_label)
     rows = load_samples(source_paths, args.station_id)
-    summary = metric_summary(rows)
+    summary = metric_summary(rows, model_label)
     time_fields = [
         "speed_obs",
         "wn_speed",
@@ -625,7 +653,7 @@ def main(argv: list[str] | None = None) -> int:
         [
             ("Observed", "speed_obs", COLORS["obs"]),
             ("WindNinja", "wn_speed", COLORS["windninja"]),
-            ("HRRR", "wx_speed", COLORS["hrrr"]),
+            (model_label, "wx_speed", COLORS["hrrr"]),
         ],
         title="Wind Speed Time Series",
         y_label=f"Speed ({args.speed_units})",
@@ -636,7 +664,7 @@ def main(argv: list[str] | None = None) -> int:
         time_records,
         [
             ("WindNinja error", "wn_speed_error", COLORS["windninja"]),
-            ("HRRR error", "wx_speed_error", COLORS["hrrr"]),
+            (f"{model_label} error", "wx_speed_error", COLORS["hrrr"]),
         ],
         title="Wind Speed Error",
         y_label=f"Modeled minus observed ({args.speed_units})",
@@ -647,7 +675,7 @@ def main(argv: list[str] | None = None) -> int:
         time_records,
         [
             ("WindNinja", "wn_dir_abs_error_deg", COLORS["windninja"]),
-            ("HRRR", "wx_dir_abs_error_deg", COLORS["hrrr"]),
+            (model_label, "wx_dir_abs_error_deg", COLORS["hrrr"]),
         ],
         title="Direction Absolute Error",
         y_label="Degrees",
@@ -658,15 +686,16 @@ def main(argv: list[str] | None = None) -> int:
         rows,
         title="Observed vs Modeled Wind Speed",
         units=args.speed_units,
+        model_label=model_label,
     )
     line_plot(
         output_dir / plots[4],
         daily_records(rows),
         [
             ("WN vector RMSE", "wn_vector_rmse", COLORS["windninja"]),
-            ("HRRR vector RMSE", "wx_vector_rmse", COLORS["hrrr"]),
+            (f"{model_label} vector RMSE", "wx_vector_rmse", COLORS["hrrr"]),
             ("WN speed MAE", "wn_speed_mae", "#5dade2"),
-            ("HRRR speed MAE", "wx_speed_mae", "#e74c3c"),
+            (f"{model_label} speed MAE", "wx_speed_mae", "#e74c3c"),
         ],
         title="Daily Error Metrics",
         y_label=f"Error ({args.speed_units})",

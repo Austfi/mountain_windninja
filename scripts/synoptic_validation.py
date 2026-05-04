@@ -491,6 +491,7 @@ def summarize_samples(sample_rows: list[dict]) -> dict:
         "sample_count": len(sample_rows),
         "windninja": wn,
         "hrrr": wx,
+        "parent_model": wx,
         "improvement": {
             "speed_mae": None if wn["speed_mae"] is None or wx["speed_mae"] is None else wx["speed_mae"] - wn["speed_mae"],
             "speed_rmse": None if wn["speed_rmse"] is None or wx["speed_rmse"] is None else wx["speed_rmse"] - wn["speed_rmse"],

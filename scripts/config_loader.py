@@ -110,6 +110,23 @@ def get_domain_config(domain_key: str | None = None) -> DomainConfig:
     return _DOMAIN_CATALOG[domain_key or DEFAULT_DOMAIN]
 
 
+def get_gridded_domain_config(domain_key: str | None = None) -> DomainConfig:
+    """Return a DEM-backed domain config for gridded initialization."""
+    domain = get_domain_config(domain_key)
+    if domain.elevation_file.suffix.lower() != ".lcp":
+        return domain
+
+    dem_path = domain.elevation_file.with_suffix(".tif")
+    if dem_path.exists():
+        return DomainConfig(
+            key=domain.key,
+            label=domain.label,
+            template_path=domain.template_path,
+            elevation_file=dem_path,
+        )
+    return domain
+
+
 def init_directories() -> None:
     for d in (RUNTIME_DIR, STATIC_DATA_DIR, TEMP_DIR, ARCHIVE_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)

@@ -102,8 +102,9 @@ Note: This method does not support multiple time steps in a single run. Each tim
 requires a separate run. Diurnal winds require additional settings: `uni_air_temp`,
 `air_temp_units`, `uni_cloud_cover`, `cloud_cover_units`, plus date/time fields.
 In this repo, use `mwn.sh run-grid` for prepared grids or `mwn.sh forcing-from-grib`
-to convert one U/V GRIB/NetCDF timestep first. Use a DEM `.tif` domain; LCP-backed
-domains are rejected for gridded initialization in v1.
+to convert one U/V or speed/direction GRIB/NetCDF timestep first. Gridded
+initialization uses a DEM `.tif`; if a domain points at `name.lcp` and a sibling
+`name.tif` exists, the scripts use the `.tif` automatically.
 
 ---
 
