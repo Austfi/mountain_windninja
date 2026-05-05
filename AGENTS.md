@@ -187,6 +187,15 @@ It keeps the same HRRR/momentum/diurnal/100 m physics path but disables KMZ and
 shapefile output, while keeping WindNinja ASCII and parent-HRRR ASCII rasters
 needed by `validate-rasters`.
 
+### 14. Artifact cleanup boundary
+
+Before handoff, it is safe to delete generated artifacts under `runtime/`,
+`static_data/NINJAFOAM_*`, stray `static_data/PASTCAST-*` weather cache
+directories, `.pytest_cache/`, `.ruff_cache/`, `__pycache__/`, and `.DS_Store`.
+Do not delete `config/runtime.env`, `.venv/`, or local terrain inputs such as
+`static_data/*.tif`, `static_data/*.lcp`, and `static_data/*.prj` unless they
+have been backed up or are intentionally being regenerated.
+
 ## DEM Data Sources
 
 | Source | Resolution | Coverage | API Key | mwn.sh arg |
@@ -268,3 +277,4 @@ Before handing this repo to another agent/operator:
 - If the work touched `Dockerfile` or `docker/`, tell the next operator they must rebuild with `./deploy/gcp/mwn.sh build`.
 - If the task involves historical validation, confirm whether Synoptic authorization is available before debugging the validation code path.
 - Do not assume `config/template.cfg` reflects a canonical thread count; operators often tune it locally per VM/domain.
+- State which ignored artifacts were cleaned and which local terrain inputs were preserved.

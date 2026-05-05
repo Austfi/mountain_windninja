@@ -1,0 +1,20 @@
+{
+  "key": "copper_mountain_kccu_5km",
+  "label": "Copper Mountain KCCU 5 km",
+  "domain": "copper_mountain_kccu_5km",
+  "model": "HRRR",
+  "chunk_hours": 24,
+  "tolerance_minutes": 30,
+  "speed_units": "mph",
+  "default_height_m": null,
+  "padding_km": 2.5,
+  "validation_root": "runtime/validation/copper_mountain_kccu_5km",
+  "station_manifest": "config/stations/copper_mountain_kccu_validation_manifest.csv",
+  "metadata_file": "runtime/validation/copper_mountain_kccu_5km/station_metadata.json",
+  "bbox_file": "runtime/validation/copper_mountain_kccu_5km/station_bbox.json",
+  "notes": {
+    "station": "KCCU Copper Mountain AWOS",
+    "height": "KCCU uses an explicit 10.0 m manifest override for AWOS wind observations.",
+    "domain_scale": "Single-station validation domain uses about 5 km station-centered terrain to keep runs fast."
+  }
+}

@@ -20,5 +20,9 @@ fi
 sudo systemctl enable docker
 sudo systemctl start docker
 
+if getent group docker >/dev/null 2>&1; then
+  sudo usermod -aG docker "$USER"
+fi
+
 echo "Docker host dependencies installed."
-echo "You may need to log out and back in before running docker without sudo."
+echo "Run 'newgrp docker' or log out and back in before running docker without sudo."

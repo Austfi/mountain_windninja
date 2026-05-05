@@ -11,6 +11,16 @@
       "template": "config/template_validation.cfg",
       "elevation_file": "berthoud_pass.lcp"
     },
+    "berthoud_pass_mass": {
+      "label": "Berthoud Pass Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "berthoud_pass.lcp"
+    },
+    "copper_mountain_kccu_5km": {
+      "label": "Copper Mountain KCCU 5 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "copper_mountain_kccu_5km.lcp"
+    },
     "summit_county": {
       "label": "Summit County / Loveland Pass",
       "template": "config/template.cfg",

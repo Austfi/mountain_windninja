@@ -5,18 +5,63 @@ from a Docker-based command line workflow. The wrapper downloads terrain, regist
 simulation domains, runs WindNinja inside a container, and writes Google Earth KMZ
 plus ASCII grid output.
 
+## Google Cloud VM Bootstrap
+
+For the current test VM, use:
+
+```bash
+gcloud compute instances start mwj-test --zone us-central1-b
+gcloud compute ssh mwj-test --zone us-central1-b
+```
+
+That VM is Ubuntu 22.04 in `us-central1-b` on `e2-highcpu-8` (8 vCPU, 8 GB RAM).
+For a different VM, replace the name and zone with the values shown in the GCP
+console. If you use the browser SSH button instead of `gcloud`, run the remaining
+commands in that browser terminal.
+
+On a fresh Ubuntu 22.04 VM, use the repo bootstrap script. It installs host
+packages, Docker, Docker Compose, and the local runtime directories:
+
+```bash
+# Only needed if apt was interrupted or reports a lock on a fresh VM.
+sudo dpkg --configure -a
+sudo apt-get update
+sudo apt-get install -y git
+
+sudo mkdir -p /opt
+sudo chown "$USER:$USER" /opt
+
+git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
+cd /opt/mountain_windninja
+
+./deploy/gcp/bootstrap_repo.sh
+newgrp docker
+docker run hello-world
+
+./deploy/gcp/mwn.sh init --image pull
+./deploy/gcp/mwn.sh check
+```
+
+If `docker run hello-world` works with `sudo` but fails without it, run
+`newgrp docker` or log out and SSH back in. If `apt-get update` reports a lock,
+wait a minute and retry `sudo dpkg --configure -a`. The full manual Docker
+install fallback is in the [GCP setup guide](docs/gcp_setup.md).
+
 ## First Successful Run
 
 You need one latitude/longitude point near the center of the area you want to
 simulate. A 10-12 km square is a good first domain. Docker must already be
 installed and running.
 
+On a Google Cloud VM, start with the existing-VM or new-VM runbook in
+[GCP setup guide](docs/gcp_setup.md). The normal path uses the published GHCR
+image, not a local Docker build.
+
 ```bash
-git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
 cd /opt/mountain_windninja
 
 # Create runtime/, static_data/, config/runtime.env, and pull the default image.
-./deploy/gcp/mwn.sh init
+./deploy/gcp/mwn.sh init --image pull
 
 # Download DEM + LCP terrain, register a domain, and make it the default.
 ./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.08 --size-km 12 \
@@ -110,8 +155,9 @@ Examples:
 - [Scheduling guide](docs/scheduling.md) - automatic forecast runs
 - [Validation guide](docs/validation.md) - Synoptic and raster validation workflow
 - [Development guide](docs/development.md) - local Python/dev overrides
-- [GCP setup guide](docs/gcp_setup.md) - VM sizing, cost notes, and operations
+- [GCP setup guide](docs/gcp_setup.md) - VM startup, GHCR image setup, sizing, costs, and operations
 - [WindNinja reference](docs/windninja_reference.md) - upstream config details
+- [Agent handoff](docs/agent_handoff.md) - current operational notes for the next agent/operator
 
 ## Operational Notes
 

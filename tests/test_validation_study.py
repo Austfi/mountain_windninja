@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import config_loader, windninja_config
 from scripts import validation_study as vs
 
 
@@ -21,6 +22,42 @@ def test_load_berthoud_study_config():
     assert study.model == "HRRR"
     assert study.chunk_hours == 24
     assert study.station_manifest.name == "berthoud_pass_validation_manifest.csv"
+
+
+def test_load_k0co_study_config_uses_explicit_awos_height():
+    study = vs.load_study_config("berthoud_pass_k0co")
+
+    assert study.key == "berthoud_pass_k0co"
+    assert study.domain == "berthoud_pass"
+    assert study.model == "HRRR"
+    assert study.chunk_hours == 24
+    assert study.validation_root.name == "berthoud_pass_k0co"
+    assert study.station_manifest.name == "berthoud_pass_k0co_validation_manifest.csv"
+    assert study.default_height_m is None
+
+    rows = list(csv.DictReader(study.station_manifest.open(encoding="utf-8")))
+    assert rows == [{
+        "station_id": "K0CO",
+        "label": "Berthoud Pass - Mines Peak AWOS",
+        "group": "ridge",
+        "height_m_override": "10.0",
+        "provider": "synoptic",
+    }]
+
+
+def test_load_k0co_mass_study_config_uses_mass_solver_domain():
+    study = vs.load_study_config("berthoud_pass_k0co_mass")
+
+    assert study.key == "berthoud_pass_k0co_mass"
+    assert study.domain == "berthoud_pass_mass"
+    assert study.model == "HRRR"
+    assert study.chunk_hours == 24
+    assert study.validation_root.name == "berthoud_pass_k0co_mass"
+    assert study.station_manifest.name == "berthoud_pass_k0co_validation_manifest.csv"
+
+    domain = config_loader.get_domain_config(study.domain)
+    assert domain.template_path.name == "template_validation_mass.cfg"
+    assert windninja_config.template_momentum_enabled(domain.template_path) is False
 
 
 def test_plan_chunks_splits_exact_hours():

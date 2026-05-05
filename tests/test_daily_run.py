@@ -72,6 +72,28 @@ def test_generate_config_applies_weather_model_override(tmp_path):
     assert "output_path =" in contents
 
 
+def test_generate_config_allows_env_thread_override(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    monkeypatch.setenv("MWN_NUM_THREADS", "6")
+
+    config_path, _ = daily_run.generate_config(
+        date_str="20260101",
+        start_time=dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        stop_time=dt.datetime(2026, 1, 1, 6, 0, tzinfo=UTC),
+        domain_config=domain,
+        sub_dir=str(tmp_path / "out"),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert "num_threads = 6" in contents
+    assert "num_threads = 4" not in contents
+
+
 def test_generate_config_strips_forecast_duration_for_reanalysis(tmp_path):
     template = _make_template(tmp_path)
     domain = DomainConfig(
@@ -329,6 +351,7 @@ def test_generate_domain_average_config_skips_vegetation_for_lcp(tmp_path):
 
 
 def test_generate_domain_average_config_uses_template_thread_cap(tmp_path, monkeypatch):
+    monkeypatch.delenv("MWN_NUM_THREADS", raising=False)
     template = _make_template(tmp_path)
     template.write_text(
         template.read_text(encoding="utf-8").replace("num_threads = 4", "num_threads = 6"),
