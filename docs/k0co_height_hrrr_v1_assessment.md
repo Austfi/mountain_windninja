@@ -151,8 +151,10 @@ Tune only a small grid:
 | Parameter | V1 | Trial Values |
 |-----------|----|--------------|
 | Elevation blend scale | `300 m` | `200`, `300`, `450`, `600 m` |
-| High speed cap | `1.35x` | `1.20`, `1.35`, `1.50x` |
+| Cap mode | `0.75x-1.35x` of HRRR 10 m speed | no cap, cap against HRRR 10 m speed, cap against both 10 m and 80 m speeds, HRRR 10 m cap with `2 mph` slack |
+| High speed cap | `1.35x` | `1.20`, `1.35`, `1.50x`; `1.10x` when capped against both 10 m and 80 m speeds |
 | Low speed cap | `0.75x` | `0.75`, `0.85x` |
+| Raw baselines | HRRR 10 m | HRRR 10 m and HRRR 80 m |
 
 Keep the metric target simple:
 

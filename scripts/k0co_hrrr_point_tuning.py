@@ -38,11 +38,13 @@ K0CO_LAT = 39.79453
 class Setting:
     name: str
     formula: str
-    low_cap: float
-    high_cap: float
+    cap_mode: str = "raw_10m"
+    low_cap: float | None = None
+    high_cap: float | None = None
     blend_scale_m: float | None = None
     fixed_weight: float | None = None
     threshold_m: float | None = None
+    absolute_slack_mph: float | None = None
 
 
 def obs_to_uv(speed: float, direction_deg: float) -> tuple[float, float]:
@@ -105,11 +107,13 @@ def metric_fieldnames() -> list[str]:
         "cap_low_fraction",
         "cap_high_fraction",
         "mean_weight",
+        "cap_mode",
         "blend_scale_m",
         "fixed_weight",
         "threshold_m",
         "low_cap",
         "high_cap",
+        "absolute_slack_mph",
     ]
 
 
@@ -177,16 +181,49 @@ def sample_hour(
 
 
 def settings() -> list[Setting]:
-    output = [Setting("HRRR_10m", "raw_hrrr_10m", 1.0, 1.0, fixed_weight=0.0)]
+    output = [
+        Setting("HRRR_10m", "raw_hrrr_10m", cap_mode="none", fixed_weight=0.0),
+        Setting("HRRR_80m", "raw_hrrr_80m", cap_mode="none", fixed_weight=1.0),
+    ]
     for scale in (200.0, 300.0, 450.0, 600.0):
+        output.append(
+            Setting(
+                f"blend_scale_{int(scale)}m_no_cap",
+                "elevation_blend",
+                cap_mode="none",
+                blend_scale_m=scale,
+            )
+        )
+        output.append(
+            Setting(
+                f"blend_scale_{int(scale)}m_cap_10_80_low_0.75_high_1.10",
+                "elevation_blend",
+                cap_mode="levels_10_80",
+                low_cap=0.75,
+                high_cap=1.10,
+                blend_scale_m=scale,
+            )
+        )
+        output.append(
+            Setting(
+                f"blend_scale_{int(scale)}m_low_0.75_high_1.35_slack_2mph",
+                "elevation_blend",
+                cap_mode="raw_10m_slack",
+                low_cap=0.75,
+                high_cap=1.35,
+                blend_scale_m=scale,
+                absolute_slack_mph=2.0,
+            )
+        )
         for low in (0.75, 0.85):
             for high in (1.20, 1.35, 1.50):
                 output.append(
                     Setting(
                         f"blend_scale_{int(scale)}m_low_{low:.2f}_high_{high:.2f}",
                         "elevation_blend",
-                        low,
-                        high,
+                        cap_mode="raw_10m",
+                        low_cap=low,
+                        high_cap=high,
                         blend_scale_m=scale,
                     )
                 )
@@ -196,8 +233,9 @@ def settings() -> list[Setting]:
                 Setting(
                     f"fixed_weight_{weight:.2f}_low_0.75_high_{high:.2f}",
                     "fixed_weight",
-                    0.75,
-                    high,
+                    cap_mode="raw_10m",
+                    low_cap=0.75,
+                    high_cap=high,
                     fixed_weight=weight,
                 )
             )
@@ -207,8 +245,9 @@ def settings() -> list[Setting]:
                 Setting(
                     f"threshold_{int(threshold)}m_low_0.75_high_{high:.2f}",
                     "threshold_80m",
-                    0.75,
-                    high,
+                    cap_mode="raw_10m",
+                    low_cap=0.75,
+                    high_cap=high,
                     threshold_m=threshold,
                 )
             )
@@ -218,6 +257,8 @@ def settings() -> list[Setting]:
 def setting_weight(setting: Setting, elevation_delta_m: float) -> float:
     if setting.formula == "raw_hrrr_10m":
         return 0.0
+    if setting.formula == "raw_hrrr_80m":
+        return 1.0
     if setting.formula == "elevation_blend":
         assert setting.blend_scale_m is not None
         return max(0.0, min(elevation_delta_m / setting.blend_scale_m, 1.0))
@@ -230,6 +271,32 @@ def setting_weight(setting: Setting, elevation_delta_m: float) -> float:
     raise ValueError(f"Unknown formula {setting.formula}")
 
 
+def cap_limits(setting: Setting, raw_speed_mps: float, speed_80_mps: float) -> tuple[float | None, float | None]:
+    if setting.cap_mode == "none":
+        return None, None
+
+    assert setting.low_cap is not None
+    assert setting.high_cap is not None
+
+    if setting.cap_mode == "raw_10m":
+        return raw_speed_mps * setting.low_cap, raw_speed_mps * setting.high_cap
+
+    if setting.cap_mode == "levels_10_80":
+        return (
+            min(raw_speed_mps, speed_80_mps) * setting.low_cap,
+            max(raw_speed_mps, speed_80_mps) * setting.high_cap,
+        )
+
+    if setting.cap_mode == "raw_10m_slack":
+        slack_mps = convert_speed(setting.absolute_slack_mph or 0.0, "mph", "mps")
+        return (
+            max(0.0, raw_speed_mps * setting.low_cap - slack_mps),
+            raw_speed_mps * setting.high_cap + slack_mps,
+        )
+
+    raise ValueError(f"Unknown cap mode {setting.cap_mode}")
+
+
 def evaluate_setting(record: dict, setting: Setting, gmted_elevation_m: float) -> dict:
     obs_speed = float(record["obs_speed"])
     obs_dir = float(record["obs_dir_deg"])
@@ -239,6 +306,7 @@ def evaluate_setting(record: dict, setting: Setting, gmted_elevation_m: float) -
     u80 = float(record["u80"])
     v80 = float(record["v80"])
     raw_speed_mps, raw_dir = speed_dir_from_uv(u10, v10)
+    speed_80_mps, _dir_80 = speed_dir_from_uv(u80, v80)
     elevation_delta_m = gmted_elevation_m - float(record["hrrr_surface_hgt_m"])
     weight = setting_weight(setting, elevation_delta_m)
     u = (1.0 - weight) * u10 + weight * u80
@@ -247,12 +315,11 @@ def evaluate_setting(record: dict, setting: Setting, gmted_elevation_m: float) -
 
     cap = ""
     capped_speed_mps = adjusted_speed_mps
-    low_limit = raw_speed_mps * setting.low_cap
-    high_limit = raw_speed_mps * setting.high_cap
-    if capped_speed_mps < low_limit:
+    low_limit, high_limit = cap_limits(setting, raw_speed_mps, speed_80_mps)
+    if low_limit is not None and capped_speed_mps < low_limit:
         capped_speed_mps = low_limit
         cap = "low"
-    elif capped_speed_mps > high_limit:
+    elif high_limit is not None and capped_speed_mps > high_limit:
         capped_speed_mps = high_limit
         cap = "high"
     if adjusted_speed_mps > 0.0 and capped_speed_mps != adjusted_speed_mps:
@@ -269,7 +336,10 @@ def evaluate_setting(record: dict, setting: Setting, gmted_elevation_m: float) -
         "speed_mph": speed_mph,
         "direction_deg": adjusted_dir if setting.formula != "raw_hrrr_10m" else raw_dir,
         "speed_error_mph": speed_mph - obs_speed,
-        "dir_abs_error_deg": circular_abs_error(adjusted_dir if setting.formula != "raw_hrrr_10m" else raw_dir, obs_dir),
+        "dir_abs_error_deg": circular_abs_error(
+            adjusted_dir if setting.formula != "raw_hrrr_10m" else raw_dir,
+            obs_dir,
+        ),
         "vector_error_mph": math.hypot(u_mph - obs_u, v_mph - obs_v),
         "weight": weight,
         "cap": cap,
@@ -293,11 +363,13 @@ def summarize(setting: Setting, values: list[dict], baseline: dict | None = None
         "cap_low_fraction": sum(1 for row in values if row["cap"] == "low") / sample_count,
         "cap_high_fraction": sum(1 for row in values if row["cap"] == "high") / sample_count,
         "mean_weight": sum(row["weight"] for row in values) / sample_count,
+        "cap_mode": setting.cap_mode,
         "blend_scale_m": setting.blend_scale_m,
         "fixed_weight": setting.fixed_weight,
         "threshold_m": setting.threshold_m,
         "low_cap": setting.low_cap,
         "high_cap": setting.high_cap,
+        "absolute_slack_mph": setting.absolute_slack_mph,
     }
 
 
@@ -379,6 +451,7 @@ def scatter_svg(rows: list[dict], baseline: dict) -> str:
 
     colors = {
         "raw_hrrr_10m": "#222222",
+        "raw_hrrr_80m": "#9467bd",
         "elevation_blend": "#1f77b4",
         "fixed_weight": "#2ca02c",
         "threshold_80m": "#d62728",
@@ -422,7 +495,7 @@ def write_html(path: Path, summary: dict, metrics: list[dict]) -> None:
     by_speed = sorted(metrics, key=lambda row: (row["speed_mae_mph"], row["vector_rmse_mph"]))
     by_vector = sorted(metrics, key=lambda row: (row["vector_rmse_mph"], row["speed_mae_mph"]))
     best_by_formula = []
-    for formula in ("elevation_blend", "fixed_weight", "threshold_80m"):
+    for formula in ("raw_hrrr_80m", "elevation_blend", "fixed_weight", "threshold_80m"):
         candidates = [row for row in metrics if row["formula"] == formula]
         if candidates:
             best_by_formula.append(sorted(candidates, key=lambda row: row["speed_mae_mph"])[0])
