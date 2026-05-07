@@ -899,10 +899,30 @@ Run the full adjusted-HRRR WindNinja comparison:
   --skip-native
 ```
 
+Run the next WindNinja confirmation candidate in a separate output root:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202601080000 \
+  --chunk-hours 24 \
+  --adjustment-setting balanced-300m-10-80-cap \
+  --skip-native
+```
+
+That candidate uses a 300 m blend scale and caps against both HRRR 10 m and
+80 m speed, so it does not overwrite or reuse the current `v1-current` run.
+
 Output root:
 
 ```text
 runtime/validation/berthoud_pass_k0co_height_hrrr/
+```
+
+The balanced candidate default output root is:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr_balanced_300m_10_80_cap/
 ```
 
 Use `--skip-native` only when the normal K0CO HRRR validation samples already

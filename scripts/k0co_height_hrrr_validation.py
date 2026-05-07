@@ -112,6 +112,43 @@ class HourForcingPaths:
     metadata: Path
 
 
+@dataclass(frozen=True)
+class AdjustmentSetting:
+    key: str
+    output_suffix: str
+    windninja_label: str
+    blend_scale_m: float
+    cap_mode: str
+    low_cap: float | None = None
+    high_cap: float | None = None
+
+
+ADJUSTMENT_SETTINGS = {
+    "v1-current": AdjustmentSetting(
+        key="v1-current",
+        output_suffix="",
+        windninja_label=ADJUSTED_LABEL,
+        blend_scale_m=300.0,
+        cap_mode="raw_10m",
+        low_cap=0.75,
+        high_cap=1.35,
+    ),
+    "balanced-300m-10-80-cap": AdjustmentSetting(
+        key="balanced-300m-10-80-cap",
+        output_suffix="_balanced_300m_10_80_cap",
+        windninja_label=f"{ADJUSTED_LABEL}_balanced_300m_10_80_cap",
+        blend_scale_m=300.0,
+        cap_mode="levels_10_80",
+        low_cap=0.75,
+        high_cap=1.10,
+    ),
+}
+
+
+def default_validation_root(adjustment_setting: AdjustmentSetting) -> str:
+    return f"runtime/validation/{HEIGHT_STUDY_KEY}{adjustment_setting.output_suffix}"
+
+
 def ymdhm(value: dt.datetime) -> str:
     return value.astimezone(UTC).strftime("%Y%m%d%H%M")
 
@@ -561,6 +598,29 @@ def iter_grid_rows(path: Path):
                 yield [float(value) for value in stripped.split()]
 
 
+def adjustment_cap_limits(
+    setting: AdjustmentSetting,
+    raw_speed: float,
+    speed_80m: float,
+) -> tuple[float | None, float | None]:
+    if setting.cap_mode == "none":
+        return None, None
+
+    assert setting.low_cap is not None
+    assert setting.high_cap is not None
+
+    if setting.cap_mode == "raw_10m":
+        return raw_speed * setting.low_cap, raw_speed * setting.high_cap
+
+    if setting.cap_mode == "levels_10_80":
+        return (
+            min(raw_speed, speed_80m) * setting.low_cap,
+            max(raw_speed, speed_80m) * setting.high_cap,
+        )
+
+    raise ValueError(f"Unknown adjustment cap mode {setting.cap_mode}")
+
+
 def write_speed_grid_in_units(source_speed: Path, output_speed: Path, to_units: str) -> None:
     header_lines, header = read_grid_header(source_speed)
     nodata = asc_nodata_value(header, OUTPUT_NODATA)
@@ -586,6 +646,7 @@ def write_adjusted_forcing_grids(
     dem_grid: Path,
     speed_grid: Path,
     direction_grid: Path,
+    setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> dict:
     header_lines, _ = read_grid_header(u10_grid)
     grids = [u10_grid, v10_grid, u80_grid, v80_grid, hgt_grid, dem_grid]
@@ -629,20 +690,27 @@ def write_adjusted_forcing_grids(
                 raw_speed = math.hypot(u10, v10)
                 if can_adjust:
                     elevation_delta = dem - hgt
-                    weight = min(max(elevation_delta / 300.0, 0.0), 1.0)
+                    weight = min(max(elevation_delta / setting.blend_scale_m, 0.0), 1.0)
                     adjusted_u = (1.0 - weight) * u10 + weight * u80
                     adjusted_v = (1.0 - weight) * v10 + weight * v80
                     adjusted_speed = math.hypot(adjusted_u, adjusted_v)
-                    low_cap = 0.75 * raw_speed
-                    high_cap = 1.35 * raw_speed
-                    capped_speed = min(max(adjusted_speed, low_cap), high_cap)
+                    low_cap, high_cap = adjustment_cap_limits(
+                        setting,
+                        raw_speed,
+                        math.hypot(u80, v80),
+                    )
+                    capped_speed = adjusted_speed
+                    if low_cap is not None:
+                        capped_speed = max(capped_speed, low_cap)
+                    if high_cap is not None:
+                        capped_speed = min(capped_speed, high_cap)
                     if adjusted_speed > 0.0 and capped_speed != adjusted_speed:
                         scale = capped_speed / adjusted_speed
                         adjusted_u *= scale
                         adjusted_v *= scale
-                    if adjusted_speed < low_cap:
+                    if low_cap is not None and adjusted_speed < low_cap:
                         stats["cap_low_count"] += 1
-                    elif adjusted_speed > high_cap:
+                    elif high_cap is not None and adjusted_speed > high_cap:
                         stats["cap_high_count"] += 1
                     stats["adjusted_cell_count"] += 1
                     stats["weight_sum"] += weight
@@ -728,12 +796,20 @@ def cleanup_ninjafoam_caches(domain_key: str) -> int:
     return removed
 
 
-def metadata_is_gmted_500m(metadata_path: Path) -> bool:
+def metadata_matches_setting(metadata_path: Path, adjustment_setting: AdjustmentSetting) -> bool:
     try:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    return payload.get("adjustment_grid_version") == ADJUSTMENT_GRID_VERSION
+    setting_key = payload.get("adjustment_setting")
+    return payload.get("adjustment_grid_version") == ADJUSTMENT_GRID_VERSION and (
+        setting_key == adjustment_setting.key
+        or (adjustment_setting.key == "v1-current" and setting_key is None)
+    )
+
+
+def metadata_is_gmted_500m(metadata_path: Path) -> bool:
+    return metadata_matches_setting(metadata_path, ADJUSTMENT_SETTINGS["v1-current"])
 
 
 def prepare_adjusted_hrrr_hour(
@@ -743,6 +819,7 @@ def prepare_adjusted_hrrr_hour(
     *,
     archive_base_url: str,
     force: bool,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> HourForcingPaths:
     domain = config_loader.get_gridded_domain_config(study.domain)
     terrain = forcing._terrain_grid(domain.elevation_file)
@@ -753,8 +830,8 @@ def prepare_adjusted_hrrr_hour(
         force=force,
     )
     hour_dir = validation_root / "forcing" / ymdhm(run_time)
-    adjusted_dir = hour_dir / "adjusted_hrrr_gmted_500m"
-    validation_dir = hour_dir / "validation_hrrr_gmted_500m"
+    adjusted_dir = hour_dir / f"adjusted_hrrr_gmted_500m{adjustment_setting.output_suffix}"
+    validation_dir = hour_dir / f"validation_hrrr_gmted_500m{adjustment_setting.output_suffix}"
     paths = HourForcingPaths(
         hour=run_time,
         speed_mps=adjusted_dir / "speed.asc",
@@ -767,7 +844,7 @@ def prepare_adjusted_hrrr_hour(
         and paths.direction.exists()
         and paths.speed_mph.exists()
         and paths.metadata.exists()
-        and metadata_is_gmted_500m(paths.metadata)
+        and metadata_matches_setting(paths.metadata, adjustment_setting)
     )
     if native_ready and not force:
         cleanup_intermediates(hour_dir)
@@ -797,6 +874,7 @@ def prepare_adjusted_hrrr_hour(
         adjustment_grid,
         paths.speed_mps,
         paths.direction,
+        setting=adjustment_setting,
     )
     write_speed_grid_in_units(paths.speed_mps, paths.speed_mph, study.speed_units)
     validation_direction = validation_dir / "direction.asc"
@@ -808,6 +886,7 @@ def prepare_adjusted_hrrr_hour(
             {
                 "time_utc": sv.isoformat_utc(run_time),
                 "domain": study.domain,
+                "adjustment_setting": adjustment_setting.key,
                 "adjustment_grid_version": ADJUSTMENT_GRID_VERSION,
                 "grid": "GMTED 500 m grid in the WindNinja domain projection",
                 "terrain_sample": "GMTED2010 elevation at 500 m",
@@ -816,10 +895,14 @@ def prepare_adjusted_hrrr_hour(
                 "windninja_terrain": str(domain.elevation_file),
                 "formula": {
                     "elevation_delta": "GMTED 500 m elevation - HRRR surface HGT",
-                    "weight": "clamp(elevation_delta / 300 m, 0, 1)",
+                    "weight": f"clamp(elevation_delta / {adjustment_setting.blend_scale_m:g} m, 0, 1)",
                     "u_adjusted": "(1 - weight) * u10 + weight * u80",
                     "v_adjusted": "(1 - weight) * v10 + weight * v80",
-                    "speed_cap": "0.75x to 1.35x of raw HRRR 10 m speed",
+                    "speed_cap": {
+                        "mode": adjustment_setting.cap_mode,
+                        "low_cap": adjustment_setting.low_cap,
+                        "high_cap": adjustment_setting.high_cap,
+                    },
                 },
                 "stats": stats,
             },
@@ -1026,12 +1109,32 @@ def comparison_svg(rows: list[dict]) -> str:
     return "\n".join(parts)
 
 
+def adjustment_description(adjustment_setting: AdjustmentSetting) -> str:
+    if adjustment_setting.cap_mode == "raw_10m":
+        cap = (
+            f"{adjustment_setting.low_cap:g}x-{adjustment_setting.high_cap:g}x "
+            "raw HRRR 10 m speed"
+        )
+    elif adjustment_setting.cap_mode == "levels_10_80":
+        cap = (
+            f"{adjustment_setting.low_cap:g}x min(10 m, 80 m) through "
+            f"{adjustment_setting.high_cap:g}x max(10 m, 80 m)"
+        )
+    else:
+        cap = "no cap"
+    return (
+        f"{adjustment_setting.key}: GMTED2010 500 m elevation, "
+        f"{adjustment_setting.blend_scale_m:g} m blend scale, {cap}"
+    )
+
+
 def write_hrrr_comparison_html(
     output_dir: Path,
     rows: list[dict],
     metrics: list[dict],
     start: dt.datetime,
     end: dt.datetime,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> None:
     hrrr = metrics[0]
     adjusted = metrics[1]
@@ -1104,7 +1207,8 @@ def write_hrrr_comparison_html(
   <p class="note">
     Full matched period: {html.escape(sv.isoformat_utc(start))} through {html.escape(sv.isoformat_utc(end))}.
     Observed is K0CO. HRRR is raw 10 m HRRR sampled at K0CO. Adjusted HRRR uses GMTED2010
-    500 m elevation to blend HRRR 10 m and 80 m vectors, then caps speed to 0.75x-1.35x raw HRRR.
+    500 m elevation to blend HRRR 10 m and 80 m vectors.
+    Setting: {html.escape(adjustment_description(adjustment_setting))}.
   </p>
   <p class="note">
     This HTML is HRRR-only. WindNinja still uses the high-resolution Berthoud DEM when adjusted
@@ -1156,6 +1260,7 @@ def write_hrrr_comparison_files(
     rows: list[dict],
     start: dt.datetime,
     end: dt.datetime,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     samples_csv = output_dir / "hrrr_comparison_samples.csv"
@@ -1170,13 +1275,15 @@ def write_hrrr_comparison_files(
         writer = csv.DictWriter(handle, fieldnames=list(metrics[0].keys()))
         writer.writeheader()
         writer.writerows(metrics)
-    write_hrrr_comparison_html(output_dir, rows, metrics, start, end)
+    write_hrrr_comparison_html(output_dir, rows, metrics, start, end, adjustment_setting)
     hrrr, adjusted = metrics
     sv.write_json(
         summary_json,
         {
             "generated_at_utc": sv.isoformat_utc(dt.datetime.now(UTC)),
             "station": "K0CO",
+            "adjustment_setting": adjustment_setting.key,
+            "adjustment_description": adjustment_description(adjustment_setting),
             "start_utc": sv.isoformat_utc(start),
             "end_utc": sv.isoformat_utc(end),
             "sample_count": len(rows),
@@ -1196,9 +1303,15 @@ def write_hrrr_comparison_files(
     )
 
 
-def write_hrrr_comparison(validation_root: Path, rows: list[dict], start: dt.datetime, end: dt.datetime) -> None:
+def write_hrrr_comparison(
+    validation_root: Path,
+    rows: list[dict],
+    start: dt.datetime,
+    end: dt.datetime,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
+) -> None:
     for output_dir in hrrr_comparison_output_dirs(validation_root, start, end):
-        write_hrrr_comparison_files(output_dir, rows, start, end)
+        write_hrrr_comparison_files(output_dir, rows, start, end, adjustment_setting)
 
 
 def copy_prj(source: Path, target: Path) -> None:
@@ -1238,11 +1351,12 @@ def run_grid_hour(
     *,
     force: bool,
     skip_runs: bool,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> Path:
     run_dir = Path(config_loader.TEMP_DIR) / build_grid_output_dir_name(
         study.domain,
         run_time.replace(tzinfo=None),
-        ADJUSTED_LABEL,
+        adjustment_setting.windninja_label,
     )
     if run_dir.exists() and _has_complete_validation_set(run_dir, run_time) and not force:
         logger.info(f"Using existing adjusted WindNinja run: {run_dir}")
@@ -1268,7 +1382,7 @@ def run_grid_hour(
         "--height",
         "10.0",
         "--label",
-        ADJUSTED_LABEL,
+        adjustment_setting.windninja_label,
         "--keep-temp",
         "--no-upload",
     ]
@@ -1310,6 +1424,10 @@ def mode_chunk_paths(validation_root: Path, chunk: vs.Chunk, mode: str) -> dict[
     }
 
 
+def adjusted_mode_name(adjustment_setting: AdjustmentSetting) -> str:
+    return f"height_adjusted_hrrr{adjustment_setting.output_suffix}"
+
+
 def mode_validation_is_complete(validation_root: Path, chunk: vs.Chunk, mode: str) -> bool:
     paths = mode_chunk_paths(validation_root, chunk, mode)
     return paths["summary"].exists() and paths["samples"].exists()
@@ -1336,8 +1454,9 @@ def validate_grid_chunk(
     run_dirs: list[Path],
     *,
     force: bool,
+    adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
 ) -> Path:
-    paths = mode_chunk_paths(validation_root, chunk, "height_adjusted_hrrr")
+    paths = mode_chunk_paths(validation_root, chunk, adjusted_mode_name(adjustment_setting))
     if paths["summary"].exists() and paths["samples"].exists() and not force:
         return paths["samples"]
     stage_validation_rasters(run_dirs, paths["rasters"], force=force)
@@ -1437,10 +1556,15 @@ def summarize_windninja_outputs(
     _ = metrics
 
 
-def print_plan(height_study: vs.StudyConfig, chunks: list[vs.Chunk]) -> None:
+def print_plan(
+    height_study: vs.StudyConfig,
+    chunks: list[vs.Chunk],
+    adjustment_setting: AdjustmentSetting,
+) -> None:
     hour_count = sum(len(iter_chunk_hours(chunk)) for chunk in chunks)
     print(json.dumps({
         "study": HEIGHT_STUDY_KEY,
+        "adjustment_setting": adjustment_setting.key,
         "validation_root": str(height_study.validation_root),
         "chunk_count": len(chunks),
         "hour_count": hour_count,
@@ -1450,6 +1574,10 @@ def print_plan(height_study: vs.StudyConfig, chunks: list[vs.Chunk]) -> None:
         "grid": "GMTED 500 m adjusted HRRR grid",
         "elevation_source": "GMTED2010",
         "adjustment_resolution_m": GMTED_RESOLUTION_M,
+        "blend_scale_m": adjustment_setting.blend_scale_m,
+        "cap_mode": adjustment_setting.cap_mode,
+        "low_cap": adjustment_setting.low_cap,
+        "high_cap": adjustment_setting.high_cap,
         "windninja_adjusted_run_count": hour_count,
     }, indent=2))
 
@@ -1459,7 +1587,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--chunk-hours", type=int, default=24)
-    parser.add_argument("--validation-root", default=f"runtime/validation/{HEIGHT_STUDY_KEY}")
+    parser.add_argument("--validation-root")
+    parser.add_argument(
+        "--adjustment-setting",
+        choices=sorted(ADJUSTMENT_SETTINGS),
+        default="v1-current",
+        help=(
+            "Adjustment recipe. The balanced option is the next K0CO candidate "
+            "from HRRR-only tuning."
+        ),
+    )
     parser.add_argument("--archive-base-url", default=DEFAULT_ARCHIVE_BASE_URL)
     parser.add_argument("--token")
     parser.add_argument("--plan", action="store_true")
@@ -1490,15 +1627,42 @@ def load_native_rows(source_study: vs.StudyConfig, chunks: list[vs.Chunk], args)
     return paths, rows
 
 
+def reuse_station_inputs_if_available(
+    height_study: vs.StudyConfig,
+    source_study: vs.StudyConfig,
+) -> bool:
+    if height_study.metadata_file.exists() and height_study.bbox_file.exists():
+        return True
+    candidates = [
+        (source_study.metadata_file, source_study.bbox_file),
+        (
+            vs.resolve_repo_path(default_validation_root(ADJUSTMENT_SETTINGS["v1-current"]))
+            / "station_metadata.json",
+            vs.resolve_repo_path(default_validation_root(ADJUSTMENT_SETTINGS["v1-current"]))
+            / "station_bbox.json",
+        ),
+    ]
+    for metadata_source, bbox_source in candidates:
+        if metadata_source.exists() and bbox_source.exists():
+            height_study.metadata_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(metadata_source, height_study.metadata_file)
+            shutil.copy2(bbox_source, height_study.bbox_file)
+            logger.info(f"Reused station metadata from {metadata_source.parent}")
+            return True
+    return False
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    adjustment_setting = ADJUSTMENT_SETTINGS[args.adjustment_setting]
     source_study = vs.load_study_config(STUDY_KEY)
-    validation_root = vs.resolve_repo_path(args.validation_root)
+    validation_root_arg = args.validation_root or default_validation_root(adjustment_setting)
+    validation_root = vs.resolve_repo_path(validation_root_arg)
     height_study = replace(
         source_study,
         key=HEIGHT_STUDY_KEY,
-        label="Berthoud Pass K0CO height-aware HRRR",
+        label=f"Berthoud Pass K0CO height-aware HRRR ({adjustment_setting.key})",
         validation_root=validation_root,
         metadata_file=validation_root / "station_metadata.json",
         bbox_file=validation_root / "station_bbox.json",
@@ -1507,11 +1671,11 @@ def main(argv: list[str] | None = None) -> int:
     end = vs.parse_utc(args.end)
     chunks = vs.plan_chunks(start, end, args.chunk_hours)
     if args.plan:
-        print_plan(height_study, chunks)
+        print_plan(height_study, chunks, adjustment_setting)
         return 0
     if not args.no_preflight:
         vs.run_preflight(source_study)
-    if not height_study.metadata_file.exists() or args.force:
+    if args.force or not reuse_station_inputs_if_available(height_study, source_study):
         vs.ensure_station_inputs(height_study, start, end, args.token)
     if not source_study.metadata_file.exists() and not args.skip_native:
         vs.ensure_station_inputs(source_study, start, end, args.token)
@@ -1539,6 +1703,7 @@ def main(argv: list[str] | None = None) -> int:
             validation_root,
             archive_base_url=args.archive_base_url,
             force=args.force,
+            adjustment_setting=adjustment_setting,
         )
         return index, sample_adjusted_hrrr(row, station, forcing_paths)
 
@@ -1586,6 +1751,7 @@ def main(argv: list[str] | None = None) -> int:
         [row for row in comparison_rows if row is not None],
         start,
         end,
+        adjustment_setting,
     )
     if args.hrrr_only:
         return 0
@@ -1601,6 +1767,7 @@ def main(argv: list[str] | None = None) -> int:
                 validation_root,
                 archive_base_url=args.archive_base_url,
                 force=False,
+                adjustment_setting=adjustment_setting,
             )
             try:
                 run_dirs.append(
@@ -1610,6 +1777,7 @@ def main(argv: list[str] | None = None) -> int:
                         forcing_paths,
                         force=args.force,
                         skip_runs=args.skip_runs,
+                        adjustment_setting=adjustment_setting,
                     )
                 )
             except subprocess.CalledProcessError as exc:
@@ -1617,7 +1785,14 @@ def main(argv: list[str] | None = None) -> int:
                 return exc.returncode
         if run_dirs:
             adjusted_sample_paths.append(
-                validate_grid_chunk(height_study, chunk, validation_root, run_dirs, force=args.force)
+                validate_grid_chunk(
+                    height_study,
+                    chunk,
+                    validation_root,
+                    run_dirs,
+                    force=args.force,
+                    adjustment_setting=adjustment_setting,
+                )
             )
     summarize_windninja_outputs(validation_root, native_paths, adjusted_sample_paths, start, end)
     return 0

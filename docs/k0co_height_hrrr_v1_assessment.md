@@ -170,7 +170,7 @@ Pick at most two candidate settings for WindNinja testing.
 Run adjusted WindNinja only for:
 
 1. The current V1 setting.
-2. The best HRRR-only candidate.
+2. The best HRRR-only candidate: `balanced-300m-10-80-cap`.
 3. One conservative candidate if the best setting looks aggressive.
 
 Start each candidate with one week before spending the full seasonal runtime.
@@ -180,7 +180,14 @@ Start each candidate with one week before spending the full seasonal runtime.
   --start 202601010000 \
   --end 202601080000 \
   --chunk-hours 24 \
+  --adjustment-setting balanced-300m-10-80-cap \
   --skip-native
+```
+
+The balanced candidate writes to:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr_balanced_300m_10_80_cap/
 ```
 
 Only run the full Jan-Apr WindNinja comparison after the one-week candidate

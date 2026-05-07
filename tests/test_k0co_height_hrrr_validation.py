@@ -72,6 +72,41 @@ def test_write_adjusted_forcing_grids_blends_and_caps(tmp_path):
     ]
 
 
+def test_write_adjusted_forcing_grids_supports_balanced_cap_setting(tmp_path):
+    u10 = tmp_path / "u10.asc"
+    v10 = tmp_path / "v10.asc"
+    u80 = tmp_path / "u80.asc"
+    v80 = tmp_path / "v80.asc"
+    hgt = tmp_path / "hgt.asc"
+    dem = tmp_path / "dem.asc"
+    speed = tmp_path / "speed.asc"
+    direction = tmp_path / "direction.asc"
+
+    _asc(u10, ["10 10"])
+    _asc(v10, ["0 0"])
+    _asc(u80, ["20 1"])
+    _asc(v80, ["0 0"])
+    _asc(hgt, ["1000 1000"])
+    _asc(dem, ["1300 1300"])
+
+    stats = kh.write_adjusted_forcing_grids(
+        u10,
+        v10,
+        u80,
+        v80,
+        hgt,
+        dem,
+        speed,
+        direction,
+        setting=kh.ADJUSTMENT_SETTINGS["balanced-300m-10-80-cap"],
+    )
+
+    assert stats["weight_mean"] == 1.0
+    assert stats["cap_high_count"] == 0
+    assert stats["cap_low_count"] == 0
+    assert speed.read_text(encoding="utf-8").splitlines()[6:] == ["20.000000 1.000000"]
+
+
 def test_write_adjusted_forcing_grids_keeps_raw_hrrr_outside_dem(tmp_path):
     u10 = tmp_path / "u10.asc"
     v10 = tmp_path / "v10.asc"
@@ -128,6 +163,28 @@ def test_plan_counts_only_adjusted_windninja_runs(capsys):
     assert payload["windninja_grid_run_count"] == 3
     assert payload["grid"] == "GMTED 500 m adjusted HRRR grid"
     assert payload["adjustment_resolution_m"] == 500
+
+
+def test_balanced_plan_uses_separate_default_output(capsys):
+    result = kh.main([
+        "--start",
+        "202601010000",
+        "--end",
+        "202601010300",
+        "--chunk-hours",
+        "24",
+        "--adjustment-setting",
+        "balanced-300m-10-80-cap",
+        "--plan",
+    ])
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["adjustment_setting"] == "balanced-300m-10-80-cap"
+    assert payload["cap_mode"] == "levels_10_80"
+    assert payload["validation_root"].endswith(
+        "berthoud_pass_k0co_height_hrrr_balanced_300m_10_80_cap"
+    )
 
 
 def test_hrrr_comparison_outputs_publish_documented_period_only(tmp_path):
@@ -200,6 +257,22 @@ def test_metadata_is_gmted_500m_detects_current_cache_version(tmp_path):
         encoding="utf-8",
     )
     assert kh.metadata_is_gmted_500m(metadata)
+    assert not kh.metadata_matches_setting(
+        metadata,
+        kh.ADJUSTMENT_SETTINGS["balanced-300m-10-80-cap"],
+    )
+
+    metadata.write_text(
+        (
+            '{"adjustment_grid_version": "gmted_500m_v2", '
+            '"adjustment_setting": "balanced-300m-10-80-cap"}\n'
+        ),
+        encoding="utf-8",
+    )
+    assert kh.metadata_matches_setting(
+        metadata,
+        kh.ADJUSTMENT_SETTINGS["balanced-300m-10-80-cap"],
+    )
 
 
 def test_cleanup_ninjafoam_caches_removes_only_matching_domain(tmp_path, monkeypatch):
