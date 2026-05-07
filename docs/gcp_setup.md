@@ -691,6 +691,9 @@ failed OpenFOAM mesh run:
 `clean` preserves `config/runtime.env`, terrain inputs under `static_data/`, and
 validation summaries under `runtime/validation/`.
 
+Do not run cleanup while a validation container is active. Check `docker ps` and
+any active `tmux` or `screen` session first.
+
 ## Optional: GCS Upload
 
 If you want results uploaded to a public bucket:
@@ -871,7 +874,9 @@ export OMPI_MCA_btl_vader_single_copy_mechanism=none
 Our Docker setup should handle this, but if you see it, add the variable to `config/runtime.env`.
 
 **"Error during decomposePar" with "Essential entry 'value' missing":**
-This means the wrong OpenFOAM version is being used. WindNinja requires OpenFOAM 8 (the version built in our Docker image). If you built OpenFOAM separately, make sure it's the correct version. In our Docker container, this should not happen.
+This means the wrong OpenFOAM version is being used. This repo's Docker image
+uses OpenFOAM 9. If you built OpenFOAM separately, make sure it matches the repo
+image. In our Docker container, this should not happen.
 
 **Momentum solver diverges or produces garbage output:**
 Usually caused by a rough or noisy DEM. WindNinja v3.11+ has a built-in DEM smoothing algorithm. You can also try:

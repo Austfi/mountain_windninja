@@ -145,7 +145,7 @@ MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_k0co \
 | Setup/images | `init`, `pull`, `build`, `build-local`, `update`, `demo-smoke` |
 | Terrain/domains | `fetch-terrain`, `fetch-dem`, `fetch-lcp`, `lcp-build`, `domain create`, `check` |
 | Simulations | `run`, `smoke`, `run-grid`, `forcing-from-grib`, `shell` |
-| Validation | `synoptic-points`, `validate`, `validate-rasters`, `validate-study`, `plot-validation` |
+| Validation | `synoptic-points`, `validate`, `validate-rasters`, `validate-study`, `validate-k0co-height-hrrr`, `plot-validation` |
 | Operations | `upload`, `schedule`, `stop`, `logs`, `clean` |
 
 ## init
@@ -349,6 +349,10 @@ Remove generated OpenFOAM mesh caches and raw temp run output:
 This removes `static_data/NINJAFOAM_*` and `runtime/temp/*`. It intentionally
 does not remove terrain inputs, `config/runtime.env`, archived validation
 summaries, logs, or Python/tool caches.
+
+Do not run cleanup while a validation container is active. First check `docker ps`
+and any active `tmux` or `screen` session, then clean only after the run has
+finished or been stopped intentionally.
 
 For a full local handoff cleanup after validation work, run `clean`, then remove
 ignored runtime and Python/tool artifacts while preserving local terrain:
@@ -778,6 +782,12 @@ Outputs:
 - `group_summary.csv` with grouped MAE/RMSE
 - `summary.json` with overall metrics and WindNinja-vs-HRRR improvement deltas
 
+Useful flags:
+
+- `--allow-empty`: write empty output files instead of failing when a run has no matched station-hours
+- `--tolerance-minutes N`: override observation match tolerance
+- `--speed-units mph|mps|kph|kts`: output metric units
+
 This command does not feed Synoptic into WindNinja. HRRR still drives the simulation. Synoptic only supplies station coordinates/heights and observed wind for the comparison.
 
 ## validate-study
@@ -836,6 +846,14 @@ Requires `MWN_SYNOPTIC_TOKEN` with Synoptic weather-data access. Station
 selection is explicit: edit `config/stations/berthoud_pass_validation_manifest.csv`
 to choose K0CO or any other stations to compare.
 
+Common Berthoud study keys:
+
+- `berthoud_pass`: multistation K0CO, CABTP, and USGS validation
+- `berthoud_pass_k0co`: K0CO-only momentum-solver validation
+- `berthoud_pass_k0co_mass`: K0CO-only mass-solver validation
+
+Outputs use matching roots under `runtime/validation/<study_key>/`.
+
 Historical `validate-study` runs are HRRR only because WindNinja exposes native
 HRRR pastcast but not native NBM pastcast.
 
@@ -843,6 +861,55 @@ HRRR pastcast but not native NBM pastcast.
 `mwn.sh run`, `run-grid`, and `validate-study`. Keep this at or below physical
 CPU cores for OpenFOAM momentum runs; on the current 6-physical / 12-logical CPU
 machine, use `MWN_NUM_THREADS=6` for the high-thread trial.
+
+## validate-k0co-height-hrrr
+
+Run the focused K0CO height-adjusted HRRR experiment. This is an experimental
+comparison, not the baseline validation path. It builds a GMTED2010 500 m
+adjusted HRRR field, compares observed K0CO vs HRRR vs adjusted HRRR, and, unless
+`--hrrr-only` is passed, runs WindNinja from the adjusted HRRR grids.
+
+Start with a plan:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --plan
+```
+
+Build only the observed/HRRR/adjusted-HRRR comparison:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --hrrr-only
+```
+
+Run the full adjusted-HRRR WindNinja comparison:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --skip-native
+```
+
+Output root:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr/
+```
+
+Use `--skip-native` only when the normal K0CO HRRR validation samples already
+exist. The command reuses completed adjusted WindNinja hours and cleans generated
+`NINJAFOAM_<domain>_*` caches as it goes to avoid filling `static_data/`.
+See [K0CO Height-Adjusted HRRR V1 Assessment](k0co_height_hrrr_v1_assessment.md)
+for the assumptions, final diagnostics, and tuning path.
 
 ## plot-validation
 
@@ -875,6 +942,7 @@ Useful flags:
 - `--output-dir PATH`: override the output directory
 - `--station-id ID`: plot one station from a multi-station validation
 - `--speed-units mph|mps|kph|kts`: label plot units
+- `--model-label LABEL`: parent weather model label for plot legends
 
 ## schedule
 

@@ -25,6 +25,8 @@ This document is the quickest orientation point for another agent or operator pi
   - `./deploy/gcp/mwn.sh validate-rasters`
 - Chunked validation studies exist through:
   - `./deploy/gcp/mwn.sh validate-study berthoud_pass ...`
+- The focused K0CO height-adjusted HRRR experiment exists through:
+  - `./deploy/gcp/mwn.sh validate-k0co-height-hrrr ...`
 - Synoptic is observation truth only. HRRR remains the model input to WindNinja.
 - Current recommended Berthoud validation path is:
   - `validate-study berthoud_pass --start YYYYMMDDHHMM --pilot-hours 3`
@@ -43,6 +45,9 @@ This document is the quickest orientation point for another agent or operator pi
 ## Critical Operational Notes
 
 ### Artifact Cleanup Boundary
+
+Do not run cleanup while a validation container is active. Check `docker ps` and
+any active `tmux` or `screen` session first.
 
 Safe handoff cleanup targets:
 
@@ -138,6 +143,7 @@ Additional field-learned notes:
 - [deploy/gcp/mwn.sh](../deploy/gcp/mwn.sh)
 - [scripts/daily_run.py](../scripts/daily_run.py)
 - [scripts/validation_study.py](../scripts/validation_study.py)
+- [scripts/k0co_height_hrrr_validation.py](../scripts/k0co_height_hrrr_validation.py)
 - [scripts/raster_validation.py](../scripts/raster_validation.py)
 - [scripts/synoptic_validation.py](../scripts/synoptic_validation.py)
 - [Dockerfile](../Dockerfile)
