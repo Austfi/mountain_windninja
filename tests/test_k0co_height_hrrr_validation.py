@@ -19,6 +19,7 @@ def _asc(path: Path, rows: list[str]) -> None:
         ]) + "\n",
         encoding="utf-8",
     )
+    path.with_suffix(".prj").write_text('LOCAL_CS["unit-test"]\n', encoding="utf-8")
 
 
 def test_parse_hrrr_idx_selects_required_analysis_fields():
