@@ -121,6 +121,9 @@ class AdjustmentSetting:
     cap_mode: str
     low_cap: float | None = None
     high_cap: float | None = None
+    exposure_radius_m: float | None = None
+    exposure_inner_skip_m: float = 500.0
+    full_exposure_tpi_m: float = 250.0
 
 
 ADJUSTMENT_SETTINGS = {
@@ -141,6 +144,18 @@ ADJUSTMENT_SETTINGS = {
         cap_mode="levels_10_80",
         low_cap=0.75,
         high_cap=1.10,
+    ),
+    "exposure-gate-300m-10-80-cap": AdjustmentSetting(
+        key="exposure-gate-300m-10-80-cap",
+        output_suffix="_exposure_gate_300m_10_80_cap",
+        windninja_label=f"{ADJUSTED_LABEL}_exposure_gate_300m_10_80_cap",
+        blend_scale_m=300.0,
+        cap_mode="levels_10_80",
+        low_cap=0.75,
+        high_cap=1.10,
+        exposure_radius_m=3000.0,
+        exposure_inner_skip_m=500.0,
+        full_exposure_tpi_m=250.0,
     ),
 }
 
@@ -598,6 +613,90 @@ def iter_grid_rows(path: Path):
                 yield [float(value) for value in stripped.split()]
 
 
+def grid_cell_size_m(header: dict[str, str]) -> float:
+    value = header.get("cellsize")
+    if value is None:
+        raise HeightHrrrError("ASC grid is missing cellsize")
+    return abs(float(value))
+
+
+def exposure_weight_grid(
+    dem_grid: Path,
+    nodata: float,
+    setting: AdjustmentSetting,
+) -> tuple[list[list[float]], dict[str, float | int | None]]:
+    if setting.exposure_radius_m is None:
+        return [], {}
+
+    _header_lines, header = read_grid_header(dem_grid)
+    cell_size = grid_cell_size_m(header)
+    dem_rows = list(iter_grid_rows(dem_grid))
+    if not dem_rows:
+        return [], {
+            "exposure_cell_count": 0,
+            "exposure_weight_mean": None,
+            "tpi_min_m": None,
+            "tpi_max_m": None,
+        }
+
+    radius_cells = max(1, math.ceil(setting.exposure_radius_m / cell_size))
+    inner_skip_m = max(0.0, setting.exposure_inner_skip_m)
+    weights: list[list[float]] = []
+    stats: dict[str, float | int | None] = {
+        "exposure_cell_count": 0,
+        "exposure_weight_sum": 0.0,
+        "tpi_min_m": None,
+        "tpi_max_m": None,
+    }
+
+    for row_index, row in enumerate(dem_rows):
+        weight_row = []
+        for col_index, center in enumerate(row):
+            if is_nodata(center, nodata):
+                weight_row.append(0.0)
+                continue
+            surrounding = []
+            row_min = max(0, row_index - radius_cells)
+            row_max = min(len(dem_rows), row_index + radius_cells + 1)
+            for other_row_index in range(row_min, row_max):
+                other_row = dem_rows[other_row_index]
+                col_min = max(0, col_index - radius_cells)
+                col_max = min(len(other_row), col_index + radius_cells + 1)
+                for other_col_index in range(col_min, col_max):
+                    dy = (other_row_index - row_index) * cell_size
+                    dx = (other_col_index - col_index) * cell_size
+                    distance = math.hypot(dx, dy)
+                    if distance <= inner_skip_m or distance > setting.exposure_radius_m:
+                        continue
+                    value = other_row[other_col_index]
+                    if not is_nodata(value, nodata):
+                        surrounding.append(value)
+            if not surrounding:
+                weight_row.append(0.0)
+                continue
+            tpi = center - (sum(surrounding) / len(surrounding))
+            exposure_weight = min(max(tpi / setting.full_exposure_tpi_m, 0.0), 1.0)
+            stats["exposure_cell_count"] = int(stats["exposure_cell_count"] or 0) + 1
+            stats["exposure_weight_sum"] = float(stats["exposure_weight_sum"] or 0.0) + exposure_weight
+            for key, value in (("tpi_min_m", tpi), ("tpi_max_m", tpi)):
+                current = stats[key]
+                if current is None:
+                    stats[key] = value
+                elif key.endswith("min_m"):
+                    stats[key] = min(float(current), value)
+                else:
+                    stats[key] = max(float(current), value)
+            weight_row.append(exposure_weight)
+        weights.append(weight_row)
+
+    count = int(stats["exposure_cell_count"] or 0)
+    stats["exposure_weight_mean"] = (
+        float(stats["exposure_weight_sum"] or 0.0) / count if count else None
+    )
+    stats.pop("exposure_weight_sum")
+    return weights, stats
+
+
 def adjustment_cap_limits(
     setting: AdjustmentSetting,
     raw_speed: float,
@@ -651,6 +750,7 @@ def write_adjusted_forcing_grids(
     header_lines, _ = read_grid_header(u10_grid)
     grids = [u10_grid, v10_grid, u80_grid, v80_grid, hgt_grid, dem_grid]
     nodata_values = [asc_nodata_value(read_grid_header(path)[1], OUTPUT_NODATA) for path in grids]
+    exposure_weights, exposure_stats = exposure_weight_grid(dem_grid, nodata_values[5], setting)
     stats = {
         "valid_cell_count": 0,
         "adjusted_cell_count": 0,
@@ -658,8 +758,10 @@ def write_adjusted_forcing_grids(
         "cap_low_count": 0,
         "cap_high_count": 0,
         "weight_sum": 0.0,
+        "base_weight_sum": 0.0,
         "elevation_delta_min_m": None,
         "elevation_delta_max_m": None,
+        **exposure_stats,
     }
     speed_grid.parent.mkdir(parents=True, exist_ok=True)
     with speed_grid.open("w", encoding="utf-8") as speed_out, direction_grid.open(
@@ -668,10 +770,10 @@ def write_adjusted_forcing_grids(
         header = "\n".join(header_with_nodata(header_lines)) + "\n"
         speed_out.write(header)
         direction_out.write(header)
-        for rows in zip(*(iter_grid_rows(path) for path in grids)):
+        for row_index, rows in enumerate(zip(*(iter_grid_rows(path) for path in grids))):
             speed_values = []
             direction_values = []
-            for values in zip(*rows):
+            for col_index, values in enumerate(zip(*rows)):
                 u10, v10, u80, v80, hgt, dem = values
                 if is_nodata(u10, nodata_values[0]) or is_nodata(v10, nodata_values[1]):
                     speed_values.append(f"{OUTPUT_NODATA:g}")
@@ -690,7 +792,11 @@ def write_adjusted_forcing_grids(
                 raw_speed = math.hypot(u10, v10)
                 if can_adjust:
                     elevation_delta = dem - hgt
-                    weight = min(max(elevation_delta / setting.blend_scale_m, 0.0), 1.0)
+                    base_weight = min(max(elevation_delta / setting.blend_scale_m, 0.0), 1.0)
+                    exposure_weight = 1.0
+                    if exposure_weights:
+                        exposure_weight = exposure_weights[row_index][col_index]
+                    weight = base_weight * exposure_weight
                     adjusted_u = (1.0 - weight) * u10 + weight * u80
                     adjusted_v = (1.0 - weight) * v10 + weight * v80
                     adjusted_speed = math.hypot(adjusted_u, adjusted_v)
@@ -714,6 +820,7 @@ def write_adjusted_forcing_grids(
                         stats["cap_high_count"] += 1
                     stats["adjusted_cell_count"] += 1
                     stats["weight_sum"] += weight
+                    stats["base_weight_sum"] += base_weight
                     for key, value in (
                         ("elevation_delta_min_m", elevation_delta),
                         ("elevation_delta_max_m", elevation_delta),
@@ -741,13 +848,16 @@ def write_adjusted_forcing_grids(
 
     if stats["adjusted_cell_count"]:
         stats["weight_mean"] = stats["weight_sum"] / stats["adjusted_cell_count"]
+        stats["base_weight_mean"] = stats["base_weight_sum"] / stats["adjusted_cell_count"]
         stats["cap_low_cell_fraction"] = stats["cap_low_count"] / stats["adjusted_cell_count"]
         stats["cap_high_cell_fraction"] = stats["cap_high_count"] / stats["adjusted_cell_count"]
     else:
         stats["weight_mean"] = None
+        stats["base_weight_mean"] = None
         stats["cap_low_cell_fraction"] = None
         stats["cap_high_cell_fraction"] = None
     stats.pop("weight_sum")
+    stats.pop("base_weight_sum")
     copy_grid_projection(u10_grid, speed_grid)
     copy_grid_projection(u10_grid, direction_grid)
     return stats
@@ -896,6 +1006,15 @@ def prepare_adjusted_hrrr_hour(
                 "formula": {
                     "elevation_delta": "GMTED 500 m elevation - HRRR surface HGT",
                     "weight": f"clamp(elevation_delta / {adjustment_setting.blend_scale_m:g} m, 0, 1)",
+                    "exposure_gate": {
+                        "radius_m": adjustment_setting.exposure_radius_m,
+                        "inner_skip_m": adjustment_setting.exposure_inner_skip_m
+                        if adjustment_setting.exposure_radius_m is not None
+                        else None,
+                        "full_exposure_tpi_m": adjustment_setting.full_exposure_tpi_m
+                        if adjustment_setting.exposure_radius_m is not None
+                        else None,
+                    },
                     "u_adjusted": "(1 - weight) * u10 + weight * u80",
                     "v_adjusted": "(1 - weight) * v10 + weight * v80",
                     "speed_cap": {
@@ -1578,6 +1697,17 @@ def print_plan(
         "cap_mode": adjustment_setting.cap_mode,
         "low_cap": adjustment_setting.low_cap,
         "high_cap": adjustment_setting.high_cap,
+        "exposure_radius_m": adjustment_setting.exposure_radius_m,
+        "exposure_inner_skip_m": (
+            adjustment_setting.exposure_inner_skip_m
+            if adjustment_setting.exposure_radius_m is not None
+            else None
+        ),
+        "full_exposure_tpi_m": (
+            adjustment_setting.full_exposure_tpi_m
+            if adjustment_setting.exposure_radius_m is not None
+            else None
+        ),
         "windninja_adjusted_run_count": hour_count,
     }, indent=2))
 

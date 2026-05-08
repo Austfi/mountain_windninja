@@ -22,6 +22,22 @@ def _asc(path: Path, rows: list[str]) -> None:
     path.with_suffix(".prj").write_text('LOCAL_CS["unit-test"]\n', encoding="utf-8")
 
 
+def _asc_grid(path: Path, rows: list[str], *, cellsize: float = 500.0) -> None:
+    path.write_text(
+        "\n".join([
+            f"ncols {len(rows[0].split())}",
+            f"nrows {len(rows)}",
+            "xllcorner 0",
+            "yllcorner 0",
+            f"cellsize {cellsize:g}",
+            "NODATA_value -9999",
+            *rows,
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    path.with_suffix(".prj").write_text('LOCAL_CS["unit-test"]\n', encoding="utf-8")
+
+
 def test_parse_hrrr_idx_selects_required_analysis_fields():
     records = kh.parse_hrrr_idx(
         "\n".join([
@@ -105,6 +121,57 @@ def test_write_adjusted_forcing_grids_supports_balanced_cap_setting(tmp_path):
     assert stats["cap_high_count"] == 0
     assert stats["cap_low_count"] == 0
     assert speed.read_text(encoding="utf-8").splitlines()[6:] == ["20.000000 1.000000"]
+
+
+def test_write_adjusted_forcing_grids_supports_exposure_gate(tmp_path):
+    u10 = tmp_path / "u10.asc"
+    v10 = tmp_path / "v10.asc"
+    u80 = tmp_path / "u80.asc"
+    v80 = tmp_path / "v80.asc"
+    hgt = tmp_path / "hgt.asc"
+    dem = tmp_path / "dem.asc"
+    speed = tmp_path / "speed.asc"
+    direction = tmp_path / "direction.asc"
+    rows = ["10 10 10", "10 10 10", "10 10 10"]
+
+    _asc_grid(u10, rows)
+    _asc_grid(v10, ["0 0 0", "0 0 0", "0 0 0"])
+    _asc_grid(u80, ["20 20 20", "20 20 20", "20 20 20"])
+    _asc_grid(v80, ["0 0 0", "0 0 0", "0 0 0"])
+    _asc_grid(hgt, ["1000 1000 1000", "1000 1000 1000", "1000 1000 1000"])
+    _asc_grid(dem, ["1000 1000 1000", "1000 1300 1000", "1000 1000 1000"])
+
+    setting = kh.AdjustmentSetting(
+        key="unit-exposure",
+        output_suffix="_unit_exposure",
+        windninja_label="unit_exposure",
+        blend_scale_m=300.0,
+        cap_mode="none",
+        exposure_radius_m=1500.0,
+        exposure_inner_skip_m=0.0,
+        full_exposure_tpi_m=100.0,
+    )
+
+    stats = kh.write_adjusted_forcing_grids(
+        u10,
+        v10,
+        u80,
+        v80,
+        hgt,
+        dem,
+        speed,
+        direction,
+        setting=setting,
+    )
+
+    assert stats["base_weight_mean"] == 1 / 9
+    assert stats["weight_mean"] == 1 / 9
+    assert stats["exposure_weight_mean"] > 0
+    assert speed.read_text(encoding="utf-8").splitlines()[6:] == [
+        "10.000000 10.000000 10.000000",
+        "10.000000 20.000000 10.000000",
+        "10.000000 10.000000 10.000000",
+    ]
 
 
 def test_write_adjusted_forcing_grids_keeps_raw_hrrr_outside_dem(tmp_path):
