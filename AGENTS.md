@@ -6,13 +6,18 @@ Context for AI agents working on this repo.
 
 A Docker-based CLI wrapper around [WindNinja](https://github.com/firelab/windninja) for running wind simulations on cloud VMs (primarily GCP). The user interacts via `./deploy/gcp/mwn.sh <command>`.
 
+There is also a separate research offshoot under `ml/residual_unet/` for learning
+a machine-learning correction from WindNinja mass-solver output to momentum-solver
+output. Keep that path adjacent to, but separate from, the operational
+WindNinja/HRRR workflow.
+
 ## Architecture
 
 ```
 Host (GCP VM or any Linux box)
   └── mwn.sh ← user-facing CLI, runs on host
         └── docker compose run --rm shell ← spins up container per command
-              └── mountain-windninja:local image
+              └── ghcr.io/austfi/mountain-windninja:3.12.2 or local image
                     ├── WindNinja CLI (compiled C++)
                     ├── OpenFOAM 9 (momentum solver)
                     ├── GDAL 3.4 / PROJ 8.2
@@ -31,6 +36,9 @@ Host (GCP VM or any Linux box)
 
 **Key implication:** Changes to `scripts/`, `config/`, `docker/` take effect on next `mwn.sh run` without rebuilding the Docker image. Only dependency changes (pip packages, system libs, WindNinja recompile) require `mwn.sh build`.
 
+The `ml/` tree is not part of the Docker runtime mount set. It is used locally
+and in Colab for dataset building, model training, and evaluation.
+
 ### Environment variables
 
 - `config/runtime.env` is injected via `env_file:` in `compose.yaml`
@@ -45,9 +53,14 @@ Host (GCP VM or any Linux box)
 
 WindNinja caches OpenFOAM meshes in `static_data/NINJAFOAM_<domain>_*/`. If a run fails mid-mesh (e.g., `moveDynamicMesh` error), the cache is corrupted and **every subsequent run fails** with `Can't open log.ninja`. The cache is NOT in `runtime/temp/` -- it's next to the elevation file.
 
-**Fix:** `sudo rm -rf static_data/NINJAFOAM_*` or `mwn.sh clean`.
+**Fix, only when no WindNinja/OpenFOAM job is active:** `sudo rm -rf static_data/NINJAFOAM_*` or `mwn.sh clean`.
 
 `mwn.sh run` now auto-cleans on failure to prevent this.
+
+Never delete `static_data/NINJAFOAM_*` while a Docker/WindNinja validation job is
+running. Check `docker ps` and `pgrep -af 'WindNinja_cli|daily_run.py|validate-study|gridded_run.py|mwn.sh|ml.residual_unet.hrrr_pair_runs'`
+first. If a long run was interrupted, stop the host validation process as well
+as the active Docker container before touching mesh caches.
 
 ### 2. num_threads and domain size
 
@@ -133,7 +146,8 @@ Current measured scale:
 - LCP: 337 x 336 cells at 30 m, about 10.1 x 10.1 km
 - WindNinja output grid: 100 m cells from `config/template_validation.cfg`
 - HRRR parent grid: about 3 km cells
-- OpenFOAM mesh cache: `static_data/NINJAFOAM_berthoud_pass_158_4`
+- OpenFOAM mesh cache: `static_data/NINJAFOAM_berthoud_pass_*` (suffix varies
+  by mesh/run settings; inspect the current directory before acting)
 - Mesh: about 6,250 cells / 7,436 points
 - Mesh cache size: about 29 MB
 - Sampling map: `docs/assets/berthoud_validation_points.png`
@@ -189,12 +203,254 @@ needed by `validate-rasters`.
 
 ### 14. Artifact cleanup boundary
 
-Before handoff, it is safe to delete generated artifacts under `runtime/`,
-`static_data/NINJAFOAM_*`, stray `static_data/PASTCAST-*` weather cache
-directories, `.pytest_cache/`, `.ruff_cache/`, `__pycache__/`, and `.DS_Store`.
+Before handoff, it is safe to delete disposable generated artifacts under
+`runtime/temp/`, stale `static_data/PASTCAST-*` weather cache directories,
+`.pytest_cache/`, `.ruff_cache/`, repo-level `__pycache__/`, and `.DS_Store`.
+Only delete `static_data/NINJAFOAM_*` after confirming no WindNinja/OpenFOAM
+container or host validation process is active.
+
+Treat `runtime/validation/` as result storage, not generic temp. Delete old
+validation roots only when the user explicitly agrees they are obsolete or the
+final CSV/JSON/HTML outputs have been preserved elsewhere.
+
 Do not delete `config/runtime.env`, `.venv/`, or local terrain inputs such as
 `static_data/*.tif`, `static_data/*.lcp`, and `static_data/*.prj` unless they
 have been backed up or are intentionally being regenerated.
+
+### 15. K0CO height-adjusted HRRR research path
+
+The K0CO height-adjusted HRRR workflow is exposed through:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr
+```
+
+The current preferred K0CO experiment setting is:
+
+```bash
+--adjustment-setting exposure-gate-400m-10-80-cap
+```
+
+This setting:
+
+- builds a GMTED2010 500 m terrain grid for the HRRR forcing footprint
+- computes the 10 m to 80 m HRRR U/V blend at that coarse grid, not at the final
+  WindNinja DEM resolution
+- multiplies the terrain-height blend by a coarse 3 km TPI exposure gate
+- caps adjusted speed relative to both HRRR 10 m and 80 m levels
+- feeds the adjusted speed/direction grids into WindNinja gridded initialization
+
+Full K0CO Jan 1-Apr 1 2026 results from
+`runtime/validation/berthoud_pass_k0co_height_hrrr_exposure_gate_400m_10_80_cap/`:
+
+| Result | Speed MAE | Bias | Direction MAE | Vector RMSE |
+|--------|-----------|------|---------------|-------------|
+| HRRR | 8.66 mph | -8.16 mph | 18.61 deg | 12.23 mph |
+| Adjusted HRRR | 4.66 mph | -0.56 mph | 18.76 deg | 9.95 mph |
+| WindNinja from HRRR | 8.89 mph | -7.80 mph | 17.77 deg | 12.76 mph |
+| Momentum WindNinja from adjusted HRRR | 6.61 mph | -3.09 mph | 15.78 deg | 10.66 mph |
+| Mass WindNinja from adjusted HRRR | 15.29 mph | +14.82 mph | 19.30 deg | 20.37 mph |
+
+Interpretation: adjusted HRRR improves the forcing strongly at K0CO; momentum
+WindNinja from adjusted HRRR improves over native WindNinja from HRRR; the mass
+solver badly overspeeds K0CO from the adjusted forcing and should not be the
+recommended K0CO path.
+
+CABTP is nearby but behaves differently. Existing raster sampling of the
+adjusted run at CABTP showed the exposure-gated adjusted HRRR barely changes
+the raw HRRR because the coarse TPI exposure signal is weak there. Do not claim
+the K0CO setting generalizes to CABTP without a clean completed two-station
+native baseline.
+
+Two-station K0CO+CABTP native baseline configs currently exist:
+
+- `config/stations/berthoud_pass_k0co_cabtp_validation_manifest.csv`
+- `config/studies/berthoud_pass_k0co_cabtp.json`
+- `config/studies/berthoud_pass_k0co_cabtp_mass.json`
+
+The native two-station mass run was intentionally paused after only two daily
+chunks. Treat `runtime/validation/berthoud_pass_k0co_cabtp_mass/` as partial,
+not a completed study.
+
+### 16. Residual U-Net ML offshoot boundary
+
+The residual U-Net code is under `ml/residual_unet/`. It should not change normal
+`mwn.sh` behavior. The operational path remains WindNinja/HRRR first; ML uses
+completed paired outputs as training data.
+
+Current source inputs:
+
+```text
+z_rel, dzdx, dzdy, u_mass, v_mass
+```
+
+Current target:
+
+```text
+delta_u = u_momentum - u_mass
+delta_v = v_momentum - v_mass
+```
+
+Current best Berthoud model artifacts are organized under:
+
+```text
+ml/residual_unet/colab/results/berthoud_combined_v1/
+```
+
+Headline held-out results:
+
+```text
+all held-out ML vector RMSE:        1.958 m/s
+HRRR-only held-out ML vector RMSE:  0.716 m/s
+controlled held-out ML vector RMSE: 4.488 m/s
+```
+
+Candidate V2 training artifacts from the salvaged interrupted run:
+
+```text
+ml/residual_unet/data/processed/berthoud_hrrr_oct_dec_2025_v1/
+ml/residual_unet/data/processed/berthoud_combined_v2/
+ml/residual_unet/outputs/drive_upload/berthoud_combined_v2_dataset.zip
+ml/residual_unet/notebooks/04_train_berthoud_combined_v2_colab.ipynb
+```
+
+`berthoud_combined_v2` has 4,358 processed `96 x 96` samples, but it is only a
+candidate dataset until a Colab run returns checkpoint metrics. Keep
+`berthoud_combined_v1` as the current best checkpoint until V2 beats it on
+held-out and unseen-terrain checks.
+
+The first unseen-terrain check is `breck_tenmile_9p6`, a 9.6 km Breckenridge /
+Tenmile box centered at `39.4685,-106.0785` with bbox
+`39.51166738 -106.02258184 39.42533262 -106.13441816`. It is intended to cover
+the Breckenridge resort ridge segment from Peak 6 through Peak 10, not the full
+Tenmile Range.
+
+Completed V1 Breck/Tenmile smoke result:
+
+```text
+window: 2026-01-01 00Z through 2026-01-02 00Z
+samples: 25 hourly rasters
+mass vector RMSE: 4.291 m/s
+V1 ML vector RMSE: 3.731 m/s
+overall vector RMSE improvement: 13.0%
+per-hour outcome: 20 improved, 5 worse
+```
+
+The bounding-box KML is at:
+
+```text
+runtime/ml/residual_unet/hrrr_pairs/breck_tenmile_9p6_smoke/breck_tenmile_9p6_bbox.kml
+```
+
+Do not spend on a 7-day Breck V1 run by default. Train `berthoud_combined_v2`
+in Colab first, then rerun inference only on the completed Breck smoke pair and
+compare V1 vs V2 before expanding the Breck evaluation window.
+
+The current no-Vail generalization data plan is:
+
+```text
+docs/ml_generalization_data_plan.md
+runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
+```
+
+The active/preferred GCP quota-compatible path uses one `c4-standard-24` VM to
+run monthly HRRR mass/momentum pairs and then controlled 15-degree forcing for
+`berthoud_pass`, `breck_tenmile_9p6`, `keystone_9p6`, and
+`loveland_abasin_9p6`. It skips Vail. The cloud data-generation path should
+skip ML inference; Colab training/evaluation happens after paired
+mass/momentum outputs are synced.
+
+Current active cloud-run context:
+
+```text
+project: spring-nova-475120-r0
+zone: us-central1-a
+vm: mwn-ml-general-9p6
+bucket: gs://mwn-ml-general-9p6-spring-nova-475120-r0
+tmux session: mwn-monthly
+```
+
+The monthly wrapper should sync `runtime/temp` and
+`runtime/ml/residual_unet` to GCS, then shut the VM down when complete. Refresh
+live status before making operational decisions; this file is not a live
+monitor.
+
+The staged ML data-generation runners are:
+
+```text
+runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
+runtime/ml/residual_unet/hrrr_pairs/general_9p6_20250501_20260501_v1/run_full_year_hrrr_plus_controlled_sync_and_stop.sh
+runtime/ml/residual_unet/raw/controlled_9p6_15deg/
+```
+
+The preferred robust run is the monthly wrapper: one staggered 7-day HRRR window
+per month from May 2025 through April 2026, plus 15-degree controlled forcing
+over all four 9.6 km domains. Controlled speeds are 5, 10, 15, 20, 25, 30, 40,
+50, 60, 70, and 80 mph. The full-year-every-day HRRR wrapper is staged but is
+not the preferred first robust run because cost/runtime are much higher.
+
+After the raw run returns, build domain-specific HRRR and controlled processed
+datasets, then combine them into:
+
+```text
+ml/residual_unet/data/processed/mountain_general_9p6_monthly_controlled_v1
+```
+
+Use `ml.residual_unet.build_controlled_dataset --terrain-domain <domain>` for
+controlled datasets so stale absolute terrain paths in raw manifests do not
+misalign non-Berthoud terrain.
+
+The next practical data step is more HRRR mass/momentum pairs. A prepared local
+no-run plan exists under:
+
+```text
+runtime/ml/residual_unet/hrrr_pairs/berthoud_hrrr_20251001_20260501/
+```
+
+It plans 2025-10-01 00Z through 2026-05-01 00Z in 24h chunks. It is ignored by
+git and should not be run while another WindNinja/OpenFOAM container is active.
+
+For large emulator data generation, `ml.residual_unet.hrrr_pair_runs` can also
+include post-run ML inference with:
+
+```bash
+.venv/bin/python -m ml.residual_unet.hrrr_pair_runs \
+  --start 202510010000 \
+  --end 202605010000 \
+  --chunk-hours 24 \
+  --threads 6 \
+  --label berthoud_hrrr_20251001_20260501_emulator \
+  --infer-checkpoint ml/residual_unet/colab/results/berthoud_combined_v1/best.pt \
+  --write-run-script
+```
+
+This stages mass solver, momentum solver, and ML-corrected momentum-like outputs
+for the same HRRR chunks. It still does not start the expensive long run until
+the generated `run_hrrr_pairs.sh` is executed.
+
+A small 4-vs-6 momentum thread benchmark is prepared under:
+
+```text
+runtime/ml/residual_unet/thread_benchmark/
+```
+
+Run it only when no other WindNinja/OpenFOAM container is active, then decide
+whether the large HRRR plan should remain at 6 threads or be regenerated at 4.
+
+Residual U-Net inference is available for completed Berthoud mass-solver runs:
+
+```bash
+.venv/bin/python -m ml.residual_unet.infer \
+  --checkpoint ml/residual_unet/colab/results/berthoud_combined_v1/best.pt \
+  --mass-run runtime/temp/<berthoud_pass_mass_run> \
+  --out ml/residual_unet/outputs/inference/<run_name> \
+  --source-root . \
+  --speed-units mph
+```
+
+Add `--momentum-run runtime/temp/<berthoud_pass_momentum_run>` when a paired
+momentum run exists and metrics are needed. The command writes the trained
+`96 x 96` center crop, not a full-domain raster.
 
 ## DEM Data Sources
 
@@ -233,6 +489,8 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
 | `scripts/validation_study.py` | Chunked Synoptic/model/WindNinja validation workflow using explicit station manifests |
 | `scripts/forcing_from_grib.py` | Converts U/V or speed/direction GRIB/NetCDF fields into WindNinja grids |
+| `scripts/k0co_height_hrrr_validation.py` | Focused K0CO adjusted-HRRR forcing and WindNinja validation harness |
+| `scripts/hrrr_exposure_gate_assessment.py` | HRRR-level exposure-gate tuning and multistation diagnostics |
 | `scripts/validation_plots.py` | Pure-stdlib SVG/HTML plotting for completed validation sample chunks |
 | `config/template.cfg` | WindNinja config template with placeholders |
 | `config/template_validation.cfg` | Lean validation template, ASCII outputs only |
@@ -240,6 +498,8 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `compose.yaml` | Docker Compose config (services, volumes, env_file) |
 | `Dockerfile` | Builds the WindNinja + OpenFOAM environment |
 | `docker/patch_windninja_public_pastcast.py` | Patches upstream WindNinja pastcast auth gate at build time |
+| `ml/residual_unet/` | Isolated ML offshoot for mass-to-momentum residual U-Net experiments |
+| `docs/ml_residual_unet.md` | Current ML workflow, results, and cleanup boundary |
 
 ## Testing
 
@@ -268,6 +528,8 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - Scheduled cron forecasts (scheduler service exists but needs production testing)
 - Performance profiling on larger domains (30+ km)
 - Native forecast validation for NBM/NDFD products once a simple station workflow is defined
+- Residual U-Net wrapper that runs mass solver and inference as one command
+- Residual U-Net HRRR-channel v2 (`u_HRRR`, `v_HRRR`) after more paired HRRR data
 
 ## Handoff
 

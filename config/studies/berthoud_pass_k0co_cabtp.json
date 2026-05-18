@@ -1,0 +1,20 @@
+{
+  "key": "berthoud_pass_k0co_cabtp",
+  "label": "Berthoud Pass K0CO and CABTP",
+  "domain": "berthoud_pass",
+  "model": "HRRR",
+  "chunk_hours": 24,
+  "tolerance_minutes": 30,
+  "speed_units": "mph",
+  "default_height_m": null,
+  "padding_km": 2.0,
+  "validation_root": "runtime/validation/berthoud_pass_k0co_cabtp",
+  "station_manifest": "config/stations/berthoud_pass_k0co_cabtp_validation_manifest.csv",
+  "metadata_file": "runtime/validation/berthoud_pass_k0co_cabtp/station_metadata.json",
+  "bbox_file": "runtime/validation/berthoud_pass_k0co_cabtp/station_bbox.json",
+  "notes": {
+    "stations": "K0CO Mines Peak AWOS and CABTP Berthoud Pass CAIC only.",
+    "height": "K0CO uses 10.0 m. CABTP uses a provisional 5.0 m metadata override until the actual sensor height is verified.",
+    "solver": "Momentum WindNinja baseline using native HRRR initialization."
+  }
+}

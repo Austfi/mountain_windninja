@@ -154,6 +154,8 @@ Examples:
 - [Terrain guide](docs/terrain.md) - DEM, LCP, source selection, and troubleshooting
 - [Scheduling guide](docs/scheduling.md) - automatic forecast runs
 - [Validation guide](docs/validation.md) - Synoptic and raster validation workflow
+- [Residual U-Net ML guide](docs/ml_residual_unet.md) - Berthoud mass-to-momentum research offshoot
+- [ML generalization data plan](docs/ml_generalization_data_plan.md) - current GCP data-build plan for 9.6 km terrain boxes
 - [Development guide](docs/development.md) - local Python/dev overrides
 - [GCP setup guide](docs/gcp_setup.md) - VM startup, GHCR image setup, sizing, costs, and operations
 - [WindNinja reference](docs/windninja_reference.md) - upstream config details
@@ -173,9 +175,11 @@ container for normal runs. Rebuild the image after changes to `Dockerfile`,
 dependency lists, or compiled WindNinja/OpenFOAM/GDAL behavior.
 
 If a run fails with `moveDynamicMesh` or `Can't open log.ninja`, clear the mesh
-cache:
+cache after confirming no WindNinja/OpenFOAM job is still active:
 
 ```bash
+docker ps
+pgrep -af 'WindNinja_cli|daily_run.py|validate-study|gridded_run.py|mwn.sh|ml.residual_unet.hrrr_pair_runs'
 ./deploy/gcp/mwn.sh clean
 ```
 
