@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -44,6 +45,14 @@ def write_dataset_zip(processed_dir: Path, out_path: Path) -> None:
                 archive.write(path, (Path(root_name) / path.relative_to(processed_dir)).as_posix())
 
 
+def upload_paths_to_gcs(paths: list[Path], bucket: str, prefix: str) -> None:
+    prefix = prefix.strip("/")
+    for path in paths:
+        destination = f"gs://{bucket}/{prefix}/{path.name}" if prefix else f"gs://{bucket}/{path.name}"
+        print(f"Uploading {path} -> {destination}")
+        subprocess.run(["gcloud", "storage", "cp", str(path), destination], check=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Prepare residual U-Net code and dataset ZIP artifacts for Colab."
@@ -57,9 +66,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-dataset", help="Source label passed to controlled dataset build.")
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
+        "--code-only",
+        action="store_true",
+        help="Write/upload only residual_unet_code.zip. Useful when the dataset ZIP is already in GCS.",
+    )
+    parser.add_argument(
         "--skip-build",
         action="store_true",
         help="Only write ZIPs from an existing processed dataset.",
+    )
+    parser.add_argument("--gcs-bucket", help="Optional Cloud Storage bucket to upload artifacts to.")
+    parser.add_argument("--gcs-prefix", default="drive_upload", help="Bucket prefix for uploaded artifacts.")
+    parser.add_argument(
+        "--notebook",
+        action="append",
+        type=Path,
+        help="Notebook path to upload beside the ZIP artifacts. Repeat for multiple notebooks.",
     )
     return parser
 
@@ -70,7 +92,9 @@ def main() -> int:
     processed_dir = Path(args.processed_dir)
     upload_dir = Path(args.upload_dir)
 
-    if not args.skip_build:
+    if args.code_only:
+        print("Code-only mode: skipping dataset build and dataset ZIP.")
+    elif not args.skip_build:
         summary = build_controlled_dataset(
             raw_root,
             processed_dir,
@@ -85,11 +109,23 @@ def main() -> int:
         raise FileNotFoundError(f"Missing processed dataset: {processed_dir}")
 
     code_zip = upload_dir / "residual_unet_code.zip"
-    dataset_zip = upload_dir / f"{processed_dir.name}_dataset.zip"
     write_code_zip(code_zip)
-    write_dataset_zip(processed_dir, dataset_zip)
+    upload_paths = [code_zip]
+    dataset_zip = None
+    if not args.code_only:
+        dataset_zip = upload_dir / f"{processed_dir.name}_dataset.zip"
+        write_dataset_zip(processed_dir, dataset_zip)
+        upload_paths.append(dataset_zip)
     print(f"Wrote {code_zip}")
-    print(f"Wrote {dataset_zip}")
+    if dataset_zip is not None:
+        print(f"Wrote {dataset_zip}")
+    if args.notebook:
+        for notebook in args.notebook:
+            if not notebook.exists():
+                raise FileNotFoundError(f"Missing notebook: {notebook}")
+            upload_paths.append(notebook)
+    if args.gcs_bucket:
+        upload_paths_to_gcs(upload_paths, args.gcs_bucket, args.gcs_prefix)
     return 0
 
 

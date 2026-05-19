@@ -237,10 +237,11 @@ ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
 
 That notebook is the preferred Colab entrypoint for the current
 Berthoud/Breck-Keystone-Loveland generalization test. It force-downloads and
-force-unpacks the code ZIP to avoid stale Colab source files, prints the active
-CUDA device and dataset split counts, trains with the held-out-terrain config,
-evaluates HRRR-only and controlled-only held-out sources separately, and syncs
-the result directory back to GCS.
+force-unpacks the code ZIP to avoid stale Colab source files, reads ZIP artifacts
+from GCS directly onto Colab local disk, prints the active CUDA device and
+dataset split counts, trains with the held-out-terrain config, evaluates
+HRRR-only and controlled-only held-out sources separately, and syncs the result
+directory back to GCS.
 The training and evaluation cells call the Python functions directly inside the
 notebook kernel so progress prints are visible in Colab; they do not launch a
 buffered child process.
@@ -257,6 +258,27 @@ batch progress print: every 100 batches
 If Colab runs out of GPU memory, lower the notebook `TRAIN_BATCH_SIZE` setting to
 16 and rerun the training cell. The training command resumes from
 `checkpoints/latest.pt` when that checkpoint exists.
+
+For a cheap end-to-end Colab/GCS test before a full run, set this in the notebook
+setup cell:
+
+```python
+SMOKE_TEST = True
+```
+
+Smoke mode writes to a separate `<run>_smoke` result directory, uses two epochs,
+caps train/validation/evaluation samples, and still exercises GCS download,
+local-disk unpacking, GPU training, held-out evaluation, and GCS result sync.
+
+When only the code or notebook changed and the dataset ZIP already exists in the
+bucket, refresh the GCS handoff without rebuilding a dataset ZIP:
+
+```bash
+.venv/bin/python -m ml.residual_unet.prepare_colab_upload \
+  --code-only \
+  --gcs-bucket mwn-ml-general-9p6-spring-nova-475120-r0 \
+  --notebook ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
 
 Current Loveland/A-Basin held-out result from the mountain-general V1 Colab run
 on 2026-05-19:

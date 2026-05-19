@@ -674,6 +674,26 @@ the current V1 Breck smoke result on the same completed Breck sample. Also
 report HRRR-only and controlled-only held-out metrics separately; the controlled
 matrix can look strong while HRRR weather cases remain weak, or vice versa.
 
+For quick Colab smoke testing while a new GCP data-generation batch is still
+running, refresh only the code/notebook handoff and reuse the existing dataset
+ZIP already in the bucket:
+
+```bash
+.venv/bin/python -m ml.residual_unet.prepare_colab_upload \
+  --code-only \
+  --gcs-bucket "${BUCKET}" \
+  --notebook ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
+
+In Colab, set `SMOKE_TEST = True` in
+`05_train_mountain_general_9p6_colab.ipynb`. That path downloads artifacts from
+GCS to Colab local disk, runs a two-epoch capped-sample train/eval pass, writes
+checkpoints and logs to Drive, and syncs the smoke result directory back to:
+
+```text
+gs://${BUCKET}/colab_results/<run_name>_smoke/
+```
+
 ## References
 
 - Google Compute Engine C4 machine specs: https://docs.cloud.google.com/compute/docs/general-purpose-machines

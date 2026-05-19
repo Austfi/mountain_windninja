@@ -45,6 +45,7 @@ from ml.residual_unet.pairing import (
     pair_mass_momentum,
     parse_run_label,
 )
+from ml.residual_unet.prepare_colab_upload import upload_paths_to_gcs
 
 
 def _write_empty(path: Path) -> None:
@@ -88,6 +89,44 @@ def _write_processed_sample(processed_dir: Path, sample_id: str, split: str) -> 
             "split_counts": {split: 1},
         },
     )
+
+
+def test_upload_paths_to_gcs_uses_drive_upload_prefix(tmp_path, monkeypatch):
+    first = tmp_path / "residual_unet_code.zip"
+    second = tmp_path / "05_train_mountain_general_9p6_colab.ipynb"
+    first.write_text("code", encoding="utf-8")
+    second.write_text("notebook", encoding="utf-8")
+    calls = []
+
+    def fake_run(command, check):
+        calls.append((command, check))
+
+    monkeypatch.setattr("ml.residual_unet.prepare_colab_upload.subprocess.run", fake_run)
+
+    upload_paths_to_gcs([first, second], "test-bucket", "drive_upload")
+
+    assert calls == [
+        (
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                str(first),
+                "gs://test-bucket/drive_upload/residual_unet_code.zip",
+            ],
+            True,
+        ),
+        (
+            [
+                "gcloud",
+                "storage",
+                "cp",
+                str(second),
+                "gs://test-bucket/drive_upload/05_train_mountain_general_9p6_colab.ipynb",
+            ],
+            True,
+        ),
+    ]
 
 
 def test_parse_run_label_supports_windninja_timestamp_forms():
