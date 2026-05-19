@@ -61,30 +61,52 @@ run before V2 and multi-domain tests.
 
 ## Active Cloud Run Snapshot
 
-Current active production data build:
+Current active production data build as of 2026-05-19 17:04 UTC:
 
 ```text
 project: spring-nova-475120-r0
 zone: us-central1-a
 vm: mwn-ml-general-9p6
 bucket: gs://mwn-ml-general-9p6-spring-nova-475120-r0
+tmux session: mwn-monthly2
+runner: runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly2_202505_202604_v1/run_monthly2_hrrr_sync_and_stop.sh
+```
+
+This second run is HRRR-only data generation. It adds one non-overlapping
+7-day week per month over the same four domains:
+
+```text
+2025-05-15 00Z -> 2025-05-22 00Z
+2025-06-22 00Z -> 2025-06-29 00Z
+2025-07-01 00Z -> 2025-07-08 00Z
+2025-08-08 00Z -> 2025-08-15 00Z
+2025-09-15 00Z -> 2025-09-22 00Z
+2025-10-22 00Z -> 2025-10-29 00Z
+2025-11-01 00Z -> 2025-11-08 00Z
+2025-12-08 00Z -> 2025-12-15 00Z
+2026-01-15 00Z -> 2026-01-22 00Z
+2026-02-22 00Z -> 2026-03-01 00Z
+2026-03-01 00Z -> 2026-03-08 00Z
+2026-04-08 00Z -> 2026-04-15 00Z
+```
+
+It runs three 4-thread domain workers first, then Loveland/A-Basin as the
+fourth worker. The wrapper syncs `runtime/temp` and
+`runtime/ml/residual_unet` to the bucket and shuts the VM down when finished.
+
+The previous production data build was:
+
+```text
 tmux session: mwn-monthly
 runner: runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
 ```
 
-This run is data generation only. It should produce paired mass/momentum output
-for:
+That first monthly run produced paired mass/momentum output for one 7-day HRRR
+week per month over Berthoud, Breck/Tenmile, Keystone, and Loveland/A-Basin, and
+controlled 15-degree speed/direction forcing over the same domains.
 
-- monthly HRRR windows over Berthoud, Breck/Tenmile, Keystone, and
-  Loveland/A-Basin
-- controlled 15-degree speed/direction forcing over the same domains
-
-The wrapper syncs `runtime/temp` and `runtime/ml/residual_unet` to the bucket
-and shuts the VM down when finished. It was patched so controlled forcing still
-runs after HRRR if HRRR returns nonzero due to a limited number of chunk
-failures. The HRRR pair runner also quarantines incomplete run directories,
-cleans the failed domain mesh cache, and retries once before counting a solver
-failure.
+The HRRR pair runner quarantines incomplete run directories, cleans the failed
+domain mesh cache, and retries once before counting a solver failure.
 
 Refresh live status before making operational decisions; this document is a
 handoff/runbook, not a live monitor.
