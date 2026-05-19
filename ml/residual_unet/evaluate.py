@@ -10,6 +10,15 @@ from .dataset import load_normalization, make_dataloader
 from .model_unet import build_unet
 
 
+def _csv_list(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    parsed: list[str] = []
+    for value in values:
+        parsed.extend(item.strip() for item in value.split(",") if item.strip())
+    return parsed or None
+
+
 def _require_torch():
     try:
         import torch
@@ -105,8 +114,13 @@ def evaluate(
     split: str = "test",
     batch_size: int = 8,
     source_dataset: str | None = None,
+    source_datasets: list[str] | None = None,
+    exclude_source_datasets: list[str] | None = None,
     max_samples: int | None = None,
     max_figures: int = 3,
+    num_workers: int = 0,
+    pin_memory: bool | None = None,
+    prefetch_factor: int | None = None,
 ) -> dict[str, float]:
     torch = _require_torch()
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -129,7 +143,17 @@ def evaluate(
         batch_size=batch_size,
         shuffle=False,
         source_dataset=source_dataset,
+        source_datasets=source_datasets,
+        exclude_source_datasets=exclude_source_datasets,
         max_samples=max_samples,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor,
+    )
+    print(
+        f"device={device} batch_size={batch_size} num_workers={num_workers} "
+        f"samples={len(loader.dataset)} batches={len(loader)}",
+        flush=True,
     )
     totals = {
         "count": 0,
@@ -191,7 +215,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", required=True, help="Evaluation output directory.")
     parser.add_argument("--split", default="test", choices=["train", "val", "test"])
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--source-dataset", help="Optional source_dataset manifest filter.")
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--prefetch-factor", type=int)
+    parser.add_argument("--pin-memory", action="store_true")
+    parser.add_argument("--no-pin-memory", action="store_true")
+    parser.add_argument(
+        "--source-dataset",
+        action="append",
+        help="Optional source_dataset manifest filter. Repeat or comma-separate values.",
+    )
+    parser.add_argument(
+        "--exclude-source-dataset",
+        action="append",
+        help="Optional source_dataset exclusion filter. Repeat or comma-separate values.",
+    )
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-figures", type=int, default=3)
     return parser
@@ -205,9 +242,13 @@ def main() -> int:
         Path(args.out),
         split=args.split,
         batch_size=args.batch_size,
-        source_dataset=args.source_dataset,
+        source_datasets=_csv_list(args.source_dataset),
+        exclude_source_datasets=_csv_list(args.exclude_source_dataset),
         max_samples=args.max_samples,
         max_figures=args.max_figures,
+        num_workers=args.num_workers,
+        pin_memory=False if args.no_pin_memory else (True if args.pin_memory else None),
+        prefetch_factor=args.prefetch_factor,
     )
     print(json.dumps(metrics, indent=2))
     return 0

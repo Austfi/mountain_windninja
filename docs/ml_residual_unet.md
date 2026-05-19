@@ -229,6 +229,32 @@ Then run:
 ml/residual_unet/notebooks/04_train_berthoud_combined_v2_colab.ipynb
 ```
 
+For the four-domain mountain-general package, run:
+
+```text
+ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
+
+That notebook is the preferred Colab entrypoint for the current
+Berthoud/Breck-Keystone-Loveland generalization test. It force-downloads and
+force-unpacks the code ZIP to avoid stale Colab source files, prints the active
+CUDA device and dataset split counts, trains with the held-out-terrain config,
+evaluates HRRR-only and controlled-only held-out sources separately, and syncs
+the result directory back to GCS.
+
+Default Colab training settings for this notebook:
+
+```text
+batch size: 32
+DataLoader workers: 2
+prefetch factor: 4
+batch progress print: every 100 batches
+```
+
+If Colab runs out of GPU memory, lower the notebook `TRAIN_BATCH_SIZE` setting to
+16 and rerun the training cell. The training command resumes from
+`checkpoints/latest.pt` when that checkpoint exists.
+
 ## Breckenridge/Tenmile Held-Out Terrain Check
 
 The first unseen-terrain check is a 9.6 km Breckenridge/Tenmile box covering the

@@ -22,11 +22,19 @@ def filter_rows(
     split: str,
     *,
     source_dataset: str | None = None,
+    source_datasets: list[str] | None = None,
+    exclude_source_datasets: list[str] | None = None,
     max_samples: int | None = None,
 ) -> list[dict[str, str]]:
     selected = [row for row in rows if row["split"] == split]
+    include_sources = set(source_datasets or [])
     if source_dataset is not None:
-        selected = [row for row in selected if row.get("source_dataset") == source_dataset]
+        include_sources.add(source_dataset)
+    if include_sources:
+        selected = [row for row in selected if row.get("source_dataset") in include_sources]
+    if exclude_source_datasets:
+        exclude_sources = set(exclude_source_datasets)
+        selected = [row for row in selected if row.get("source_dataset") not in exclude_sources]
     if max_samples is not None:
         selected = selected[:max_samples]
     return selected
@@ -88,7 +96,12 @@ def make_dataloader(
     num_workers: int = 0,
     shuffle: bool = False,
     source_dataset: str | None = None,
+    source_datasets: list[str] | None = None,
+    exclude_source_datasets: list[str] | None = None,
     max_samples: int | None = None,
+    pin_memory: bool | None = None,
+    persistent_workers: bool | None = None,
+    prefetch_factor: int | None = None,
 ):
     import torch
 
@@ -96,12 +109,21 @@ def make_dataloader(
         load_manifest(processed_dir),
         split,
         source_dataset=source_dataset,
+        source_datasets=source_datasets,
+        exclude_source_datasets=exclude_source_datasets,
         max_samples=max_samples,
     )
     dataset = ResidualWindDataset(processed_dir, rows, normalization)
-    return torch.utils.data.DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-    )
+    loader_kwargs = {
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "num_workers": num_workers,
+        "pin_memory": torch.cuda.is_available() if pin_memory is None else pin_memory,
+    }
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = (
+            True if persistent_workers is None else persistent_workers
+        )
+        if prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = prefetch_factor
+    return torch.utils.data.DataLoader(dataset, **loader_kwargs)
