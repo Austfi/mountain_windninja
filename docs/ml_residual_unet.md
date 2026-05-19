@@ -241,6 +241,9 @@ force-unpacks the code ZIP to avoid stale Colab source files, prints the active
 CUDA device and dataset split counts, trains with the held-out-terrain config,
 evaluates HRRR-only and controlled-only held-out sources separately, and syncs
 the result directory back to GCS.
+The training and evaluation cells call the Python functions directly inside the
+notebook kernel so progress prints are visible in Colab; they do not launch a
+buffered child process.
 
 Default Colab training settings for this notebook:
 
@@ -254,6 +257,19 @@ batch progress print: every 100 batches
 If Colab runs out of GPU memory, lower the notebook `TRAIN_BATCH_SIZE` setting to
 16 and rerun the training cell. The training command resumes from
 `checkpoints/latest.pt` when that checkpoint exists.
+
+Current Loveland/A-Basin held-out result from the mountain-general V1 Colab run
+on 2026-05-19:
+
+| Held-out source | Mass vector RMSE | ML vector RMSE | Improvement | Mass speed MAE | ML speed MAE |
+|---|---:|---:|---:|---:|---:|
+| Loveland/A-Basin HRRR monthly | 4.168 | 2.773 | 33.5% | 2.509 | 1.431 |
+| Loveland/A-Basin controlled 15-degree | 12.867 | 9.145 | 28.9% | 7.127 | 4.685 |
+
+Interpretation: this is the first useful unseen-terrain signal for the
+four-domain 9.6 km residual U-Net. The HRRR-only Loveland result is the more
+important operational check; it shows the model improved over the raw mass
+solver on terrain withheld from training.
 
 ## Breckenridge/Tenmile Held-Out Terrain Check
 
