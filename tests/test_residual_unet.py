@@ -371,7 +371,7 @@ def test_analyze_results_summarizes_training_and_sample_spread():
 
 def test_evaluate_reports_pixel_level_close_and_win_rates():
     torch = pytest.importorskip("torch")
-    from ml.residual_unet.evaluate import _finalize_metrics, _metric_sums
+    from ml.residual_unet.evaluate import _empty_metric_totals, _finalize_metrics, _metric_sums
 
     mom_uv = torch.zeros((1, 2, 2, 2), dtype=torch.float32)
     mass_uv = torch.zeros_like(mom_uv)
@@ -394,6 +394,13 @@ def test_evaluate_reports_pixel_level_close_and_win_rates():
     assert metrics["ml_vector_error_le_3p0mps_count"] == 3
     assert metrics["mass_vector_error_le_3p0mps_count"] == 2
     assert metrics["ml_vector_error_le_3p0mps_fraction"] == pytest.approx(0.75)
+
+    totals = _empty_metric_totals()
+    for key, value in _metric_sums(pred_uv, mass_uv, mom_uv, valid_mask).items():
+        totals[key] += value
+    accumulated = _finalize_metrics(totals)
+    assert accumulated["ml_better_pixel_count"] == 2
+    assert accumulated["ml_vector_error_le_3p0mps_fraction"] == pytest.approx(0.75)
 
 
 def test_compare_results_scans_colab_eval_sources(tmp_path):

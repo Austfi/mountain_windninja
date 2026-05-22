@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from collections import defaultdict
 from pathlib import Path
 
 from .dataset import load_normalization, make_dataloader
@@ -125,6 +126,10 @@ def _finalize_metrics(totals: dict[str, float]) -> dict[str, float]:
     return metrics
 
 
+def _empty_metric_totals():
+    return defaultdict(float)
+
+
 def _save_example_figure(out_dir: Path, sample_id: str, pred_uv, mass_uv, mom_uv) -> None:
     try:
         import matplotlib.pyplot as plt
@@ -206,13 +211,7 @@ def evaluate(
         f"samples={len(loader.dataset)} batches={len(loader)}",
         flush=True,
     )
-    totals = {
-        "count": 0,
-        "ml_squared_vector_error": 0.0,
-        "mass_squared_vector_error": 0.0,
-        "ml_speed_abs_error": 0.0,
-        "mass_speed_abs_error": 0.0,
-    }
+    totals = _empty_metric_totals()
     rows = []
     figure_count = 0
     out_dir.mkdir(parents=True, exist_ok=True)
