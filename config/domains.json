@@ -21,6 +21,36 @@
       "template": "config/template_validation.cfg",
       "elevation_file": "copper_mountain_kccu_5km.lcp"
     },
+    "copper_mountain_9p6": {
+      "label": "Copper Mountain 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "copper_mountain_9p6.lcp"
+    },
+    "copper_mountain_9p6_mass": {
+      "label": "Copper Mountain 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "copper_mountain_9p6.lcp"
+    },
+    "vail_central_9p6": {
+      "label": "Vail Central/Back Bowls 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "vail_central_9p6.lcp"
+    },
+    "vail_central_9p6_mass": {
+      "label": "Vail Central/Back Bowls 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "vail_central_9p6.lcp"
+    },
+    "monarch_pass_9p6": {
+      "label": "Monarch Pass 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "monarch_pass_9p6.lcp"
+    },
+    "monarch_pass_9p6_mass": {
+      "label": "Monarch Pass 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "monarch_pass_9p6.lcp"
+    },
     "summit_county": {
       "label": "Summit County / Loveland Pass",
       "template": "config/template.cfg",

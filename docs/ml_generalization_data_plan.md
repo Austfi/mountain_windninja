@@ -10,6 +10,15 @@ four 9.6 km boxes:
 | `keystone_9p6` | `keystone_9p6_mass` | `39.56683262,-105.9290` | `39.61000000 -105.87300262 39.52366524 -105.98499738` |
 | `loveland_abasin_9p6` | `loveland_abasin_9p6_mass` | `39.6543,-105.8962` | `39.69746738 -105.84013183 39.61113262 -105.95226817` |
 
+The next terrain-expansion plan after this four-domain baseline is:
+
+```text
+docs/ml_next_terrain_expansion_plan.md
+```
+
+It stages Copper Mountain, a representative central/back-bowls Vail box, and
+Monarch Pass as the next 9.6 km training domains.
+
 KML review files:
 
 ```text

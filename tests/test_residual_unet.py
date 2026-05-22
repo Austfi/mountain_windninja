@@ -17,6 +17,7 @@ from ml.residual_unet.build_controlled_dataset import (
     pair_manifest_rows,
 )
 from ml.residual_unet.build_combined_dataset import build_combined_dataset
+from ml.residual_unet.compare_results import compare_results
 from ml.residual_unet.build_dataset import (
     CHANNELS,
     LCP_CANOPY_CHANNELS,
@@ -393,6 +394,43 @@ def test_evaluate_reports_pixel_level_close_and_win_rates():
     assert metrics["ml_vector_error_le_3p0mps_count"] == 3
     assert metrics["mass_vector_error_le_3p0mps_count"] == 2
     assert metrics["ml_vector_error_le_3p0mps_fraction"] == pytest.approx(0.75)
+
+
+def test_compare_results_scans_colab_eval_sources(tmp_path):
+    results_root = tmp_path / "results"
+    run_dir = results_root / "mountain_general_9p6_lcp_canopy_v1"
+    eval_dir = run_dir / "eval" / "keystone_9p6_hrrr_lcp_canopy_v1"
+    eval_dir.mkdir(parents=True)
+    (run_dir / "train_log.csv").write_text(
+        "epoch,train_loss,val_loss,train_ml_vector_rmse,val_ml_vector_rmse,"
+        "val_mass_vector_rmse\n"
+        "1,3.0,2.0,1.5,1.0,4.0\n"
+        "2,2.0,1.5,1.2,0.8,4.0\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        eval_dir / "metrics.json",
+        {
+            "valid_pixel_count": 100,
+            "mass_vector_rmse": 4.0,
+            "ml_vector_rmse": 2.0,
+            "vector_rmse_improvement_percent": 50.0,
+            "mass_speed_mae": 2.5,
+            "ml_speed_mae": 1.5,
+            "ml_better_pixel_count": 70,
+            "ml_better_pixel_fraction": 0.7,
+        },
+    )
+
+    summary = compare_results(results_root, tmp_path / "comparison")
+
+    assert summary["rows"][0]["source_key"] == "keystone_9p6:hrrr"
+    assert summary["rows"][0]["best_epoch"] == 2
+    assert summary["run_summaries"][0]["ml_vector_rmse"] == pytest.approx(2.0)
+    assert summary["run_summaries"][0]["ml_better_pixel_fraction"] == pytest.approx(0.7)
+    assert (
+        tmp_path / "comparison" / "comparison_report.md"
+    ).read_text(encoding="utf-8").startswith("# Residual U-Net Model Comparison")
 
 
 def test_controlled_profiles_and_custom_matrix():

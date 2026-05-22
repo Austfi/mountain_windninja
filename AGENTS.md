@@ -429,6 +429,30 @@ ml_vector_error_le_5p0mps_fraction
 
 These fields are written to both `metrics.json` and `sample_metrics.csv`.
 
+Future Colab runs should write/update a cross-run comparison under
+`MyDrive/windninja_ml/results/_comparison/` and sync it to
+`gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/_comparison/`.
+The comparison code is `ml.residual_unet.compare_results`; it scans every result
+folder and writes `comparison_metrics.csv`, `comparison_run_summary.csv`,
+`comparison_summary.json`, and `comparison_report.md`.
+
+The next terrain-expansion plan is:
+
+```text
+docs/ml_next_terrain_expansion_plan.md
+```
+
+It stages these additional domains:
+
+```text
+copper_mountain_9p6 / copper_mountain_9p6_mass
+vail_central_9p6 / vail_central_9p6_mass
+monarch_pass_9p6 / monarch_pass_9p6_mass
+```
+
+The Vail box is a representative central/back-bowls 9.6 km box, not full Vail
+resort coverage.
+
 The current no-Vail generalization data plan is:
 
 ```text

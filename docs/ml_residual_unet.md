@@ -309,6 +309,27 @@ ml_vector_error_le_5p0mps_fraction
 Use `ml_better_pixel_fraction` as the direct “how many vectors improved” metric.
 Use the threshold fractions to separate close vectors from off vectors.
 
+Future Colab runs also write a cross-run comparison under:
+
+```text
+MyDrive/windninja_ml/results/_comparison/
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/_comparison/
+```
+
+The comparison scanner reads every result folder under
+`MyDrive/windninja_ml/results`, compares all available models by source/domain,
+and writes:
+
+```text
+comparison_metrics.csv
+comparison_run_summary.csv
+comparison_summary.json
+comparison_report.md
+```
+
+Use this as the default progression view when deciding whether a new checkpoint
+is genuinely better than prior holdout or all-domain models.
+
 Default Colab training settings for this notebook:
 
 ```text
@@ -498,6 +519,17 @@ For the simple LCP addition, use the six-channel successor:
 ```text
 ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1
 ```
+
+The next planned terrain expansion after the current four-domain LCP-canopy run
+is documented in:
+
+```text
+docs/ml_next_terrain_expansion_plan.md
+```
+
+It stages Copper Mountain, Vail Central/Back Bowls, and Monarch Pass as
+additional 9.6 km domains. Treat the Vail box as representative Vail terrain;
+a single 9.6 km box does not cover the full Vail resort footprint.
 
 Controlled processed datasets must be built per domain with
 `ml.residual_unet.build_controlled_dataset --terrain-domain <domain>`, because

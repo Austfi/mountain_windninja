@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Vail Central/Back Bowls 9.6 km ML Training Box</name>
+    <Placemark>
+      <name>vail_central_9p6</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -106.43002904,39.64916738,0
+              -106.31797096,39.64916738,0
+              -106.31797096,39.56283262,0
+              -106.43002904,39.56283262,0
+              -106.43002904,39.64916738,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>
