@@ -8,11 +8,10 @@ import json
 from pathlib import Path
 
 from .build_dataset import (
-    CHANNELS,
     TARGETS,
-    align_terrain_to_reference,
-    build_terrain_channels,
+    build_aligned_terrain_inputs,
     compute_input_normalization,
+    parse_terrain_features,
     read_uv,
     write_manifest,
 )
@@ -179,6 +178,7 @@ def build_controlled_dataset(
     force: bool = False,
     terrain_file: str | Path | None = None,
     terrain_domain: str | None = None,
+    terrain_features: list[str] | None = None,
     source_dataset: str | None = None,
 ) -> dict:
     if out_dir.exists() and not force and (out_dir / "manifest.csv").exists():
@@ -203,13 +203,17 @@ def build_controlled_dataset(
     )
     reference = read_ascii_grid(first_mass_speed)
     source_root = Path.cwd()
-    terrain = align_terrain_to_reference(
+    terrain_channels, terrain_mask, input_channels, resolved_terrain_path = build_aligned_terrain_inputs(
         source_root,
         reference,
+        crop_size,
         terrain_file=metadata["terrain_file"] or None,
         domain=metadata["terrain_domain"],
+        terrain_features=terrain_features,
     )
-    terrain_channels, terrain_mask = build_terrain_channels(terrain, crop_size)
+    features = parse_terrain_features(terrain_features)
+    if features and not metadata["terrain_file"]:
+        metadata["terrain_file"] = resolved_terrain_path.relative_to(source_root).as_posix()
 
     out_rows = []
     for index, (mass_row, momentum_row) in enumerate(paired_rows):
@@ -228,7 +232,7 @@ def build_controlled_dataset(
             )
         )
 
-    normalization = compute_input_normalization(out_rows, out_dir)
+    normalization = compute_input_normalization(out_rows, out_dir, input_channels)
     write_manifest(out_rows, out_dir / "manifest.csv")
     (out_dir / "normalization.json").write_text(
         json.dumps(normalization, indent=2) + "\n",
@@ -246,7 +250,8 @@ def build_controlled_dataset(
         "source_dataset": metadata["source_dataset"],
         "terrain_domain": metadata["terrain_domain"],
         "terrain_file": metadata["terrain_file"],
-        "input_channels": CHANNELS,
+        "terrain_features": features,
+        "input_channels": input_channels,
         "target_channels": TARGETS,
         "split_counts": split_counts,
     }
@@ -264,6 +269,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--crop-size", type=int, default=96)
     parser.add_argument("--terrain-file", help="Terrain file path. Relative paths resolve from repo root or static_data/.")
     parser.add_argument("--terrain-domain", help="Domain key used to find static_data/<domain>.tif or .lcp.")
+    parser.add_argument(
+        "--terrain-feature",
+        action="append",
+        help=(
+            "Optional extra terrain/LCP feature channel. Supported: canopy_cover. "
+            "Repeat or comma-separate values."
+        ),
+    )
     parser.add_argument("--source-dataset", help="Source label to write into manifest rows and sample IDs.")
     parser.add_argument("--force", action="store_true")
     return parser
@@ -278,6 +291,7 @@ def main() -> int:
         force=args.force,
         terrain_file=args.terrain_file,
         terrain_domain=args.terrain_domain,
+        terrain_features=args.terrain_feature,
         source_dataset=args.source_dataset,
     )
     print(json.dumps(summary, indent=2))

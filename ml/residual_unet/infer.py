@@ -12,9 +12,9 @@ from pathlib import Path
 
 from .build_dataset import (
     CHANNELS,
-    align_terrain_to_reference,
-    build_terrain_channels,
+    build_aligned_terrain_inputs,
     read_uv,
+    terrain_features_from_input_channels,
 )
 from .model_unet import build_unet
 from .pairing import DEFAULT_MOMENTUM_DOMAIN, parse_run_label
@@ -25,6 +25,7 @@ from .raster_io import (
     same_grid,
     write_ascii_grid,
 )
+from .train import resolve_model_in_channels
 from .wind_math import SpeedUnits, uv_to_speed_direction
 
 SPEED_UNITS = ("mps", "mph", "kph", "kts")
@@ -90,7 +91,7 @@ def _load_model(checkpoint_path: Path, device_name: str):
     _normalization_arrays(normalization)
     device = _resolve_device(torch, device_name)
     model = build_unet(
-        in_channels=int(model_cfg.get("in_channels", len(CHANNELS))),
+        in_channels=resolve_model_in_channels(model_cfg, normalization),
         out_channels=int(model_cfg.get("out_channels", 2)),
         base_channels=int(model_cfg.get("base_channels", 32)),
     ).to(device)
@@ -112,6 +113,13 @@ def _terrain_domain_from_run_dir(run_dir: Path) -> str:
         return DEFAULT_MOMENTUM_DOMAIN
     domain = match.group("domain")
     return domain.removesuffix("_mass")
+
+
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _should_ignore_raster(path: Path) -> bool:
@@ -297,22 +305,24 @@ def infer(
 
     reference_grid = read_ascii_grid(mass_pairs[0].speed_path)
     resolved_terrain_domain = terrain_domain or _terrain_domain_from_run_dir(mass_run)
-    terrain = align_terrain_to_reference(
-        source_root,
-        reference_grid,
-        terrain_file=terrain_file,
-        domain=resolved_terrain_domain,
-    )
-    terrain_channels, terrain_mask = build_terrain_channels(terrain, crop_size)
 
     torch, model, normalization, config, device = _load_model(checkpoint_path, device_name)
     input_mean, input_std = _normalization_arrays(normalization)
     input_channels = normalization.get("input_channels", CHANNELS)
+    terrain_features = terrain_features_from_input_channels(input_channels)
 
-    if list(input_channels) != CHANNELS:
+    terrain_channels, terrain_mask, built_input_channels, resolved_terrain_path = build_aligned_terrain_inputs(
+        source_root,
+        reference_grid,
+        crop_size,
+        terrain_file=terrain_file,
+        domain=resolved_terrain_domain,
+        terrain_features=terrain_features,
+    )
+    if list(input_channels) != built_input_channels:
         raise ValueError(
-            f"This inference path expects input channels {CHANNELS}, "
-            f"but checkpoint normalization lists {input_channels}."
+            f"Checkpoint input channels {input_channels} do not match inference-built "
+            f"channels {built_input_channels}."
         )
 
     momentum_lookup = {}
@@ -408,8 +418,13 @@ def infer(
         "mass_run": mass_run.as_posix(),
         "momentum_run": momentum_run.as_posix() if momentum_run is not None else None,
         "source_root": source_root.as_posix(),
-        "terrain_file": Path(terrain_file).as_posix() if terrain_file is not None else "",
+        "terrain_file": (
+            Path(terrain_file).as_posix()
+            if terrain_file is not None
+            else _display_path(resolved_terrain_path, source_root)
+        ),
         "terrain_domain": resolved_terrain_domain,
+        "terrain_features": terrain_features,
         "device": str(device),
         "speed_units": speed_units,
         "output_speed_units": output_speed_units,

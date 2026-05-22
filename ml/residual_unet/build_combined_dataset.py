@@ -8,7 +8,7 @@ import json
 import shutil
 from pathlib import Path
 
-from .build_dataset import CHANNELS, TARGETS, compute_input_normalization
+from .build_dataset import TARGETS, compute_input_normalization
 
 
 DEFAULT_HRRR_DIR = Path("ml/residual_unet/data/processed/berthoud_v0")
@@ -53,13 +53,23 @@ def _split_counts(rows: list[dict[str, str]]) -> dict[str, int]:
     return counts
 
 
-def _validate_source(name: str, processed_dir: Path) -> dict:
+def _validate_source(
+    name: str,
+    processed_dir: Path,
+    *,
+    expected_input_channels: list[str] | None = None,
+) -> dict:
     manifest = processed_dir / "manifest.csv"
     if not manifest.exists():
         raise FileNotFoundError(f"Missing manifest for {name}: {manifest}")
     summary = load_summary(processed_dir)
-    if summary.get("input_channels") != CHANNELS:
-        raise ValueError(f"{name} input channels do not match {CHANNELS}: {summary}")
+    input_channels = summary.get("input_channels")
+    if not isinstance(input_channels, list) or not input_channels:
+        raise ValueError(f"{name} summary is missing input_channels: {summary}")
+    if expected_input_channels is not None and input_channels != expected_input_channels:
+        raise ValueError(
+            f"{name} input channels do not match {expected_input_channels}: {summary}"
+        )
     if summary.get("target_channels") != TARGETS:
         raise ValueError(f"{name} target channels do not match {TARGETS}: {summary}")
     return summary
@@ -124,10 +134,19 @@ def build_combined_dataset(
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    source_summaries = {
-        source_name: _validate_source(source_name, processed_dir)
-        for source_name, processed_dir in sources
-    }
+    source_summaries = {}
+    input_channels: list[str] | None = None
+    for source_name, processed_dir in sources:
+        summary = _validate_source(
+            source_name,
+            processed_dir,
+            expected_input_channels=input_channels,
+        )
+        if input_channels is None:
+            input_channels = list(summary["input_channels"])
+        source_summaries[source_name] = summary
+    if input_channels is None:
+        raise ValueError("At least one processed source is required.")
     rows: list[dict[str, str]] = []
     for source_name, processed_dir in sources:
         rows.extend(merge_source(
@@ -137,7 +156,7 @@ def build_combined_dataset(
         ))
 
     rows.sort(key=lambda row: (row["source_dataset"], row["source_sample_id"]))
-    normalization = compute_input_normalization(rows, out_dir)
+    normalization = compute_input_normalization(rows, out_dir, input_channels)
     write_manifest(rows, out_dir / "manifest.csv")
     (out_dir / "normalization.json").write_text(
         json.dumps(normalization, indent=2) + "\n",
@@ -147,7 +166,7 @@ def build_combined_dataset(
         "created_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "sample_count": len(rows),
         "crop_size": next(iter(source_summaries.values())).get("crop_size"),
-        "input_channels": CHANNELS,
+        "input_channels": input_channels,
         "target_channels": TARGETS,
         "split_counts": _split_counts(rows),
         "source_datasets": {

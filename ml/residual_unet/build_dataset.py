@@ -8,7 +8,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from .pairing import (
     DEFAULT_MASS_DOMAIN,
@@ -20,7 +20,13 @@ from .pairing import (
 from .raster_io import AsciiGrid, center_crop, read_ascii_grid, same_grid
 from .wind_math import speed_direction_to_uv
 
-CHANNELS = ["z_rel", "dzdx", "dzdy", "u_mass", "v_mass"]
+TERRAIN_BASE_CHANNELS = ["z_rel", "dzdx", "dzdy"]
+WIND_CHANNELS = ["u_mass", "v_mass"]
+CHANNELS = TERRAIN_BASE_CHANNELS + WIND_CHANNELS
+LCP_CANOPY_CHANNEL = "canopy_cover"
+LCP_CANOPY_BAND = 5
+LCP_CANOPY_CHANNELS = TERRAIN_BASE_CHANNELS + [LCP_CANOPY_CHANNEL] + WIND_CHANNELS
+SUPPORTED_TERRAIN_FEATURES = {LCP_CANOPY_CHANNEL}
 TARGETS = ["delta_u", "delta_v"]
 
 
@@ -49,6 +55,7 @@ def _find_terrain(
     *,
     terrain_file: str | Path | None = None,
     domain: str = DEFAULT_TERRAIN_DOMAIN,
+    prefer_lcp: bool = False,
 ) -> Path:
     if terrain_file is not None:
         for candidate in _candidate_repo_paths(source_root, terrain_file):
@@ -56,10 +63,16 @@ def _find_terrain(
                 return candidate
         raise FileNotFoundError(f"Could not find terrain file: {terrain_file}")
 
-    candidates = [
-        source_root / "static_data" / f"{domain}.tif",
-        source_root / "static_data" / f"{domain}.lcp",
-    ]
+    if prefer_lcp:
+        candidates = [
+            source_root / "static_data" / f"{domain}.lcp",
+            source_root / "static_data" / f"{domain}.tif",
+        ]
+    else:
+        candidates = [
+            source_root / "static_data" / f"{domain}.tif",
+            source_root / "static_data" / f"{domain}.lcp",
+        ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -68,25 +81,57 @@ def _find_terrain(
     )
 
 
-def align_terrain_to_reference(
-    source_root: Path,
+def parse_terrain_features(raw: str | Sequence[str] | None) -> list[str]:
+    if raw is None:
+        return []
+    values = [raw] if isinstance(raw, str) else raw
+    items = [
+        item.strip()
+        for value in values
+        for item in str(value).split(",")
+    ]
+    features = [item for item in items if item]
+    unknown = sorted(set(features) - SUPPORTED_TERRAIN_FEATURES)
+    if unknown:
+        raise ValueError(
+            f"Unsupported terrain feature(s): {unknown}. "
+            f"Supported features: {sorted(SUPPORTED_TERRAIN_FEATURES)}"
+        )
+    return features
+
+
+def input_channels_for_features(terrain_features: Sequence[str] | None = None) -> list[str]:
+    features = parse_terrain_features(terrain_features)
+    return TERRAIN_BASE_CHANNELS + features + WIND_CHANNELS
+
+
+def terrain_features_from_input_channels(input_channels: Sequence[str]) -> list[str]:
+    channels = list(input_channels)
+    if channels[:len(TERRAIN_BASE_CHANNELS)] != TERRAIN_BASE_CHANNELS:
+        raise ValueError(f"Input channels must start with {TERRAIN_BASE_CHANNELS}: {channels}")
+    if channels[-len(WIND_CHANNELS):] != WIND_CHANNELS:
+        raise ValueError(f"Input channels must end with {WIND_CHANNELS}: {channels}")
+    return parse_terrain_features(channels[len(TERRAIN_BASE_CHANNELS):-len(WIND_CHANNELS)])
+
+
+def align_raster_band_to_reference(
+    terrain_path: Path,
     reference: AsciiGrid,
     *,
-    terrain_file: str | Path | None = None,
-    domain: str = DEFAULT_TERRAIN_DOMAIN,
+    band: int = 1,
+    resampling: str = "bilinear",
 ) -> AsciiGrid:
-    """Warp terrain band 1 onto a WindNinja output grid."""
-    terrain_path = _find_terrain(source_root, terrain_file=terrain_file, domain=domain)
+    """Warp one terrain/LCP band onto a WindNinja output grid."""
     xmin, ymin, xmax, ymax = reference.bounds
     with tempfile.TemporaryDirectory(prefix="mwn-ml-terrain-") as temp:
         temp_path = Path(temp)
-        band_path = temp_path / "terrain_band.tif"
+        band_path = temp_path / f"terrain_band_{band}.tif"
         aligned_path = temp_path / "terrain_aligned.asc"
         _run_gdal([
             "gdal_translate",
             "-q",
             "-b",
-            "1",
+            str(band),
             str(terrain_path),
             str(band_path),
         ])
@@ -97,7 +142,7 @@ def align_terrain_to_reference(
             "-of",
             "AAIGrid",
             "-r",
-            "bilinear",
+            resampling,
             "-te",
             str(xmin),
             str(ymin),
@@ -117,19 +162,94 @@ def align_terrain_to_reference(
     return terrain
 
 
-def build_terrain_channels(terrain: AsciiGrid, crop_size: int):
+def align_terrain_to_reference(
+    source_root: Path,
+    reference: AsciiGrid,
+    *,
+    terrain_file: str | Path | None = None,
+    domain: str = DEFAULT_TERRAIN_DOMAIN,
+    prefer_lcp: bool = False,
+) -> AsciiGrid:
+    """Warp terrain band 1 onto a WindNinja output grid."""
+    terrain_path = _find_terrain(
+        source_root,
+        terrain_file=terrain_file,
+        domain=domain,
+        prefer_lcp=prefer_lcp,
+    )
+    return align_raster_band_to_reference(terrain_path, reference, band=1, resampling="bilinear")
+
+
+def build_terrain_channels(
+    terrain: AsciiGrid,
+    crop_size: int,
+    *,
+    feature_grids: Sequence[tuple[str, AsciiGrid]] | None = None,
+):
     import numpy as np
 
     z = np.asarray(terrain.data, dtype=np.float32)
-    valid = z > terrain.nodata + 1
+    valid = (z > terrain.nodata + 1) & np.isfinite(z)
     z_work = np.where(valid, z, np.nan)
     z_rel = z_work - np.nanmean(z_work)
     grad_rows, grad_cols = np.gradient(z_work, terrain.cellsize, terrain.cellsize)
     dzdx = grad_cols
     dzdy = -grad_rows
-    terrain_stack = np.stack([z_rel, dzdx, dzdy]).astype(np.float32)
+    layers = [z_rel, dzdx, dzdy]
+    for feature_name, feature_grid in feature_grids or []:
+        feature = np.asarray(feature_grid.data, dtype=np.float32)
+        feature_valid = (
+            (feature > feature_grid.nodata + 1)
+            & np.isfinite(feature)
+        )
+        valid &= feature_valid
+        if feature_name == LCP_CANOPY_CHANNEL:
+            feature = np.clip(feature, 0.0, 100.0)
+        layers.append(np.where(feature_valid, feature, np.nan))
+    terrain_stack = np.stack(layers).astype(np.float32)
     terrain_stack = np.nan_to_num(terrain_stack, nan=0.0, posinf=0.0, neginf=0.0)
     return center_crop(terrain_stack, crop_size), center_crop(valid, crop_size)
+
+
+def build_aligned_terrain_inputs(
+    source_root: Path,
+    reference: AsciiGrid,
+    crop_size: int,
+    *,
+    terrain_file: str | Path | None = None,
+    domain: str = DEFAULT_TERRAIN_DOMAIN,
+    terrain_features: Sequence[str] | None = None,
+):
+    features = parse_terrain_features(terrain_features)
+    terrain_path = _find_terrain(
+        source_root,
+        terrain_file=terrain_file,
+        domain=domain,
+        prefer_lcp=bool(features),
+    )
+    if features and terrain_path.suffix.lower() != ".lcp":
+        raise ValueError(
+            f"Terrain features {features} require an LCP terrain file, got {terrain_path}"
+        )
+    terrain = align_raster_band_to_reference(terrain_path, reference, band=1, resampling="bilinear")
+    feature_grids = []
+    for feature in features:
+        if feature == LCP_CANOPY_CHANNEL:
+            feature_grid = align_raster_band_to_reference(
+                terrain_path,
+                reference,
+                band=LCP_CANOPY_BAND,
+                resampling="average",
+            )
+        else:
+            raise ValueError(f"Unsupported terrain feature: {feature}")
+        feature_grids.append((feature, feature_grid))
+    terrain_channels, terrain_mask = build_terrain_channels(
+        terrain,
+        crop_size,
+        feature_grids=feature_grids,
+    )
+    return terrain_channels, terrain_mask, input_channels_for_features(features), terrain_path
 
 
 def read_uv(speed_path: Path, direction_path: Path, *, units: str = "mph"):
@@ -230,12 +350,17 @@ def write_sample(
     }
 
 
-def compute_input_normalization(rows: Iterable[dict[str, str]], out_dir: Path) -> dict:
+def compute_input_normalization(
+    rows: Iterable[dict[str, str]],
+    out_dir: Path,
+    input_channels: Sequence[str] | None = None,
+) -> dict:
     import numpy as np
 
-    sums = np.zeros(len(CHANNELS), dtype=np.float64)
-    squares = np.zeros(len(CHANNELS), dtype=np.float64)
-    counts = np.zeros(len(CHANNELS), dtype=np.int64)
+    channels = list(input_channels or CHANNELS)
+    sums = np.zeros(len(channels), dtype=np.float64)
+    squares = np.zeros(len(channels), dtype=np.float64)
+    counts = np.zeros(len(channels), dtype=np.int64)
 
     for row in rows:
         if row["split"] != "train":
@@ -257,7 +382,7 @@ def compute_input_normalization(rows: Iterable[dict[str, str]], out_dir: Path) -
     variances = np.maximum(squares / counts - means ** 2, 1e-12)
     stds = np.sqrt(variances)
     return {
-        "input_channels": CHANNELS,
+        "input_channels": channels,
         "input_mean": [float(value) for value in means],
         "input_std": [float(value) for value in stds],
         "target_channels": TARGETS,
@@ -284,6 +409,7 @@ def build_dataset(
     momentum_domain: str = DEFAULT_MOMENTUM_DOMAIN,
     mass_domain: str = DEFAULT_MASS_DOMAIN,
     terrain_file: str | Path | None = None,
+    terrain_features: Sequence[str] | None = None,
     source_dataset: str | None = None,
     sample_prefix: str | None = None,
 ) -> dict:
@@ -303,18 +429,24 @@ def build_dataset(
         pairs = pairs[:max_samples]
 
     reference = read_ascii_grid(pairs[0].mass.speed_path)
-    terrain = align_terrain_to_reference(
+    terrain_channels, terrain_mask, input_channels, resolved_terrain_path = build_aligned_terrain_inputs(
         source_root,
         reference,
+        crop_size,
         terrain_file=terrain_file,
         domain=momentum_domain,
+        terrain_features=terrain_features,
     )
-    terrain_channels, terrain_mask = build_terrain_channels(terrain, crop_size)
 
     split_by_day = blocked_day_split([pair.timestamp for pair in pairs])
     source_dataset = source_dataset or out_dir.name
     sample_prefix = sample_prefix or source_dataset
-    terrain_label = Path(terrain_file).as_posix() if terrain_file is not None else ""
+    features = parse_terrain_features(terrain_features)
+    terrain_label = (
+        Path(terrain_file).as_posix()
+        if terrain_file is not None
+        else (_relative(resolved_terrain_path, source_root) if features else "")
+    )
     rows = []
     for index, pair in enumerate(pairs):
         split = split_by_day[pair.timestamp.date()]
@@ -336,7 +468,7 @@ def build_dataset(
             )
         )
 
-    normalization = compute_input_normalization(rows, out_dir)
+    normalization = compute_input_normalization(rows, out_dir, input_channels)
     write_manifest(rows, out_dir / "manifest.csv")
     (out_dir / "normalization.json").write_text(
         json.dumps(normalization, indent=2) + "\n",
@@ -352,8 +484,9 @@ def build_dataset(
         "momentum_domain": momentum_domain,
         "mass_domain": mass_domain,
         "terrain_file": terrain_label,
+        "terrain_features": features,
         "source_dataset": source_dataset,
-        "input_channels": CHANNELS,
+        "input_channels": input_channels,
         "target_channels": TARGETS,
         "split_counts": split_counts,
     }
@@ -370,6 +503,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--momentum-domain", default=DEFAULT_MOMENTUM_DOMAIN)
     parser.add_argument("--mass-domain", default=DEFAULT_MASS_DOMAIN)
     parser.add_argument("--terrain-file", help="Terrain file path. Relative paths are resolved from repo root or static_data/.")
+    parser.add_argument(
+        "--terrain-feature",
+        action="append",
+        help=(
+            "Optional extra terrain/LCP feature channel. Supported: canopy_cover. "
+            "Repeat or comma-separate values."
+        ),
+    )
     parser.add_argument("--source-dataset", help="Source label to write into manifest rows.")
     parser.add_argument("--sample-prefix", help="Prefix for generated sample_id values.")
     parser.add_argument("--force", action="store_true", help="Overwrite an existing processed dataset.")
@@ -387,6 +528,7 @@ def main() -> int:
         momentum_domain=args.momentum_domain,
         mass_domain=args.mass_domain,
         terrain_file=args.terrain_file,
+        terrain_features=args.terrain_feature,
         source_dataset=args.source_dataset,
         sample_prefix=args.sample_prefix,
     )

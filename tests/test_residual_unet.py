@@ -17,7 +17,13 @@ from ml.residual_unet.build_controlled_dataset import (
     pair_manifest_rows,
 )
 from ml.residual_unet.build_combined_dataset import build_combined_dataset
-from ml.residual_unet.build_dataset import CHANNELS, TARGETS
+from ml.residual_unet.build_dataset import (
+    CHANNELS,
+    LCP_CANOPY_CHANNELS,
+    TARGETS,
+    input_channels_for_features,
+    terrain_features_from_input_channels,
+)
 from ml.residual_unet.controlled_pairs import (
     build_cases,
     build_solver_runs,
@@ -60,15 +66,22 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _write_processed_sample(processed_dir: Path, sample_id: str, split: str) -> None:
+def _write_processed_sample(
+    processed_dir: Path,
+    sample_id: str,
+    split: str,
+    *,
+    input_channels: list[str] | None = None,
+) -> None:
     np = pytest.importorskip("numpy")
 
+    channels = input_channels or CHANNELS
     sample_path = processed_dir / "samples" / f"{sample_id}.npz"
     sample_path.parent.mkdir(parents=True, exist_ok=True)
     valid_mask = np.ones((2, 2), dtype=np.bool_)
     np.savez_compressed(
         sample_path,
-        x=np.ones((len(CHANNELS), 2, 2), dtype=np.float32),
+        x=np.ones((len(channels), 2, 2), dtype=np.float32),
         y=np.zeros((len(TARGETS), 2, 2), dtype=np.float32),
         mass_uv=np.ones((2, 2, 2), dtype=np.float32),
         mom_uv=np.ones((2, 2, 2), dtype=np.float32),
@@ -84,7 +97,7 @@ def _write_processed_sample(processed_dir: Path, sample_id: str, split: str) -> 
         {
             "sample_count": 1,
             "crop_size": 2,
-            "input_channels": CHANNELS,
+            "input_channels": channels,
             "target_channels": TARGETS,
             "split_counts": {split: 1},
         },
@@ -500,6 +513,54 @@ def test_build_combined_dataset_accepts_explicit_source_list(tmp_path):
     assert summary["sample_count"] == 3
     assert summary["source_datasets"]["third_source"]["sample_count"] == 1
     assert "third_source__c" in manifest
+
+
+def test_lcp_canopy_channel_helpers_round_trip():
+    assert input_channels_for_features(["canopy_cover"]) == LCP_CANOPY_CHANNELS
+    assert terrain_features_from_input_channels(LCP_CANOPY_CHANNELS) == ["canopy_cover"]
+    assert terrain_features_from_input_channels(CHANNELS) == []
+
+
+def test_build_combined_dataset_preserves_lcp_canopy_channels(tmp_path):
+    first = tmp_path / "first_lcp_source"
+    second = tmp_path / "second_lcp_source"
+    _write_processed_sample(first, "a", "train", input_channels=LCP_CANOPY_CHANNELS)
+    _write_processed_sample(second, "b", "train", input_channels=LCP_CANOPY_CHANNELS)
+
+    summary = build_combined_dataset(
+        first,
+        second,
+        tmp_path / "combined_lcp",
+        sources=[
+            ("first_lcp_source", first),
+            ("second_lcp_source", second),
+        ],
+    )
+
+    assert summary["sample_count"] == 2
+    assert summary["input_channels"] == LCP_CANOPY_CHANNELS
+    normalization = (tmp_path / "combined_lcp" / "normalization.json").read_text(
+        encoding="utf-8"
+    )
+    assert "canopy_cover" in normalization
+
+
+def test_build_combined_dataset_rejects_mixed_channel_sources(tmp_path):
+    first = tmp_path / "first_source"
+    second = tmp_path / "second_source"
+    _write_processed_sample(first, "a", "train")
+    _write_processed_sample(second, "b", "train", input_channels=LCP_CANOPY_CHANNELS)
+
+    with pytest.raises(ValueError, match="input channels"):
+        build_combined_dataset(
+            first,
+            second,
+            tmp_path / "combined_mixed_channels",
+            sources=[
+                ("first_source", first),
+                ("second_source", second),
+            ],
+        )
 
 
 def test_hrrr_pair_plan_builds_mass_and_momentum_runs():

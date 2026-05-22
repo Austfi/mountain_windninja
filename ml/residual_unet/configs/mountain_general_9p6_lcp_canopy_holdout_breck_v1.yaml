@@ -1,0 +1,23 @@
+data:
+  processed_dir: ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1
+  batch_size: 32
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  train_exclude_source_datasets: breck_tenmile_9p6_hrrr_lcp_canopy_v1,breck_tenmile_9p6_hrrr_monthly2_lcp_canopy_v1,breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg
+  val_exclude_source_datasets: breck_tenmile_9p6_hrrr_lcp_canopy_v1,breck_tenmile_9p6_hrrr_monthly2_lcp_canopy_v1,breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg
+
+model:
+  in_channels: 6
+  out_channels: 2
+  base_channels: 32
+
+training:
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 0.000001
+  speed_loss_weight: 0.1
+  progress_every: 100
+  checkpoint_dir: ml/residual_unet/outputs/mountain_general_9p6_lcp_canopy_holdout_breck_v1_checkpoints
+  log_csv: ml/residual_unet/outputs/mountain_general_9p6_lcp_canopy_holdout_breck_v1_train_log.csv

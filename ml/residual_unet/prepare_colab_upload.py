@@ -63,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--crop-size", type=int, default=96)
     parser.add_argument("--terrain-file", help="Terrain file path passed to controlled dataset build.")
     parser.add_argument("--terrain-domain", help="Domain key passed to controlled dataset build.")
+    parser.add_argument(
+        "--terrain-feature",
+        action="append",
+        help="Optional extra terrain/LCP feature passed to controlled dataset build.",
+    )
     parser.add_argument("--source-dataset", help="Source label passed to controlled dataset build.")
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
@@ -102,6 +107,7 @@ def main() -> int:
             force=args.force,
             terrain_file=args.terrain_file,
             terrain_domain=args.terrain_domain,
+            terrain_features=args.terrain_feature,
             source_dataset=args.source_dataset,
         )
         print(f"Built dataset: {summary}")

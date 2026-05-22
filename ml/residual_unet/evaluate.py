@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .dataset import load_normalization, make_dataloader
 from .model_unet import build_unet
+from .train import resolve_model_in_channels
 
 
 def _csv_list(values: list[str] | None) -> list[str] | None:
@@ -129,7 +130,7 @@ def evaluate(
     normalization = checkpoint.get("normalization") or load_normalization(processed_dir)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_unet(
-        in_channels=int(model_cfg.get("in_channels", 5)),
+        in_channels=resolve_model_in_channels(model_cfg, normalization),
         out_channels=int(model_cfg.get("out_channels", 2)),
         base_channels=int(model_cfg.get("base_channels", 32)),
     ).to(device)

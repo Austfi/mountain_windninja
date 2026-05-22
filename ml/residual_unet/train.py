@@ -131,6 +131,20 @@ def append_log(path: Path, row: dict) -> None:
         writer.writerow(row)
 
 
+def resolve_model_in_channels(model_cfg: dict, normalization: dict) -> int:
+    input_channels = normalization.get("input_channels")
+    if not isinstance(input_channels, list) or not input_channels:
+        raise ValueError("normalization.json must include non-empty input_channels.")
+    expected = len(input_channels)
+    configured = model_cfg.get("in_channels")
+    if configured is not None and int(configured) != expected:
+        raise ValueError(
+            f"model.in_channels={configured} does not match dataset input_channels "
+            f"length {expected}: {input_channels}"
+        )
+    return expected
+
+
 def train(config: dict, *, resume: Path | None = None) -> dict:
     torch = _require_torch()
     data_cfg = config["data"]
@@ -193,7 +207,7 @@ def train(config: dict, *, resume: Path | None = None) -> dict:
         flush=True,
     )
     model = build_unet(
-        in_channels=int(model_cfg.get("in_channels", 5)),
+        in_channels=resolve_model_in_channels(model_cfg, normalization),
         out_channels=int(model_cfg.get("out_channels", 2)),
         base_channels=int(model_cfg.get("base_channels", 32)),
     ).to(device)

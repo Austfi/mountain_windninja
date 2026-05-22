@@ -18,6 +18,23 @@ u_mass
 v_mass
 ```
 
+The current LCP-canopy V2 experiment adds one simple LCP-derived channel:
+
+```text
+z_rel
+dzdx
+dzdy
+canopy_cover
+u_mass
+v_mass
+```
+
+`canopy_cover` comes from LANDFIRE LCP band 5 (`LF2024_CC_CONUS`). This keeps
+the first LCP experiment intentionally narrow: one canopy/roughness proxy, no
+fuel-model category embeddings, and no canopy-height stack. Five-channel V1
+datasets and six-channel LCP-canopy datasets cannot be mixed in one combined
+training set.
+
 Target:
 
 ```text
@@ -235,8 +252,18 @@ For the four-domain mountain-general package, run:
 ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
 ```
 
-That notebook is the preferred Colab entrypoint for the current
-Berthoud/Breck-Keystone-Loveland generalization test. It force-downloads and
+For the current LCP-canopy run, the GCS/Drive upload set is:
+
+```text
+residual_unet_code.zip
+mountain_general_9p6_lcp_canopy_v1_dataset.zip
+05_train_mountain_general_9p6_colab.ipynb
+```
+
+That notebook is the preferred Colab entrypoint for the current LCP-canopy
+Berthoud/Breck-Keystone-Loveland generalization test. It defaults to
+`mountain_general_9p6_lcp_canopy_v1` and
+`mountain_general_9p6_lcp_canopy_holdout_loveland_v1`, force-downloads and
 force-unpacks the code ZIP to avoid stale Colab source files, reads ZIP artifacts
 from GCS directly onto Colab local disk, prints the active CUDA device and
 dataset split counts, trains with the held-out-terrain config, evaluates
@@ -279,6 +306,24 @@ bucket, refresh the GCS handoff without rebuilding a dataset ZIP:
   --gcs-bucket mwn-ml-general-9p6-spring-nova-475120-r0 \
   --notebook ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
 ```
+
+Build and package the six-channel LCP-canopy dataset from current four-domain
+GCP outputs:
+
+```bash
+.venv/bin/python -m ml.residual_unet.build_mountain_general_lcp_canopy --force
+
+.venv/bin/python -m ml.residual_unet.prepare_colab_upload \
+  --processed-dir ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1 \
+  --skip-build \
+  --force \
+  --gcs-bucket mwn-ml-general-9p6-spring-nova-475120-r0 \
+  --notebook ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
+
+The LCP-canopy builder creates one HRRR source and one controlled source per
+domain, all with matching input channels. It intentionally does not include the
+older `berthoud_combined_v2` seed because that seed is five-channel data.
 
 Current Loveland/A-Basin held-out result from the mountain-general V1 Colab run
 on 2026-05-19:
@@ -388,6 +433,12 @@ combined dataset name is:
 
 ```text
 ml/residual_unet/data/processed/mountain_general_9p6_monthly_controlled_v1
+```
+
+For the simple LCP addition, use the six-channel successor:
+
+```text
+ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1
 ```
 
 Controlled processed datasets must be built per domain with

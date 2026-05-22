@@ -284,6 +284,17 @@ Current source inputs:
 z_rel, dzdx, dzdy, u_mass, v_mass
 ```
 
+Current LCP-canopy V2 candidate inputs:
+
+```text
+z_rel, dzdx, dzdy, canopy_cover, u_mass, v_mass
+```
+
+`canopy_cover` is read directly from LANDFIRE LCP band 5
+(`LF2024_CC_CONUS`) and is the only LCP-derived feature currently wired into the
+ML pipeline. Do not combine 5-channel sources with 6-channel LCP-canopy sources;
+`build_combined_dataset` now validates that all source channel lists match.
+
 Current target:
 
 ```text
@@ -342,9 +353,10 @@ The bounding-box KML is at:
 runtime/ml/residual_unet/hrrr_pairs/breck_tenmile_9p6_smoke/breck_tenmile_9p6_bbox.kml
 ```
 
-Do not spend on a 7-day Breck V1 run by default. Train `berthoud_combined_v2`
-in Colab first, then rerun inference only on the completed Breck smoke pair and
-compare V1 vs V2 before expanding the Breck evaluation window.
+Do not spend on a 7-day Breck V1 run by default. The current next training
+step is the six-channel `mountain_general_9p6_lcp_canopy_v1` Colab run, then a
+comparison against V1 on held-out Loveland/A-Basin and the completed Breck smoke
+pair before expanding the Breck evaluation window.
 
 The current no-Vail generalization data plan is:
 
@@ -395,6 +407,22 @@ datasets, then combine them into:
 ```text
 ml/residual_unet/data/processed/mountain_general_9p6_monthly_controlled_v1
 ```
+
+For the LCP-canopy version, build all four HRRR domains plus all four controlled
+domains from current raw/runtime outputs with:
+
+```bash
+.venv/bin/python -m ml.residual_unet.build_mountain_general_lcp_canopy --force
+```
+
+This writes:
+
+```text
+ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1
+```
+
+Then package/upload that processed dataset for Colab with
+`ml.residual_unet.prepare_colab_upload --processed-dir ... --skip-build`.
 
 Use `ml.residual_unet.build_controlled_dataset --terrain-domain <domain>` for
 controlled datasets so stale absolute terrain paths in raw manifests do not
