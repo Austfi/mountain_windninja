@@ -54,6 +54,7 @@ runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthl
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_parallel.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_all.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_parallel.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_fetch_smoke_monthly_controlled_sync_and_stop.sh
 ```
 
 For a subset while testing:
@@ -239,6 +240,15 @@ logs under `runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v
 ```bash
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_parallel.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_parallel.sh
+```
+
+For the unattended billable GCP run, prefer the sync/stop wrapper. It fetches
+terrain, runs smoke, runs the parallel HRRR batch, runs the parallel controlled
+batch, syncs `static_data`, `runtime/temp`, and `runtime/ml/residual_unet` to
+GCS, then shuts the VM down:
+
+```bash
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_fetch_smoke_monthly_controlled_sync_and_stop.sh
 ```
 
 The next combined processed dataset should be versioned separately, for example:

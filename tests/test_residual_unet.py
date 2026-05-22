@@ -813,6 +813,7 @@ def test_stage_terrain_expansion_writes_new_domain_scripts(tmp_path, monkeypatch
     assert (stage_dir / "run_monthly_hrrr_parallel.sh").exists()
     assert (stage_dir / "run_controlled_all.sh").exists()
     assert (stage_dir / "run_controlled_parallel.sh").exists()
+    assert (stage_dir / "run_fetch_smoke_monthly_controlled_sync_and_stop.sh").exists()
     assert smoke_plan.exists()
     assert monthly_plan.exists()
     assert controlled_summary.exists()

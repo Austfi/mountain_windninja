@@ -18,6 +18,7 @@ DEFAULT_STAGE_LABEL = "terrain_expansion_wave1_v1"
 DEFAULT_OUT_ROOT = Path("runtime/ml/residual_unet/terrain_expansion")
 DEFAULT_HRRR_OUT_ROOT = Path("runtime/ml/residual_unet/hrrr_pairs")
 DEFAULT_CONTROLLED_ROOT = Path("runtime/ml/residual_unet/raw/controlled_9p6_15deg")
+DEFAULT_GCS_BUCKET = "mwn-ml-general-9p6-spring-nova-475120-r0"
 DEFAULT_MONTHLY_WINDOW_STARTS = (
     "202505010000",
     "202505150000",
@@ -242,6 +243,75 @@ def write_parallel_runner(
     path.chmod(0o755)
 
 
+def write_sync_and_stop_runner(
+    path: Path,
+    *,
+    repo_root: Path,
+    bucket: str,
+    fetch_script: Path | None,
+    smoke_runner: Path | None,
+    monthly_runner: Path | None,
+    controlled_runner: Path | None,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    repo_root_from_script = os.path.relpath(repo_root.resolve(), path.parent.resolve())
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f'REPO_ROOT="$(cd "$(dirname "${{BASH_SOURCE[0]}}")/{repo_root_from_script}" && pwd)"',
+        'cd "$REPO_ROOT"',
+        f'BUCKET="${{BUCKET:-{bucket}}}"',
+        'SHUTDOWN_ON_EXIT="${SHUTDOWN_ON_EXIT:-1}"',
+        "",
+        "sync_outputs() {",
+        '  echo "Syncing terrain-expansion outputs to gs://$BUCKET"',
+        '  gcloud storage rsync -r static_data "gs://$BUCKET/static_data" || true',
+        '  gcloud storage rsync -r runtime/temp "gs://$BUCKET/runtime_temp" || true',
+        '  gcloud storage rsync -r runtime/ml/residual_unet "gs://$BUCKET/runtime_ml/residual_unet" || true',
+        "}",
+        "",
+        "finish() {",
+        '  status="$?"',
+        "  sync_outputs",
+        '  if [ "$SHUTDOWN_ON_EXIT" = "1" ]; then',
+        '    echo "Shutting down VM after terrain-expansion run; status=$status"',
+        "    sudo shutdown -h now || true",
+        "  fi",
+        '  exit "$status"',
+        "}",
+        "trap finish EXIT",
+        "",
+    ]
+    if fetch_script:
+        lines.extend([
+            'echo "Fetching terrain for expansion boxes"',
+            f'bash "{repo_relative(fetch_script, repo_root=repo_root)}"',
+            "",
+        ])
+    if smoke_runner:
+        lines.extend([
+            'echo "Running terrain smoke tests"',
+            f'bash "{repo_relative(smoke_runner, repo_root=repo_root)}"',
+            "",
+        ])
+    if monthly_runner:
+        lines.extend([
+            'echo "Running two-week-per-month HRRR pairs in parallel"',
+            f'bash "{repo_relative(monthly_runner, repo_root=repo_root)}"',
+            "",
+        ])
+    if controlled_runner:
+        lines.extend([
+            'echo "Running controlled matrices in parallel"',
+            f'bash "{repo_relative(controlled_runner, repo_root=repo_root)}"',
+            "",
+        ])
+    lines.append('echo "Terrain expansion run complete"')
+    lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
+    path.chmod(0o755)
+
+
 def stage_hrrr_plan(
     spec: TerrainExpansionSpec,
     *,
@@ -327,6 +397,7 @@ def stage_terrain_expansion(
     chunk_hours: int = 24,
     threads: int = 4,
     controlled_profile: str = "training",
+    gcs_bucket: str = DEFAULT_GCS_BUCKET,
     write_fetch: bool = True,
     write_smoke: bool = True,
     write_monthly: bool = True,
@@ -413,6 +484,16 @@ def stage_terrain_expansion(
             repo_root=repo_root,
             title="Running ML terrain controlled matrices in parallel",
         )
+    sync_and_stop_runner = stage_dir / "run_fetch_smoke_monthly_controlled_sync_and_stop.sh"
+    write_sync_and_stop_runner(
+        sync_and_stop_runner,
+        repo_root=repo_root,
+        bucket=gcs_bucket,
+        fetch_script=fetch_script,
+        smoke_runner=stage_dir / "run_smoke_all.sh" if smoke_scripts else None,
+        monthly_runner=stage_dir / "run_monthly_hrrr_parallel.sh" if monthly_scripts else None,
+        controlled_runner=stage_dir / "run_controlled_parallel.sh" if controlled_scripts else None,
+    )
 
     summary = {
         "created_at_utc": dt.datetime.now(UTC).isoformat(),
@@ -432,6 +513,7 @@ def stage_terrain_expansion(
         "controlled_parallel_runner": (
             stage_dir / "run_controlled_parallel.sh"
         ).as_posix() if controlled_scripts else "",
+        "sync_and_stop_runner": sync_and_stop_runner.as_posix(),
         "domain_summaries": domain_summaries,
     }
     (stage_dir / "terrain_expansion_summary.json").write_text(
@@ -460,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--monthly-days", type=int, default=7)
     parser.add_argument("--chunk-hours", type=int, default=24)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--gcs-bucket", default=DEFAULT_GCS_BUCKET)
     parser.add_argument(
         "--controlled-profile",
         choices=["pilot", "standard", "dense", "training", "extreme"],
@@ -486,6 +569,7 @@ def main() -> int:
         chunk_hours=args.chunk_hours,
         threads=args.threads,
         controlled_profile=args.controlled_profile,
+        gcs_bucket=args.gcs_bucket,
         write_fetch=not args.no_fetch,
         write_smoke=not args.no_smoke,
         write_monthly=not args.no_monthly,

@@ -455,7 +455,10 @@ fetch-terrain script, smoke HRRR plans, two one-week-per-month HRRR plans, and
 controlled matrix scripts for these boxes. On a 24-core GCP VM, prefer the
 staged `run_monthly_hrrr_parallel.sh` and `run_controlled_parallel.sh` scripts
 for this three-domain wave; they run one 4-thread worker per domain and write
-logs under the staged `logs/` directory. After those outputs exist, use
+logs under the staged `logs/` directory. For unattended GCP execution, use the
+staged `run_fetch_smoke_monthly_controlled_sync_and_stop.sh` wrapper so outputs
+sync to GCS and the VM shuts down after completion or failure. After those
+outputs exist, use
 `python3 -m ml.residual_unet.build_mountain_general_lcp_canopy --domain-set
 base4_plus_expansion3 --out
 ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2` for the

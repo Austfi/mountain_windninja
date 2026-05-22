@@ -544,6 +544,9 @@ On a 24-core GCP VM, the staged `run_monthly_hrrr_parallel.sh` and
 The default HRRR plan uses two non-overlapping 7-day windows per month so the
 new boxes have about the same HRRR-to-controlled balance as the current
 four-domain LCP-canopy dataset.
+For unattended GCP execution, use the staged
+`run_fetch_smoke_monthly_controlled_sync_and_stop.sh` wrapper so outputs sync to
+GCS and the VM shuts down after the run.
 
 After those new terrain runs complete, build the seven-domain LCP-canopy V2
 processed dataset with:
