@@ -22,6 +22,46 @@ docs/assets/ml_training_boxes/vail_central_9p6_bbox.kml
 docs/assets/ml_training_boxes/monarch_pass_9p6_bbox.kml
 ```
 
+## Stage The Wave
+
+Use the staging helper first. It writes the terrain-fetch script, one-domain
+HRRR smoke plans, one-week-per-month HRRR plans, and controlled-matrix scripts
+for the three new boxes.
+
+```bash
+python3 -m ml.residual_unet.stage_terrain_expansion
+```
+
+Default output:
+
+```text
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/
+runtime/ml/residual_unet/hrrr_pairs/copper_mountain_9p6_smoke/
+runtime/ml/residual_unet/hrrr_pairs/copper_mountain_9p6_hrrr_lcp_canopy_v1/
+runtime/ml/residual_unet/hrrr_pairs/vail_central_9p6_smoke/
+runtime/ml/residual_unet/hrrr_pairs/vail_central_9p6_hrrr_lcp_canopy_v1/
+runtime/ml/residual_unet/hrrr_pairs/monarch_pass_9p6_smoke/
+runtime/ml/residual_unet/hrrr_pairs/monarch_pass_9p6_hrrr_lcp_canopy_v1/
+runtime/ml/residual_unet/raw/controlled_9p6_15deg/<domain>/
+```
+
+The top-level scripts are:
+
+```text
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/fetch_terrain.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_smoke_all.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_all.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_all.sh
+```
+
+For a subset while testing:
+
+```bash
+python3 -m ml.residual_unet.stage_terrain_expansion \
+  --domain copper_mountain_9p6 \
+  --label copper_only_setup
+```
+
 Coordinate references used for initial centers:
 
 - Copper Mountain: village/resort coordinate near `39.501419,-106.1516265`;
@@ -48,6 +88,13 @@ Run these on the GCP VM or a machine with the normal Docker/GDAL terrain path.
 The domains are already staged in `config/domains.json` with validation and mass
 templates, so `fetch-terrain` should preserve those templates when it updates
 the terrain path.
+
+If you used the staging helper, run this instead of copying the three individual
+commands below:
+
+```bash
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/fetch_terrain.sh
+```
 
 ```bash
 ./deploy/gcp/mwn.sh fetch-terrain \
@@ -87,6 +134,12 @@ static_data/monarch_pass_9p6.prj
 
 Generate one 24-hour HRRR mass/momentum pair for each new domain before starting
 any long batch.
+
+If you used the staging helper:
+
+```bash
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_smoke_all.sh
+```
 
 ```bash
 .venv/bin/python -m ml.residual_unet.hrrr_pair_runs \
@@ -129,6 +182,12 @@ WindNinja/OpenFOAM job is active.
 ## Controlled Matrix
 
 After HRRR smoke passes, stage controlled 15-degree cases for each domain:
+
+If you used the staging helper, configs are already written. Run:
+
+```bash
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_all.sh
+```
 
 ```bash
 .venv/bin/python -m ml.residual_unet.controlled_pairs \
@@ -176,6 +235,14 @@ The next combined processed dataset should be versioned separately, for example:
 
 ```text
 ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2
+```
+
+Build that V2 dataset after the new HRRR and controlled outputs complete:
+
+```bash
+python3 -m ml.residual_unet.build_mountain_general_lcp_canopy \
+  --domain-set base4_plus_expansion3 \
+  --out ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2
 ```
 
 Keep V2 separate from the current `mountain_general_9p6_lcp_canopy_v1` so model

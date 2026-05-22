@@ -531,6 +531,22 @@ It stages Copper Mountain, Vail Central/Back Bowls, and Monarch Pass as
 additional 9.6 km domains. Treat the Vail box as representative Vail terrain;
 a single 9.6 km box does not cover the full Vail resort footprint.
 
+Use the staging helper to write the terrain fetcher, smoke HRRR plans, monthly
+HRRR plans, and controlled matrix scripts for that wave:
+
+```bash
+python3 -m ml.residual_unet.stage_terrain_expansion
+```
+
+After those new terrain runs complete, build the seven-domain LCP-canopy V2
+processed dataset with:
+
+```bash
+python3 -m ml.residual_unet.build_mountain_general_lcp_canopy \
+  --domain-set base4_plus_expansion3 \
+  --out ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2
+```
+
 Controlled processed datasets must be built per domain with
 `ml.residual_unet.build_controlled_dataset --terrain-domain <domain>`, because
 the raw controlled manifests can contain absolute terrain paths from the VM or

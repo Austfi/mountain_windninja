@@ -450,6 +450,14 @@ vail_central_9p6 / vail_central_9p6_mass
 monarch_pass_9p6 / monarch_pass_9p6_mass
 ```
 
+Use `python3 -m ml.residual_unet.stage_terrain_expansion` to write the
+fetch-terrain script, smoke HRRR plans, one-week-per-month HRRR plans, and
+controlled matrix scripts for these boxes. After those outputs exist, use
+`python3 -m ml.residual_unet.build_mountain_general_lcp_canopy --domain-set
+base4_plus_expansion3 --out
+ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2` for the
+seven-domain V2 processed dataset.
+
 The Vail box is a representative central/back-bowls 9.6 km box, not full Vail
 resort coverage.
 

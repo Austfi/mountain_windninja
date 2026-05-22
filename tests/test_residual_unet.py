@@ -53,6 +53,10 @@ from ml.residual_unet.pairing import (
     parse_run_label,
 )
 from ml.residual_unet.prepare_colab_upload import upload_paths_to_gcs
+from ml.residual_unet.stage_terrain_expansion import (
+    monthly_week_windows,
+    stage_terrain_expansion,
+)
 
 
 def _write_empty(path: Path) -> None:
@@ -764,3 +768,57 @@ def test_runtime_env_loads_prebuilt_image_for_compose(tmp_path):
     env = runtime_env(tmp_path)
 
     assert env["MWN_DOCKER_IMAGE"] == "ghcr.io/austfi/mountain-windninja:3.12.2"
+
+
+def test_monthly_week_windows_cover_one_week_per_month():
+    windows = monthly_week_windows()
+
+    assert len(windows) == 12
+    assert windows[0][0] == dt.datetime(2025, 5, 1, tzinfo=dt.timezone.utc)
+    assert windows[0][1] == dt.datetime(2025, 5, 8, tzinfo=dt.timezone.utc)
+    assert windows[-1][0] == dt.datetime(2026, 4, 1, tzinfo=dt.timezone.utc)
+    assert windows[-1][1] == dt.datetime(2026, 4, 8, tzinfo=dt.timezone.utc)
+
+
+def test_stage_terrain_expansion_writes_new_domain_scripts(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.chdir(tmp_path)
+
+    summary = stage_terrain_expansion(
+        domains=["copper_mountain_9p6"],
+        out_root=Path("runtime/ml/residual_unet/terrain_expansion"),
+        label="test_wave",
+        hrrr_out_root=Path("runtime/ml/residual_unet/hrrr_pairs"),
+        controlled_root=Path("runtime/ml/residual_unet/raw/controlled_9p6_15deg"),
+        controlled_profile="pilot",
+        repo_root=tmp_path,
+    )
+
+    stage_dir = tmp_path / "runtime/ml/residual_unet/terrain_expansion/test_wave"
+    smoke_plan = tmp_path / "runtime/ml/residual_unet/hrrr_pairs/copper_mountain_9p6_smoke/plan.json"
+    monthly_plan = tmp_path / "runtime/ml/residual_unet/hrrr_pairs/copper_mountain_9p6_hrrr_lcp_canopy_v1/plan.json"
+    controlled_summary = (
+        tmp_path
+        / "runtime/ml/residual_unet/raw/controlled_9p6_15deg/copper_mountain_9p6/controlled_summary.json"
+    )
+
+    assert (stage_dir / "fetch_terrain.sh").exists()
+    assert (stage_dir / "run_smoke_all.sh").exists()
+    assert (stage_dir / "run_monthly_hrrr_all.sh").exists()
+    assert (stage_dir / "run_controlled_all.sh").exists()
+    assert smoke_plan.exists()
+    assert monthly_plan.exists()
+    assert controlled_summary.exists()
+
+    smoke_payload = json.loads(smoke_plan.read_text(encoding="utf-8"))
+    monthly_payload = json.loads(monthly_plan.read_text(encoding="utf-8"))
+    controlled_payload = json.loads(controlled_summary.read_text(encoding="utf-8"))
+
+    assert summary["domains"] == ["copper_mountain_9p6"]
+    assert smoke_payload["chunk_count"] == 1
+    assert smoke_payload["run_count"] == 2
+    assert monthly_payload["chunk_count"] == 84
+    assert monthly_payload["run_count"] == 168
+    assert controlled_payload["case_count"] == 8
+    assert controlled_payload["run_count"] == 16
