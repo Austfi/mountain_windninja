@@ -262,13 +262,26 @@ mountain_general_9p6_lcp_canopy_v1_dataset.zip
 
 That notebook is the preferred Colab entrypoint for the current LCP-canopy
 Berthoud/Breck-Keystone-Loveland generalization test. It defaults to
-`mountain_general_9p6_lcp_canopy_v1` and
-`mountain_general_9p6_lcp_canopy_holdout_loveland_v1`, force-downloads and
-force-unpacks the code ZIP to avoid stale Colab source files, reads ZIP artifacts
-from GCS directly onto Colab local disk, prints the active CUDA device and
-dataset split counts, trains with the held-out-terrain config, evaluates
-HRRR-only and controlled-only held-out sources separately, and syncs the result
-directory back to GCS.
+`mountain_general_9p6_lcp_canopy_v1` and now queues the two remaining
+LCP-canopy holdouts:
+
+```text
+mountain_general_9p6_lcp_canopy_holdout_keystone_v1
+mountain_general_9p6_lcp_canopy_holdout_breck_v1
+```
+
+The completed Loveland/A-Basin LCP-canopy baseline can be rerun by setting the
+notebook `RUN_NAMES` list to:
+
+```python
+RUN_NAMES = ["mountain_general_9p6_lcp_canopy_holdout_loveland_v1"]
+```
+
+The notebook force-downloads and force-unpacks the code ZIP to avoid stale Colab
+source files, reads ZIP artifacts from GCS directly onto Colab local disk, prints
+the active CUDA device and dataset split counts, trains each held-out-terrain
+config in `RUN_NAMES`, evaluates HRRR-only and controlled-only held-out sources
+separately, and syncs each result directory back to GCS.
 The training and evaluation cells call the Python functions directly inside the
 notebook kernel so progress prints are visible in Colab; they do not launch a
 buffered child process.
@@ -337,6 +350,21 @@ Interpretation: this is the first useful unseen-terrain signal for the
 four-domain 9.6 km residual U-Net. The HRRR-only Loveland result is the more
 important operational check; it shows the model improved over the raw mass
 solver on terrain withheld from training.
+
+Current Loveland/A-Basin held-out result from the six-channel LCP-canopy Colab
+run on 2026-05-22:
+
+| Held-out source | Mass vector RMSE | ML vector RMSE | Improvement | Mass speed MAE | ML speed MAE |
+|---|---:|---:|---:|---:|---:|
+| Loveland/A-Basin HRRR LCP-canopy | 4.153 | 2.529 | 39.1% | 2.492 | 1.342 |
+| Loveland/A-Basin controlled LCP-canopy 15-degree | 12.891 | 8.846 | 31.4% | 7.134 | 4.521 |
+
+Interpretation: the simple LANDFIRE canopy-cover channel improved both
+held-out Loveland/A-Basin HRRR and controlled evaluations relative to the
+five-channel mountain-general V1 model. This is a useful signal, but it is not
+enough by itself to call the emulator generally reliable. The next check is to
+run the same LCP-canopy holdout workflow for Keystone and Breck/Tenmile and
+compare source-specific held-out metrics before adding more LCP channels.
 
 ## Breckenridge/Tenmile Held-Out Terrain Check
 

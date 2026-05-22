@@ -353,10 +353,37 @@ The bounding-box KML is at:
 runtime/ml/residual_unet/hrrr_pairs/breck_tenmile_9p6_smoke/breck_tenmile_9p6_bbox.kml
 ```
 
-Do not spend on a 7-day Breck V1 run by default. The current next training
-step is the six-channel `mountain_general_9p6_lcp_canopy_v1` Colab run, then a
-comparison against V1 on held-out Loveland/A-Basin and the completed Breck smoke
-pair before expanding the Breck evaluation window.
+Do not spend on a 7-day Breck V1 run by default. The six-channel
+`mountain_general_9p6_lcp_canopy_v1` Loveland/A-Basin holdout run completed on
+2026-05-22 and improved over the five-channel mountain-general baseline:
+
+```text
+Loveland/A-Basin HRRR LCP-canopy:
+  mass vector RMSE: 4.153 m/s
+  ML vector RMSE:   2.529 m/s
+  improvement:      39.1%
+
+Loveland/A-Basin controlled LCP-canopy:
+  mass vector RMSE: 12.891 m/s
+  ML vector RMSE:    8.846 m/s
+  improvement:       31.4%
+```
+
+The current next training step is to run the same six-channel
+`mountain_general_9p6_lcp_canopy_v1` Colab workflow for the Keystone and
+Breck/Tenmile held-out configs before adding more LCP features. The preferred
+notebook entrypoint is:
+
+```text
+ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
+
+It now defaults to a `RUN_NAMES` queue containing:
+
+```text
+mountain_general_9p6_lcp_canopy_holdout_keystone_v1
+mountain_general_9p6_lcp_canopy_holdout_breck_v1
+```
 
 The current no-Vail generalization data plan is:
 
