@@ -68,12 +68,12 @@ def _resolve_device(torch, requested: str):
 
 
 def _normalization_arrays(normalization: dict):
-    import numpy as np
-
     if not normalization:
         raise ValueError("Checkpoint is missing normalization stats required for inference.")
     if "input_mean" not in normalization or "input_std" not in normalization:
         raise ValueError("Checkpoint normalization must contain input_mean and input_std.")
+
+    import numpy as np
 
     mean = np.asarray(normalization["input_mean"], dtype=np.float32)
     std = np.asarray(normalization["input_std"], dtype=np.float32)
