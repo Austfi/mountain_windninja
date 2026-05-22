@@ -261,27 +261,31 @@ mountain_general_9p6_lcp_canopy_v1_dataset.zip
 ```
 
 That notebook is the preferred Colab entrypoint for the current LCP-canopy
-Berthoud/Breck-Keystone-Loveland generalization test. It defaults to
-`mountain_general_9p6_lcp_canopy_v1` and now queues the two remaining
-LCP-canopy holdouts:
+Berthoud/Breck-Keystone-Loveland generalization test. It defaults to the final
+all-domain LCP-canopy training run:
 
 ```text
-mountain_general_9p6_lcp_canopy_holdout_keystone_v1
-mountain_general_9p6_lcp_canopy_holdout_breck_v1
+mountain_general_9p6_lcp_canopy_v1
 ```
 
-The completed Loveland/A-Basin LCP-canopy baseline can be rerun by setting the
-notebook `RUN_NAMES` list to:
+Completed terrain-holdout runs can be rerun by setting the notebook `RUN_NAMES`
+list to one or more of:
 
 ```python
-RUN_NAMES = ["mountain_general_9p6_lcp_canopy_holdout_loveland_v1"]
+RUN_NAMES = [
+    "mountain_general_9p6_lcp_canopy_holdout_loveland_v1",
+    "mountain_general_9p6_lcp_canopy_holdout_keystone_v1",
+    "mountain_general_9p6_lcp_canopy_holdout_breck_v1",
+]
 ```
 
 The notebook force-downloads and force-unpacks the code ZIP to avoid stale Colab
 source files, reads ZIP artifacts from GCS directly onto Colab local disk, prints
-the active CUDA device and dataset split counts, trains each held-out-terrain
-config in `RUN_NAMES`, evaluates HRRR-only and controlled-only held-out sources
-separately, and syncs each result directory back to GCS.
+the active CUDA device and dataset split counts, trains each config in
+`RUN_NAMES`, evaluates source datasets separately, and syncs each result
+directory back to GCS. For terrain-holdout runs it evaluates only the held-out
+HRRR and controlled sources. For the all-domain run it evaluates every HRRR and
+controlled source separately on the dataset test split.
 The training and evaluation cells call the Python functions directly inside the
 notebook kernel so progress prints are visible in Colab; they do not launch a
 buffered child process.
@@ -351,20 +355,27 @@ four-domain 9.6 km residual U-Net. The HRRR-only Loveland result is the more
 important operational check; it shows the model improved over the raw mass
 solver on terrain withheld from training.
 
-Current Loveland/A-Basin held-out result from the six-channel LCP-canopy Colab
-run on 2026-05-22:
+Current terrain-holdout results from the six-channel LCP-canopy Colab runs on
+2026-05-22:
 
 | Held-out source | Mass vector RMSE | ML vector RMSE | Improvement | Mass speed MAE | ML speed MAE |
 |---|---:|---:|---:|---:|---:|
 | Loveland/A-Basin HRRR LCP-canopy | 4.153 | 2.529 | 39.1% | 2.492 | 1.342 |
 | Loveland/A-Basin controlled LCP-canopy 15-degree | 12.891 | 8.846 | 31.4% | 7.134 | 4.521 |
+| Keystone HRRR LCP-canopy | 2.878 | 3.211 | -11.6% | 1.649 | 1.673 |
+| Keystone controlled LCP-canopy 15-degree | 10.871 | 9.454 | 13.0% | 6.081 | 4.995 |
+| Breck/Tenmile HRRR LCP-canopy | 3.981 | 2.775 | 30.3% | 2.136 | 1.427 |
+| Breck/Tenmile controlled LCP-canopy 15-degree | 12.409 | 8.264 | 33.4% | 6.153 | 3.932 |
 
 Interpretation: the simple LANDFIRE canopy-cover channel improved both
-held-out Loveland/A-Basin HRRR and controlled evaluations relative to the
-five-channel mountain-general V1 model. This is a useful signal, but it is not
-enough by itself to call the emulator generally reliable. The next check is to
-run the same LCP-canopy holdout workflow for Keystone and Breck/Tenmile and
-compare source-specific held-out metrics before adding more LCP channels.
+held-out Loveland/A-Basin HRRR and Breck/Tenmile HRRR evaluations relative to
+mass, and improved all three controlled held-out evaluations. Keystone HRRR got
+worse, which is the main generalization warning. The all-domain model is still
+the likely practical checkpoint for these four known boxes, but the holdout
+evidence does not yet support calling it a general mountain momentum emulator.
+Before adding more LCP channels, train `mountain_general_9p6_lcp_canopy_v1` on
+all four domains and inspect source-specific test metrics, especially Keystone
+HRRR.
 
 ## Breckenridge/Tenmile Held-Out Terrain Check
 

@@ -369,21 +369,49 @@ Loveland/A-Basin controlled LCP-canopy:
   improvement:       31.4%
 ```
 
-The current next training step is to run the same six-channel
-`mountain_general_9p6_lcp_canopy_v1` Colab workflow for the Keystone and
-Breck/Tenmile held-out configs before adding more LCP features. The preferred
-notebook entrypoint is:
+The same six-channel `mountain_general_9p6_lcp_canopy_v1` Colab workflow then
+completed Keystone and Breck/Tenmile holdout checks:
+
+```text
+Keystone HRRR LCP-canopy:
+  mass vector RMSE: 2.878 m/s
+  ML vector RMSE:   3.211 m/s
+  improvement:     -11.6%
+
+Keystone controlled LCP-canopy:
+  mass vector RMSE: 10.871 m/s
+  ML vector RMSE:    9.454 m/s
+  improvement:       13.0%
+
+Breck/Tenmile HRRR LCP-canopy:
+  mass vector RMSE: 3.981 m/s
+  ML vector RMSE:   2.775 m/s
+  improvement:      30.3%
+
+Breck/Tenmile controlled LCP-canopy:
+  mass vector RMSE: 12.409 m/s
+  ML vector RMSE:    8.264 m/s
+  improvement:       33.4%
+```
+
+Interpretation: Loveland and Breck HRRR improved, all controlled holdouts
+improved, but Keystone HRRR got worse. The current next training step is the
+all-domain six-channel LCP-canopy model, then source-by-source test evaluation
+with special attention to Keystone HRRR before adding more LCP features. The
+preferred notebook entrypoint is:
 
 ```text
 ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
 ```
 
-It now defaults to a `RUN_NAMES` queue containing:
+It now defaults to:
 
 ```text
-mountain_general_9p6_lcp_canopy_holdout_keystone_v1
-mountain_general_9p6_lcp_canopy_holdout_breck_v1
+mountain_general_9p6_lcp_canopy_v1
 ```
+
+That all-domain run trains on all four terrain boxes and evaluates every HRRR
+and controlled source separately on the dataset test split.
 
 The current no-Vail generalization data plan is:
 
