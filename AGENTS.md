@@ -451,7 +451,7 @@ monarch_pass_9p6 / monarch_pass_9p6_mass
 ```
 
 Use `python3 -m ml.residual_unet.stage_terrain_expansion` to write the
-fetch-terrain script, smoke HRRR plans, one-week-per-month HRRR plans, and
+fetch-terrain script, smoke HRRR plans, two one-week-per-month HRRR plans, and
 controlled matrix scripts for these boxes. On a 24-core GCP VM, prefer the
 staged `run_monthly_hrrr_parallel.sh` and `run_controlled_parallel.sh` scripts
 for this three-domain wave; they run one 4-thread worker per domain and write

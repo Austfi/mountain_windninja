@@ -25,8 +25,8 @@ docs/assets/ml_training_boxes/monarch_pass_9p6_bbox.kml
 ## Stage The Wave
 
 Use the staging helper first. It writes the terrain-fetch script, one-domain
-HRRR smoke plans, one-week-per-month HRRR plans, and controlled-matrix scripts
-for the three new boxes.
+HRRR smoke plans, two one-week-per-month HRRR plans, and controlled-matrix
+scripts for the three new boxes.
 
 ```bash
 python3 -m ml.residual_unet.stage_terrain_expansion
@@ -217,9 +217,9 @@ runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_contro
 ## First Long Batch Recommendation
 
 Do not run a full-year-every-day batch first. Use the same robust but bounded
-pattern as the current four-domain dataset:
+pattern as the current four-domain LCP-canopy dataset:
 
-- one 7-day HRRR week per month
+- two 7-day HRRR weeks per month
 - May 2025 through April 2026
 - 15-degree controlled matrix
 - LCP canopy channel

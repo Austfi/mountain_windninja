@@ -773,11 +773,15 @@ def test_runtime_env_loads_prebuilt_image_for_compose(tmp_path):
 def test_monthly_week_windows_cover_one_week_per_month():
     windows = monthly_week_windows()
 
-    assert len(windows) == 12
+    assert len(windows) == 24
     assert windows[0][0] == dt.datetime(2025, 5, 1, tzinfo=dt.timezone.utc)
     assert windows[0][1] == dt.datetime(2025, 5, 8, tzinfo=dt.timezone.utc)
-    assert windows[-1][0] == dt.datetime(2026, 4, 1, tzinfo=dt.timezone.utc)
-    assert windows[-1][1] == dt.datetime(2026, 4, 8, tzinfo=dt.timezone.utc)
+    assert windows[1][0] == dt.datetime(2025, 5, 15, tzinfo=dt.timezone.utc)
+    assert windows[1][1] == dt.datetime(2025, 5, 22, tzinfo=dt.timezone.utc)
+    assert windows[-2][0] == dt.datetime(2026, 4, 8, tzinfo=dt.timezone.utc)
+    assert windows[-2][1] == dt.datetime(2026, 4, 15, tzinfo=dt.timezone.utc)
+    assert windows[-1][0] == dt.datetime(2026, 4, 22, tzinfo=dt.timezone.utc)
+    assert windows[-1][1] == dt.datetime(2026, 4, 29, tzinfo=dt.timezone.utc)
 
 
 def test_stage_terrain_expansion_writes_new_domain_scripts(tmp_path, monkeypatch):
@@ -820,7 +824,7 @@ def test_stage_terrain_expansion_writes_new_domain_scripts(tmp_path, monkeypatch
     assert summary["domains"] == ["copper_mountain_9p6"]
     assert smoke_payload["chunk_count"] == 1
     assert smoke_payload["run_count"] == 2
-    assert monthly_payload["chunk_count"] == 84
-    assert monthly_payload["run_count"] == 168
+    assert monthly_payload["chunk_count"] == 168
+    assert monthly_payload["run_count"] == 336
     assert controlled_payload["case_count"] == 8
     assert controlled_payload["run_count"] == 16
