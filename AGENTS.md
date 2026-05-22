@@ -413,6 +413,22 @@ mountain_general_9p6_lcp_canopy_v1
 That all-domain run trains on all four terrain boxes and evaluates every HRRR
 and controlled source separately on the dataset test split.
 
+ML evaluation reports both average errors and pixel-level distribution metrics.
+For “how many vectors in the 96 x 96 crop are close vs off,” use:
+
+```text
+ml_better_pixel_fraction
+mass_better_pixel_fraction
+ml_better_by_1mps_pixel_fraction
+ml_worse_by_1mps_pixel_fraction
+ml_vector_error_le_1p0mps_fraction
+ml_vector_error_le_2p0mps_fraction
+ml_vector_error_le_3p0mps_fraction
+ml_vector_error_le_5p0mps_fraction
+```
+
+These fields are written to both `metrics.json` and `sample_metrics.csv`.
+
 The current no-Vail generalization data plan is:
 
 ```text

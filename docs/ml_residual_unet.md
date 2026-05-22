@@ -290,6 +290,25 @@ The training and evaluation cells call the Python functions directly inside the
 notebook kernel so progress prints are visible in Colab; they do not launch a
 buffered child process.
 
+Evaluation now reports pixel-level close/worse rates in addition to average
+RMSE/MAE. This is the clearest way to answer whether a `96 x 96` crop has many
+good vectors or a few large failures. Key fields in `metrics.json` and
+`sample_metrics.csv`:
+
+```text
+ml_better_pixel_fraction
+mass_better_pixel_fraction
+ml_better_by_1mps_pixel_fraction
+ml_worse_by_1mps_pixel_fraction
+ml_vector_error_le_1p0mps_fraction
+ml_vector_error_le_2p0mps_fraction
+ml_vector_error_le_3p0mps_fraction
+ml_vector_error_le_5p0mps_fraction
+```
+
+Use `ml_better_pixel_fraction` as the direct “how many vectors improved” metric.
+Use the threshold fractions to separate close vectors from off vectors.
+
 Default Colab training settings for this notebook:
 
 ```text

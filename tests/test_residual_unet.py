@@ -368,6 +368,33 @@ def test_analyze_results_summarizes_training_and_sample_spread():
     assert distribution["max"] == 1.5
 
 
+def test_evaluate_reports_pixel_level_close_and_win_rates():
+    torch = pytest.importorskip("torch")
+    from ml.residual_unet.evaluate import _finalize_metrics, _metric_sums
+
+    mom_uv = torch.zeros((1, 2, 2, 2), dtype=torch.float32)
+    mass_uv = torch.zeros_like(mom_uv)
+    pred_uv = torch.zeros_like(mom_uv)
+    mass_uv[0, 0] = torch.tensor([[0.0, 2.0], [4.0, 6.0]])
+    pred_uv[0, 0] = torch.tensor([[0.0, 1.0], [5.0, 3.0]])
+    valid_mask = torch.ones((1, 2, 2), dtype=torch.float32)
+
+    metrics = _finalize_metrics(_metric_sums(pred_uv, mass_uv, mom_uv, valid_mask))
+
+    assert metrics["valid_pixel_count"] == 4
+    assert metrics["ml_better_pixel_count"] == 2
+    assert metrics["mass_better_pixel_count"] == 1
+    assert metrics["ml_better_pixel_fraction"] == pytest.approx(0.5)
+    assert metrics["mass_better_pixel_fraction"] == pytest.approx(0.25)
+    assert metrics["ml_better_by_1mps_pixel_count"] == 2
+    assert metrics["ml_worse_by_1mps_pixel_count"] == 1
+    assert metrics["ml_vector_error_le_2p0mps_count"] == 2
+    assert metrics["mass_vector_error_le_2p0mps_count"] == 2
+    assert metrics["ml_vector_error_le_3p0mps_count"] == 3
+    assert metrics["mass_vector_error_le_3p0mps_count"] == 2
+    assert metrics["ml_vector_error_le_3p0mps_fraction"] == pytest.approx(0.75)
+
+
 def test_controlled_profiles_and_custom_matrix():
     standard = profile_cases("standard")
     training = profile_cases("training")

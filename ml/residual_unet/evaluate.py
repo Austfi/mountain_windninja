@@ -11,6 +11,15 @@ from .model_unet import build_unet
 from .train import resolve_model_in_channels
 
 
+VECTOR_ERROR_THRESHOLDS_MPS = (0.5, 1.0, 2.0, 3.0, 5.0, 10.0)
+MEANINGFUL_ERROR_DELTA_MPS = 1.0
+
+
+def _threshold_key(prefix: str, threshold: float, suffix: str) -> str:
+    label = str(threshold).replace(".", "p")
+    return f"{prefix}_{label}mps_{suffix}"
+
+
 def _csv_list(values: list[str] | None) -> list[str] | None:
     if not values:
         return None
@@ -41,21 +50,42 @@ def _metric_sums(pred_uv, mass_uv, mom_uv, valid_mask) -> dict[str, float]:
     import torch
 
     mask = valid_mask.bool()
-    ml_err = ((pred_uv - mom_uv) ** 2).sum(dim=1)
-    mass_err = ((mass_uv - mom_uv) ** 2).sum(dim=1)
+    ml_squared_err = ((pred_uv - mom_uv) ** 2).sum(dim=1)
+    mass_squared_err = ((mass_uv - mom_uv) ** 2).sum(dim=1)
+    ml_err = torch.sqrt(ml_squared_err + 1e-12)
+    mass_err = torch.sqrt(mass_squared_err + 1e-12)
     ml_speed = torch.sqrt((pred_uv ** 2).sum(dim=1) + 1e-6)
     mass_speed = torch.sqrt((mass_uv ** 2).sum(dim=1) + 1e-6)
     mom_speed = torch.sqrt((mom_uv ** 2).sum(dim=1) + 1e-6)
+    masked_ml_err = ml_err[mask]
+    masked_mass_err = mass_err[mask]
+    delta = masked_mass_err - masked_ml_err
     count = int(mask.sum().detach().cpu())
-    return {
+    sums = {
         "count": count,
-        "ml_squared_vector_error": float(ml_err[mask].sum().detach().cpu()),
-        "mass_squared_vector_error": float(mass_err[mask].sum().detach().cpu()),
+        "ml_squared_vector_error": float(ml_squared_err[mask].sum().detach().cpu()),
+        "mass_squared_vector_error": float(mass_squared_err[mask].sum().detach().cpu()),
         "ml_speed_abs_error": float(torch.abs(ml_speed - mom_speed)[mask].sum().detach().cpu()),
         "mass_speed_abs_error": float(
             torch.abs(mass_speed - mom_speed)[mask].sum().detach().cpu()
         ),
+        "ml_better_pixel_count": int((delta > 0.0).sum().detach().cpu()),
+        "mass_better_pixel_count": int((delta < 0.0).sum().detach().cpu()),
+        "ml_better_by_1mps_pixel_count": int(
+            (delta >= MEANINGFUL_ERROR_DELTA_MPS).sum().detach().cpu()
+        ),
+        "ml_worse_by_1mps_pixel_count": int(
+            (delta <= -MEANINGFUL_ERROR_DELTA_MPS).sum().detach().cpu()
+        ),
     }
+    for threshold in VECTOR_ERROR_THRESHOLDS_MPS:
+        sums[_threshold_key("ml_vector_error_le", threshold, "count")] = int(
+            (masked_ml_err <= threshold).sum().detach().cpu()
+        )
+        sums[_threshold_key("mass_vector_error_le", threshold, "count")] = int(
+            (masked_mass_err <= threshold).sum().detach().cpu()
+        )
+    return sums
 
 
 def _finalize_metrics(totals: dict[str, float]) -> dict[str, float]:
@@ -65,14 +95,34 @@ def _finalize_metrics(totals: dict[str, float]) -> dict[str, float]:
     mass_rmse = math.sqrt(totals["mass_squared_vector_error"] / count)
     ml_rmse = math.sqrt(totals["ml_squared_vector_error"] / count)
     improvement = 100.0 * (mass_rmse - ml_rmse) / mass_rmse if mass_rmse else 0.0
-    return {
+    metrics = {
         "valid_pixel_count": int(totals["count"]),
         "mass_vector_rmse": mass_rmse,
         "ml_vector_rmse": ml_rmse,
         "vector_rmse_improvement_percent": improvement,
         "mass_speed_mae": totals["mass_speed_abs_error"] / count,
         "ml_speed_mae": totals["ml_speed_abs_error"] / count,
+        "ml_better_pixel_count": int(totals.get("ml_better_pixel_count", 0)),
+        "mass_better_pixel_count": int(totals.get("mass_better_pixel_count", 0)),
+        "ml_better_pixel_fraction": totals.get("ml_better_pixel_count", 0) / count,
+        "mass_better_pixel_fraction": totals.get("mass_better_pixel_count", 0) / count,
+        "ml_better_by_1mps_pixel_count": int(totals.get("ml_better_by_1mps_pixel_count", 0)),
+        "ml_worse_by_1mps_pixel_count": int(totals.get("ml_worse_by_1mps_pixel_count", 0)),
+        "ml_better_by_1mps_pixel_fraction": totals.get("ml_better_by_1mps_pixel_count", 0) / count,
+        "ml_worse_by_1mps_pixel_fraction": totals.get("ml_worse_by_1mps_pixel_count", 0) / count,
     }
+    for threshold in VECTOR_ERROR_THRESHOLDS_MPS:
+        ml_count_key = _threshold_key("ml_vector_error_le", threshold, "count")
+        mass_count_key = _threshold_key("mass_vector_error_le", threshold, "count")
+        ml_fraction_key = _threshold_key("ml_vector_error_le", threshold, "fraction")
+        mass_fraction_key = _threshold_key("mass_vector_error_le", threshold, "fraction")
+        ml_count = int(totals.get(ml_count_key, 0))
+        mass_count = int(totals.get(mass_count_key, 0))
+        metrics[ml_count_key] = ml_count
+        metrics[mass_count_key] = mass_count
+        metrics[ml_fraction_key] = ml_count / count
+        metrics[mass_fraction_key] = mass_count / count
+    return metrics
 
 
 def _save_example_figure(out_dir: Path, sample_id: str, pred_uv, mass_uv, mom_uv) -> None:
