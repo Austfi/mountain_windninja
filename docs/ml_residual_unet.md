@@ -538,6 +538,10 @@ HRRR plans, and controlled matrix scripts for that wave:
 python3 -m ml.residual_unet.stage_terrain_expansion
 ```
 
+On a 24-core GCP VM, the staged `run_monthly_hrrr_parallel.sh` and
+`run_controlled_parallel.sh` scripts can run Copper, Vail, and Monarch as three
+4-thread workers while keeping each domain's mass/momentum sequence isolated.
+
 After those new terrain runs complete, build the seven-domain LCP-canopy V2
 processed dataset with:
 

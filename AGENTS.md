@@ -452,7 +452,10 @@ monarch_pass_9p6 / monarch_pass_9p6_mass
 
 Use `python3 -m ml.residual_unet.stage_terrain_expansion` to write the
 fetch-terrain script, smoke HRRR plans, one-week-per-month HRRR plans, and
-controlled matrix scripts for these boxes. After those outputs exist, use
+controlled matrix scripts for these boxes. On a 24-core GCP VM, prefer the
+staged `run_monthly_hrrr_parallel.sh` and `run_controlled_parallel.sh` scripts
+for this three-domain wave; they run one 4-thread worker per domain and write
+logs under the staged `logs/` directory. After those outputs exist, use
 `python3 -m ml.residual_unet.build_mountain_general_lcp_canopy --domain-set
 base4_plus_expansion3 --out
 ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v2` for the

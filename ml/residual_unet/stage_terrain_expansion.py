@@ -168,6 +168,68 @@ def write_runner(path: Path, script_paths: Sequence[Path], *, repo_root: Path, t
     path.chmod(0o755)
 
 
+def write_parallel_runner(
+    path: Path,
+    script_paths: Sequence[Path],
+    *,
+    repo_root: Path,
+    title: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    repo_root_from_script = os.path.relpath(repo_root.resolve(), path.parent.resolve())
+    log_dir = path.parent / "logs" / path.stem
+    log_dir_rel = repo_relative(log_dir, repo_root=repo_root)
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f'REPO_ROOT="$(cd "$(dirname "${{BASH_SOURCE[0]}}")/{repo_root_from_script}" && pwd)"',
+        'cd "$REPO_ROOT"',
+        "",
+        f'echo "{title}"',
+        f'mkdir -p "{log_dir_rel}"',
+        "pids=()",
+        "labels=()",
+        "",
+        "run_background() {",
+        '  local label="$1"',
+        '  local script_path="$2"',
+        '  local log_path="$3"',
+        '  echo "Starting $label -> $log_path"',
+        '  bash "$script_path" >"$log_path" 2>&1 &',
+        '  pids+=("$!")',
+        '  labels+=("$label")',
+        "}",
+        "",
+    ]
+    for script_path in script_paths:
+        rel_path = repo_relative(script_path, repo_root=repo_root)
+        label = script_path.parent.name
+        log_path = f"{log_dir_rel}/{label}.log"
+        lines.append(f'run_background "{label}" "{rel_path}" "{log_path}"')
+    lines.extend([
+        "",
+        "failures=0",
+        'for index in "${!pids[@]}"; do',
+        '  pid="${pids[$index]}"',
+        '  label="${labels[$index]}"',
+        '  if wait "$pid"; then',
+        '    echo "Finished $label"',
+        "  else",
+        '    echo "FAILED $label"',
+        "    failures=$((failures + 1))",
+        "  fi",
+        "done",
+        "",
+        'if [ "$failures" -ne 0 ]; then',
+        '  echo "$failures parallel job(s) failed."',
+        "  exit 1",
+        "fi",
+        "",
+    ])
+    path.write_text("\n".join(lines), encoding="utf-8")
+    path.chmod(0o755)
+
+
 def stage_hrrr_plan(
     spec: TerrainExpansionSpec,
     *,
@@ -325,8 +387,20 @@ def stage_terrain_expansion(
         write_runner(stage_dir / "run_smoke_all.sh", smoke_scripts, repo_root=repo_root, title="Running ML terrain smoke HRRR pairs")
     if monthly_scripts:
         write_runner(stage_dir / "run_monthly_hrrr_all.sh", monthly_scripts, repo_root=repo_root, title="Running ML terrain monthly HRRR pairs")
+        write_parallel_runner(
+            stage_dir / "run_monthly_hrrr_parallel.sh",
+            monthly_scripts,
+            repo_root=repo_root,
+            title="Running ML terrain monthly HRRR pairs in parallel",
+        )
     if controlled_scripts:
         write_runner(stage_dir / "run_controlled_all.sh", controlled_scripts, repo_root=repo_root, title="Running ML terrain controlled matrices")
+        write_parallel_runner(
+            stage_dir / "run_controlled_parallel.sh",
+            controlled_scripts,
+            repo_root=repo_root,
+            title="Running ML terrain controlled matrices in parallel",
+        )
 
     summary = {
         "created_at_utc": dt.datetime.now(UTC).isoformat(),
@@ -339,7 +413,13 @@ def stage_terrain_expansion(
         "fetch_script": fetch_script.as_posix() if fetch_script else "",
         "smoke_runner": (stage_dir / "run_smoke_all.sh").as_posix() if smoke_scripts else "",
         "monthly_hrrr_runner": (stage_dir / "run_monthly_hrrr_all.sh").as_posix() if monthly_scripts else "",
+        "monthly_hrrr_parallel_runner": (
+            stage_dir / "run_monthly_hrrr_parallel.sh"
+        ).as_posix() if monthly_scripts else "",
         "controlled_runner": (stage_dir / "run_controlled_all.sh").as_posix() if controlled_scripts else "",
+        "controlled_parallel_runner": (
+            stage_dir / "run_controlled_parallel.sh"
+        ).as_posix() if controlled_scripts else "",
         "domain_summaries": domain_summaries,
     }
     (stage_dir / "terrain_expansion_summary.json").write_text(

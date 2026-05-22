@@ -51,7 +51,9 @@ The top-level scripts are:
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/fetch_terrain.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_smoke_all.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_all.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_parallel.sh
 runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_all.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_parallel.sh
 ```
 
 For a subset while testing:
@@ -229,6 +231,14 @@ domains, use waves:
 ```text
 wave 1: copper_mountain_9p6, vail_central_9p6, monarch_pass_9p6
 wave 2: optional reruns/failures or one extra Vail box if added
+```
+
+The staged parallel runners start one 4-thread worker per new domain and write
+logs under `runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/logs/`:
+
+```bash
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_monthly_hrrr_parallel.sh
+runtime/ml/residual_unet/terrain_expansion/terrain_expansion_wave1_v1/run_controlled_parallel.sh
 ```
 
 The next combined processed dataset should be versioned separately, for example:
