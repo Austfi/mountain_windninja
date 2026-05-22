@@ -1,0 +1,20 @@
+{
+  "key": "berthoud_pass_k0co_mass",
+  "label": "Berthoud Pass K0CO Mass Solver",
+  "domain": "berthoud_pass_mass",
+  "model": "HRRR",
+  "chunk_hours": 24,
+  "tolerance_minutes": 30,
+  "speed_units": "mph",
+  "default_height_m": null,
+  "padding_km": 2.0,
+  "validation_root": "runtime/validation/berthoud_pass_k0co_mass",
+  "station_manifest": "config/stations/berthoud_pass_k0co_validation_manifest.csv",
+  "metadata_file": "runtime/validation/berthoud_pass_k0co_mass/station_metadata.json",
+  "bbox_file": "runtime/validation/berthoud_pass_k0co_mass/station_bbox.json",
+  "notes": {
+    "station": "K0CO Berthoud Pass / Mines Peak AWOS",
+    "height": "K0CO uses an explicit 10.0 m manifest override for AWOS wind observations.",
+    "solver": "Classic mass-conserving WindNinja solver using momentum_flag = false."
+  }
+}

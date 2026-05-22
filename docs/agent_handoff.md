@@ -4,6 +4,13 @@ This document is the quickest orientation point for another agent or operator pi
 
 ## Current State
 
+- Last local cleanup: 2026-05-04. Generated run artifacts were removed from
+  `runtime/`, OpenFOAM mesh caches were removed from `static_data/NINJAFOAM_*`,
+  Python/tool caches were removed, and the stray public-HRRR cache directory
+  `static_data/PASTCAST-*` was removed. Local terrain inputs were kept.
+- Local ignored config currently points `MWN_DOMAIN_ID=berthoud_pass` so local
+  checks use terrain that exists in `static_data/`. `config/runtime.env` remains
+  untracked and may differ per operator.
 - Forecast runs are host-invoked through `./deploy/gcp/mwn.sh run` and execute inside the Docker image.
 - Beginner setup is `mwn.sh init`, `mwn.sh fetch-terrain --center LAT LON --size-km N --domain KEY`, `mwn.sh check`, `mwn.sh smoke`, then `mwn.sh run`.
 - `fetch-terrain` downloads DEM first as fallback and LCP second as active terrain. It accepts center/size, KML/KMZ area files, or explicit bbox. `fetch-dem`, `fetch-lcp`, and `domain create` remain available as advanced/manual paths.
@@ -18,6 +25,8 @@ This document is the quickest orientation point for another agent or operator pi
   - `./deploy/gcp/mwn.sh validate-rasters`
 - Chunked validation studies exist through:
   - `./deploy/gcp/mwn.sh validate-study berthoud_pass ...`
+- The focused K0CO height-adjusted HRRR experiment exists through:
+  - `./deploy/gcp/mwn.sh validate-k0co-height-hrrr ...`
 - Synoptic is observation truth only. HRRR remains the model input to WindNinja.
 - Current recommended Berthoud validation path is:
   - `validate-study berthoud_pass --start YYYYMMDDHHMM --pilot-hours 3`
@@ -34,6 +43,26 @@ This document is the quickest orientation point for another agent or operator pi
   momentum runs.
 
 ## Critical Operational Notes
+
+### Artifact Cleanup Boundary
+
+Do not run cleanup while a validation container is active. Check `docker ps` and
+any active `tmux` or `screen` session first.
+
+Safe handoff cleanup targets:
+
+- `runtime/*`
+- `static_data/NINJAFOAM_*`
+- `static_data/PASTCAST-*` weather archive cache directories
+- `.pytest_cache/`, `.ruff_cache/`, and `__pycache__/`
+- `.DS_Store`
+
+Preserve unless explicitly backed up or intentionally regenerating:
+
+- `config/runtime.env` (local secrets/settings)
+- `.venv/` (local dev environment)
+- terrain inputs under `static_data/*.tif`, `static_data/*.lcp`, and
+  `static_data/*.prj`
 
 ### Rebuild Boundary
 
@@ -114,6 +143,7 @@ Additional field-learned notes:
 - [deploy/gcp/mwn.sh](../deploy/gcp/mwn.sh)
 - [scripts/daily_run.py](../scripts/daily_run.py)
 - [scripts/validation_study.py](../scripts/validation_study.py)
+- [scripts/k0co_height_hrrr_validation.py](../scripts/k0co_height_hrrr_validation.py)
 - [scripts/raster_validation.py](../scripts/raster_validation.py)
 - [scripts/synoptic_validation.py](../scripts/synoptic_validation.py)
 - [Dockerfile](../Dockerfile)
@@ -155,4 +185,5 @@ path. Keep the default validation workflow HRRR-only for now.
 - State whether the next step needs a rebuild or not.
 - State whether Synoptic access is available or blocked externally.
 - State whether `config/template.cfg` was intentionally tuned locally and not committed.
+- State which ignored artifacts were cleaned and which terrain inputs were preserved.
 - Leave one reproducible smoke-test command for the next operator.

@@ -230,3 +230,74 @@ def test_load_samples_deduplicates_overlapping_chunks(tmp_path):
 
     assert len(rows) == 1
     assert rows[0]["wn_speed"] == 18.0
+
+
+def test_plot_validation_reports_k0co_diagnostic_patterns(tmp_path):
+    study_root = tmp_path / "validation" / "berthoud_pass_k0co"
+    rows = []
+    for day in range(1, 21):
+        sample = row(f"2026-01-{day:02d}T12:00:00Z", 25.0, 24.0, 15.0)
+        sample.update({
+            "dir_obs_deg": "270",
+            "wn_dir_abs_error_deg": "5",
+            "wx_dir_abs_error_deg": "25",
+            "wn_vector_error": "2",
+            "wx_vector_error": "12",
+        })
+        rows.append(sample)
+    for day in range(1, 6):
+        sample = row(f"2026-02-{day:02d}T00:00:00Z", 8.0, 18.0, 9.0)
+        sample.update({
+            "dir_obs_deg": "45",
+            "wn_dir_abs_error_deg": "40",
+            "wx_dir_abs_error_deg": "8",
+            "wn_vector_error": "18",
+            "wx_vector_error": "2",
+        })
+        rows.append(sample)
+    write_samples(
+        study_root / "chunks" / "20260101_0000_20260206_0000" / "samples.csv",
+        rows,
+    )
+
+    result = vp.main([
+        "--study-root",
+        str(study_root),
+        "--output-dir",
+        str(study_root / "plots"),
+        "--station-id",
+        "K0CO",
+    ])
+
+    assert result == 0
+    payload = json.loads((study_root / "plots" / "plot_summary.json").read_text())
+    analysis = payload["analysis"]
+    assert analysis["overall"]["sample_count"] == 25
+    assert {record["label"] for record in analysis["monthly"]} == {"2026-01", "2026-02"}
+    assert analysis["utc_hour"][12]["label"] == "12Z"
+    assert analysis["utc_hour"][12]["sample_count"] == 20
+
+    speed_bin = next(
+        record for record in analysis["observed_speed_bins"] if record["label"] == "20-30 mph"
+    )
+    assert speed_bin["sample_count"] == 20
+    assert speed_bin["improvement"]["speed_mae"] == 9.0
+
+    sector = next(
+        record for record in analysis["observed_direction_sectors"] if record["label"] == "W"
+    )
+    assert sector["sample_count"] == 20
+    assert sector["improvement"]["dir_mae_deg"] == 20.0
+
+    noticeable = {
+        (pattern["category"], pattern["label"], pattern["metric"])
+        for pattern in analysis["noticeable_patterns"]
+    }
+    assert ("observed_speed_bin", "20-30 mph", "speed_mae") in noticeable
+    assert ("observed_direction_sector", "W", "dir_mae_deg") in noticeable
+    assert analysis["top_error_events"][0]["wn_vector_error"] == 18.0
+    assert analysis["top_windninja_wins"][0]["vector_error_improvement"] == 10.0
+    assert analysis["top_windninja_losses"][0]["vector_error_improvement"] == -16.0
+    index_html = (study_root / "plots" / "index.html").read_text(encoding="utf-8")
+    assert "Top Vector Error Events" in index_html
+    assert "Top WindNinja Wins" in index_html

@@ -6,6 +6,7 @@ import datetime
 from xml.etree.ElementTree import Element, SubElement, tostring
 import xml.dom.minidom
 import zipfile
+import tempfile
 
 def parse_datetime_from_filename(filename):
     """
@@ -38,6 +39,59 @@ def parse_datetime_from_filename(filename):
             pass
 
     return None
+
+def normalize_kml_time_labels(kml_text):
+    """
+    Normalize WindNinja's KML timezone label to this repo's public UTC convention.
+
+    WindNinja writes GMT in generated KML labels when the run config uses UTC.
+    GMT and UTC represent the same clock here, but showing both in the bundled
+    KMZ makes the output look like it has two different time zones.
+    """
+    return re.sub(r"\bGMT\b", "UTC", kml_text)
+
+def normalize_kmz_time_labels(kmz_path):
+    """
+    Rewrite KML members in a KMZ so WindNinja GMT labels display as UTC.
+
+    Returns True when the KMZ was changed.
+    """
+    changed = False
+    kmz_path = os.fspath(kmz_path)
+    directory = os.path.dirname(kmz_path) or "."
+    tmp_file = tempfile.NamedTemporaryFile(
+        prefix=".tmp-", suffix=".kmz", dir=directory, delete=False
+    )
+    tmp_path = tmp_file.name
+    tmp_file.close()
+
+    try:
+        with zipfile.ZipFile(kmz_path, 'r') as zin, zipfile.ZipFile(
+            tmp_path, 'w', zipfile.ZIP_DEFLATED
+        ) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename.lower().endswith('.kml'):
+                    try:
+                        text = data.decode('utf-8')
+                    except UnicodeDecodeError:
+                        text = data.decode('utf-8', errors='replace')
+                    normalized = normalize_kml_time_labels(text)
+                    if normalized != text:
+                        data = normalized.encode('utf-8')
+                        changed = True
+                zout.writestr(item, data)
+
+        if changed:
+            os.replace(tmp_path, kmz_path)
+        else:
+            os.remove(tmp_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+    return changed
 
 def extract_legends(first_kmz, output_dir):
     """
@@ -115,6 +169,10 @@ def create_timeseries_kml(run_dir, gcs_base_url, run_label, domain_label="WindNi
         return None
 
     print(f"Found {len(entries)} valid hourly KMZs.")
+
+    for _dt, kmz_path in entries:
+        if normalize_kmz_time_labels(kmz_path):
+            print(f"Normalized KMZ time labels: {os.path.basename(kmz_path)}")
 
     # Extract legends from first KMZ
     legend_files = extract_legends(entries[0][1], run_dir)
@@ -223,6 +281,10 @@ def create_playable_kmz(run_dir, output_name, domain_label="WindNinja"):
         return None
     
     print(f"Bundling {len(entries)} hourly KMZs into playable KMZ...")
+
+    for _dt, kmz_path in entries:
+        if normalize_kmz_time_labels(kmz_path):
+            print(f"Normalized KMZ time labels: {os.path.basename(kmz_path)}")
 
     # Extract legend from first KMZ
     legend_files = extract_legends(entries[0][1], run_dir)

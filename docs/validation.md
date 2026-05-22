@@ -48,6 +48,14 @@ Historical `validate-study` runs are HRRR only because WindNinja exposes native
 HRRR pastcast but not native NBM pastcast. NBM remains available for native
 forecast runs through `./deploy/gcp/mwn.sh run --model NBM`.
 
+Common Berthoud study keys:
+
+| Study key | Purpose | Output root |
+|-----------|---------|-------------|
+| `berthoud_pass` | Multistation K0CO, CABTP, and USGS validation | `runtime/validation/berthoud_pass/` |
+| `berthoud_pass_k0co` | K0CO-only momentum-solver validation | `runtime/validation/berthoud_pass_k0co/` |
+| `berthoud_pass_k0co_mass` | K0CO-only mass-solver validation | `runtime/validation/berthoud_pass_k0co_mass/` |
+
 ## Berthoud Sampling Points
 
 ![Berthoud validation sampling points](assets/berthoud_validation_points.png)
@@ -85,6 +93,41 @@ The clean research question is:
 
 > Does WindNinja terrain downscaling improve parent-model winds at point
 > stations in complex terrain near Berthoud Pass?
+
+## K0CO Height-Adjusted HRRR Experiment
+
+`validate-k0co-height-hrrr` is a focused K0CO-only experiment. It is not a
+replacement for the baseline `validate-study` workflow. It uses HRRR 10 m and
+80 m winds plus HRRR surface height, samples GMTED2010 at 500 m, blends toward
+the 80 m wind where terrain sits above HRRR's smoothed surface, and caps adjusted
+speed to 0.75x through 1.35x of raw HRRR 10 m speed.
+
+The first output compares observed K0CO, HRRR, and adjusted HRRR:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --hrrr-only
+```
+
+The full run also feeds the adjusted HRRR grids into WindNinja:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --skip-native
+```
+
+Outputs are written under
+`runtime/validation/berthoud_pass_k0co_height_hrrr/`. Use `--skip-native` only
+when the normal K0CO HRRR validation samples already exist.
+
+For assumptions, diagnostics, and the tuning path, see
+[K0CO Height-Adjusted HRRR V1 Assessment](k0co_height_hrrr_v1_assessment.md).
 
 ## Plotting Results
 

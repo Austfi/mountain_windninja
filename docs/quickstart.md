@@ -1,6 +1,9 @@
 # Quickstart
 
 This path gets one real forecast running. Docker must be installed and running.
+For Google Cloud VM startup, image setup, and shutdown commands, use
+[GCP setup guide](gcp_setup.md) first; after you SSH into the VM, the commands
+below are the same.
 
 ## 1. Clone And Init
 

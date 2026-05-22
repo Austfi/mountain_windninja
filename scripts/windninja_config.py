@@ -45,9 +45,16 @@ def generate_config(date_str, start_time, stop_time, domain_config,
     lines = filled.split("\n")
     out_lines = []
     found_vegetation = False
+    found_num_threads = False
+    num_threads = _read_template_num_threads(domain_config.template_path)
 
     for line in lines:
         stripped = line.strip()
+
+        if stripped.startswith("num_threads"):
+            out_lines.append(f"num_threads = {num_threads}")
+            found_num_threads = True
+            continue
 
         if stripped.startswith("output_path"):
             continue
@@ -71,6 +78,9 @@ def generate_config(date_str, start_time, stop_time, domain_config,
             continue
 
         out_lines.append(line)
+
+    if not found_num_threads:
+        out_lines.insert(0, f"num_threads = {num_threads}")
 
     if (surface_vegetation and surface_vegetation != "none"
             and domain_config.elevation_file.suffix.lower() != ".lcp"

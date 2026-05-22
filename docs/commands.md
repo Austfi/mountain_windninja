@@ -7,6 +7,147 @@ cd /opt/mountain_windninja
 ./deploy/gcp/mwn.sh <command> [options]
 ```
 
+## Operator Runbooks
+
+### Existing VM Startup
+
+From your local machine:
+
+```bash
+gcloud compute instances start windninja --zone us-central1-a
+gcloud compute ssh windninja --zone us-central1-a
+```
+
+Replace `us-central1-a` with the VM's actual zone.
+
+On the VM:
+
+```bash
+cd /opt/mountain_windninja
+git pull --ff-only
+docker ps
+./deploy/gcp/mwn.sh init --image pull
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+./deploy/gcp/mwn.sh check
+./deploy/gcp/mwn.sh smoke
+```
+
+Stop the VM when finished:
+
+```bash
+exit
+gcloud compute instances stop windninja --zone us-central1-a
+```
+
+### Long Running Jobs
+
+Use `tmux` for multi-hour reanalysis or validation runs:
+
+```bash
+# If tmux is missing on a fresh VM:
+sudo apt-get install -y tmux
+
+tmux new -s mwn
+
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_k0co \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24
+```
+
+Detach with `Ctrl-b`, then `d`. Reattach with:
+
+```bash
+tmux attach -t mwn
+```
+
+From another SSH session, these checks are safe while a run is active:
+
+| Command | Use |
+|---------|-----|
+| `docker ps` | Confirms the active container and image |
+| `docker stats` | Shows CPU/RAM usage during solver work |
+| `df -h .` | Watches free disk |
+| `find runtime/validation/<study>/chunks -maxdepth 2 -name summary.json \| wc -l` | Counts completed validation chunks |
+
+If SSH disconnects, do not start the same long command again until you verify
+whether it is still running in `tmux` or Docker. For `validate-study`, completed
+chunks are reused on the next run unless `--force` is passed.
+
+### First Forecast
+
+```bash
+./deploy/gcp/mwn.sh fetch-terrain --center 39.60 -106.08 --size-km 12 \
+  --domain my_area \
+  --label "My Area"
+
+./deploy/gcp/mwn.sh check --domain my_area
+./deploy/gcp/mwn.sh smoke --domain my_area
+./deploy/gcp/mwn.sh run --domain my_area --model HRRR --hours 6
+```
+
+### Historical HRRR Reanalysis
+
+Use exact UTC windows for reproducible event analysis:
+
+```bash
+./deploy/gcp/mwn.sh run --mode reanalysis \
+  --start 202601010000 \
+  --end 202601020000 \
+  --model HRRR \
+  --domain my_area \
+  --keep-temp \
+  --no-upload
+```
+
+Native historical reanalysis is HRRR-only. NBM, NAM, RAP, and GFS are forecast
+models in this wrapper unless you use a separate gridded-forcing path.
+
+### Observed-vs-HRRR-vs-WindNinja Validation
+
+Use a study when observations should be compared against both the parent HRRR
+rasters and WindNinja-downscaled rasters. Observations are not used as WindNinja
+input.
+
+```bash
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --pilot-hours 3
+
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+
+./deploy/gcp/mwn.sh plot-validation \
+  --study-root runtime/validation/berthoud_pass \
+  --title "Berthoud Pass Validation - January 2026"
+```
+
+For the K0CO-only Berthoud study:
+
+```bash
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_k0co \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24
+
+./deploy/gcp/mwn.sh plot-validation \
+  --study-root runtime/validation/berthoud_pass_k0co \
+  --station-id K0CO \
+  --title "K0CO HRRR Validation - Jan-Mar 2026"
+```
+
+### Command Categories
+
+| Category | Commands |
+|----------|----------|
+| Setup/images | `init`, `pull`, `build`, `build-local`, `update`, `demo-smoke` |
+| Terrain/domains | `fetch-terrain`, `fetch-dem`, `fetch-lcp`, `lcp-build`, `domain create`, `check` |
+| Simulations | `run`, `smoke`, `run-grid`, `forcing-from-grib`, `shell` |
+| Validation | `synoptic-points`, `validate`, `validate-rasters`, `validate-study`, `validate-k0co-height-hrrr`, `plot-validation` |
+| Operations | `upload`, `schedule`, `stop`, `logs`, `clean` |
+
 ## init
 
 Create local runtime directories and `config/runtime.env` when missing. Existing
@@ -135,7 +276,7 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
-| `--model HRRR\|NBM\|NAM\|RAP\|GFS` | Weather model; reanalysis currently supports HRRR only | `HRRR` |
+| `--model HRRR\|NBM\|NAM\|NAM-CONUS\|NAM-ALASKA\|RAP\|GFS` | Weather model; reanalysis currently supports HRRR only | `HRRR` |
 | `--hours N` | Number of hours to simulate | `18` |
 | `--start UTC` | Fixed reanalysis start time | none |
 | `--end UTC` | Fixed reanalysis end time | none |
@@ -196,6 +337,38 @@ After a run with `--keep-temp`, you'll find in `runtime/temp/<run_dir>/`:
 - `*_sample_points.csv` -- sampled WindNinja and raw weather-model vectors at requested station points, only when `--points-file` is used and WindNinja accepts that configuration
 
 Without `--keep-temp`, only archive zip is kept in `runtime/archives/`, but it still contains these run outputs.
+
+## clean
+
+Remove generated OpenFOAM mesh caches and raw temp run output:
+
+```bash
+./deploy/gcp/mwn.sh clean
+```
+
+This removes `static_data/NINJAFOAM_*` and `runtime/temp/*`. It intentionally
+does not remove terrain inputs, `config/runtime.env`, archived validation
+summaries, logs, or Python/tool caches.
+
+Do not run cleanup while a validation container is active. First check `docker ps`
+and any active `tmux` or `screen` session, then clean only after the run has
+finished or been stopped intentionally.
+
+For a full local handoff cleanup after validation work, run `clean`, then remove
+ignored runtime and Python/tool artifacts while preserving local terrain:
+
+```bash
+./deploy/gcp/mwn.sh clean
+find runtime -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+rm -rf .pytest_cache .ruff_cache
+mkdir -p runtime/archives runtime/forcing runtime/forecasts runtime/logs runtime/state runtime/temp runtime/validation
+find . -path ./.git -prune -o -path ./.venv -prune -o -name '__pycache__' -type d -prune -exec rm -rf {} +
+find . -path ./.git -prune -o -path ./.venv -prune -o -name '.DS_Store' -type f -delete
+find static_data -maxdepth 1 -type d -name 'PASTCAST-*' -exec rm -rf {} +
+```
+
+Do not delete `static_data/*.tif`, `static_data/*.lcp`, or `static_data/*.prj`
+unless the terrain can be re-downloaded or has been backed up elsewhere.
 
 ## run-grid
 
@@ -609,6 +782,12 @@ Outputs:
 - `group_summary.csv` with grouped MAE/RMSE
 - `summary.json` with overall metrics and WindNinja-vs-HRRR improvement deltas
 
+Useful flags:
+
+- `--allow-empty`: write empty output files instead of failing when a run has no matched station-hours
+- `--tolerance-minutes N`: override observation match tolerance
+- `--speed-units mph|mps|kph|kts`: output metric units
+
 This command does not feed Synoptic into WindNinja. HRRR still drives the simulation. Synoptic only supplies station coordinates/heights and observed wind for the comparison.
 
 ## validate-study
@@ -653,11 +832,27 @@ Useful flags:
 - `--dry-run`: print commands without running them
 - `--force`: rerun completed chunks and validations
 - `--skip-runs`: validate existing run directories only
+- `--chunk-hours N`: override the study chunk size
+- `--pilot-hours N`: run a short pilot starting at `--start`
 - `--model HRRR`: override the study model; historical validation is HRRR only
+- `--domain KEY`: override the study domain
+- `--tolerance-minutes N`: override observation match tolerance
+- `--speed-units mph|mps|kph|kts`: output metric units
+- `--default-height N`: fallback wind sensor height in meters
+- `--token TOKEN`: Synoptic token, otherwise `MWN_SYNOPTIC_TOKEN`
+- `--no-preflight`: skip study preflight checks
 
 Requires `MWN_SYNOPTIC_TOKEN` with Synoptic weather-data access. Station
 selection is explicit: edit `config/stations/berthoud_pass_validation_manifest.csv`
 to choose K0CO or any other stations to compare.
+
+Common Berthoud study keys:
+
+- `berthoud_pass`: multistation K0CO, CABTP, and USGS validation
+- `berthoud_pass_k0co`: K0CO-only momentum-solver validation
+- `berthoud_pass_k0co_mass`: K0CO-only mass-solver validation
+
+Outputs use matching roots under `runtime/validation/<study_key>/`.
 
 Historical `validate-study` runs are HRRR only because WindNinja exposes native
 HRRR pastcast but not native NBM pastcast.
@@ -666,6 +861,75 @@ HRRR pastcast but not native NBM pastcast.
 `mwn.sh run`, `run-grid`, and `validate-study`. Keep this at or below physical
 CPU cores for OpenFOAM momentum runs; on the current 6-physical / 12-logical CPU
 machine, use `MWN_NUM_THREADS=6` for the high-thread trial.
+
+## validate-k0co-height-hrrr
+
+Run the focused K0CO height-adjusted HRRR experiment. This is an experimental
+comparison, not the baseline validation path. It builds a GMTED2010 500 m
+adjusted HRRR field, compares observed K0CO vs HRRR vs adjusted HRRR, and, unless
+`--hrrr-only` is passed, runs WindNinja from the adjusted HRRR grids.
+
+Start with a plan:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --plan
+```
+
+Build only the observed/HRRR/adjusted-HRRR comparison:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --hrrr-only
+```
+
+Run the full adjusted-HRRR WindNinja comparison:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24 \
+  --skip-native
+```
+
+Run the next WindNinja confirmation candidate in a separate output root:
+
+```bash
+./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
+  --start 202601010000 \
+  --end 202601080000 \
+  --chunk-hours 24 \
+  --adjustment-setting balanced-300m-10-80-cap \
+  --skip-native
+```
+
+That candidate uses a 300 m blend scale and caps against both HRRR 10 m and
+80 m speed, so it does not overwrite or reuse the current `v1-current` run.
+
+Output root:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr/
+```
+
+The balanced candidate default output root is:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr_balanced_300m_10_80_cap/
+```
+
+Use `--skip-native` only when the normal K0CO HRRR validation samples already
+exist. The command reuses completed adjusted WindNinja hours and cleans generated
+`NINJAFOAM_<domain>_*` caches as it goes to avoid filling `static_data/`.
+See [K0CO Height-Adjusted HRRR V1 Assessment](k0co_height_hrrr_v1_assessment.md)
+for the assumptions, final diagnostics, and tuning path.
 
 ## plot-validation
 
@@ -698,6 +962,7 @@ Useful flags:
 - `--output-dir PATH`: override the output directory
 - `--station-id ID`: plot one station from a multi-station validation
 - `--speed-units mph|mps|kph|kts`: label plot units
+- `--model-label LABEL`: parent weather model label for plot legends
 
 ## schedule
 
@@ -763,9 +1028,11 @@ All settings are in `config/runtime.env`. Create it with:
 | `MWN_STATIC_DATA_ROOT` | Where terrain files live; update Compose mounts if changed | `static_data` |
 | `MWN_WINDNINJA_CLI` | Path to WindNinja binary | `/usr/local/bin/WindNinja_cli` |
 | `MWN_OPENFOAM_BASHRC` | OpenFOAM environment setup | `/opt/openfoam9/etc/bashrc` |
+| `MWN_NUM_THREADS` | Override WindNinja `num_threads` for runs launched by `mwn.sh` | template value |
 | `MWN_SURFACE_VEGETATION` | Default vegetation for DEM runs (grass/brush/trees) | `trees` |
 | `MWN_GCS_BUCKET` | GCS bucket name for uploads | empty |
 | `MWN_GCS_UPLOAD_ENABLED` | Enable GCS uploads | `false` |
+| `MWN_SYNOPTIC_TOKEN` | Synoptic weather-data token for validation commands | empty |
 | `CUSTOM_SRTM_API_KEY` | OpenTopography API key for DEM downloads | empty |
 
 ### domains.json

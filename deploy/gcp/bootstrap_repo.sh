@@ -22,15 +22,14 @@ cat <<'EOF'
 Bootstrap complete.
 
 Next steps:
-1. Get a free OpenTopography API key at https://opentopography.org/
-   (Create account > Dashboard > Request API Key)
+1. Apply Docker group permissions in this shell:
+   newgrp docker
 
-2. Add your key to config/runtime.env:
-   nano config/runtime.env
-   Set: CUSTOM_SRTM_API_KEY=your_key_here
+2. Prove Docker works without sudo:
+   docker run hello-world
 
 3. Initialize local config and pull the default image:
-   ./deploy/gcp/mwn.sh init
+   ./deploy/gcp/mwn.sh init --image pull
 
    If the image pull fails, build locally (~30 min first time, needs 50 GB disk):
    ./deploy/gcp/mwn.sh build-local
@@ -42,6 +41,9 @@ Next steps:
    ./deploy/gcp/mwn.sh check
    ./deploy/gcp/mwn.sh smoke
    ./deploy/gcp/mwn.sh run --hours 6
+
+For non-US SRTM terrain, get a free OpenTopography API key and set
+CUSTOM_SRTM_API_KEY in config/runtime.env. USGS 3DEP terrain does not need it.
 
 See docs/gcp_setup.md for the full walkthrough.
 

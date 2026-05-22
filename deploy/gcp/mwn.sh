@@ -226,6 +226,8 @@ Validation:
   validate             Compare WindNinja point output against Synoptic observations
   validate-rasters     Compare nearest WindNinja/HRRR rasters against Synoptic
   validate-study       Run a chunked Synoptic/HRRR/WindNinja validation study
+  validate-k0co-height-hrrr
+                       Test K0CO raw vs height-adjusted HRRR grid forcing
   plot-validation      Build static SVG/HTML plots from validation samples
 
 Run flags:
@@ -837,6 +839,23 @@ cmd_validate_study() {
       'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
        export FOAM_USER_LIBBIN=/usr/local/lib/
        exec /opt/venv/bin/python /opt/mountain_windninja/scripts/validation_study.py "$@"' \
+      bash "$@"
+  fi
+}
+
+cmd_validate_k0co_height_hrrr() {
+  pick_docker
+  if [ -n "${MWN_NUM_THREADS:-}" ]; then
+    compose run --rm -e "MWN_NUM_THREADS=${MWN_NUM_THREADS}" shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/k0co_height_hrrr_validation.py "$@"' \
+      bash "$@"
+  else
+    compose run --rm shell bash -lc \
+      'source /opt/openfoam9/etc/bashrc 2>/dev/null || true
+       export FOAM_USER_LIBBIN=/usr/local/lib/
+       exec /opt/venv/bin/python /opt/mountain_windninja/scripts/k0co_height_hrrr_validation.py "$@"' \
       bash "$@"
   fi
 }
@@ -1798,6 +1817,7 @@ case "$COMMAND" in
   validate)        cmd_validate "$@" ;;
   validate-rasters) cmd_validate_rasters "$@" ;;
   validate-study)  cmd_validate_study "$@" ;;
+  validate-k0co-height-hrrr) cmd_validate_k0co_height_hrrr "$@" ;;
   plot-validation) cmd_plot_validation "$@" ;;
   forcing-from-grib) cmd_forcing_from_grib "$@" ;;
   clean)           cmd_clean ;;

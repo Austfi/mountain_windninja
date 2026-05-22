@@ -10,6 +10,97 @@ Step-by-step instructions to get WindNinja running on a Google Cloud VM from scr
 
 You do **not** need to pre-download terrain files. This guide shows how to download them directly on the VM.
 
+## Fast Path: Existing VM
+
+Use this when the VM already exists and you just need to start it, update the
+repo, and run forecasts or historical reanalysis.
+
+From your local machine:
+
+```bash
+gcloud compute instances start windninja --zone us-central1-a
+gcloud compute ssh windninja --zone us-central1-a
+```
+
+Replace `us-central1-a` with the VM's actual zone.
+
+On the VM:
+
+```bash
+cd /opt/mountain_windninja
+git pull --ff-only
+
+# Make sure Docker is reachable from this SSH session.
+docker ps
+
+# Create missing local dirs/config and use the published GHCR image.
+./deploy/gcp/mwn.sh init --image pull
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+
+# Check the active domain before spending time on a real run.
+./deploy/gcp/mwn.sh check
+./deploy/gcp/mwn.sh smoke
+```
+
+If `docker ps` prints a permission error, exit and SSH back in. Docker group
+membership is applied when the login session starts.
+
+Run a forecast:
+
+```bash
+./deploy/gcp/mwn.sh run --model HRRR --hours 6
+./deploy/gcp/mwn.sh run --model NBM --hours 12
+```
+
+Run historical HRRR reanalysis:
+
+```bash
+./deploy/gcp/mwn.sh run --mode reanalysis \
+  --start 202601010000 \
+  --end 202601020000 \
+  --model HRRR \
+  --keep-temp \
+  --no-upload
+```
+
+For long reanalysis or validation jobs, start them inside `tmux` so the run
+continues if your SSH window disconnects:
+
+```bash
+# If tmux is missing on a fresh VM:
+sudo apt-get install -y tmux
+
+tmux new -s mwn
+
+# Run the long command inside tmux.
+MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_k0co \
+  --start 202601010000 \
+  --end 202604010000 \
+  --chunk-hours 24
+
+# Detach with Ctrl-b, then d. Reattach later:
+tmux attach -t mwn
+```
+
+Useful checks from a second SSH session:
+
+```bash
+docker ps
+docker stats
+df -h .
+find runtime/validation/berthoud_pass_k0co/chunks -maxdepth 2 -name summary.json | wc -l
+```
+
+When finished, exit the SSH session and stop the VM from your local machine:
+
+```bash
+exit
+gcloud compute instances stop windninja --zone us-central1-a
+```
+
+Stopping the VM stops compute billing. Disk storage remains until the VM or disk
+is deleted.
+
 ## Step 1: Create a GCP Project
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
@@ -39,6 +130,11 @@ WindNinja is CPU-intensive (especially with the momentum/OpenFOAM solver). Here 
 **Recommendation for beginners: `e2-standard-4`** -- cheapest option that works well. At $0.134/hour, running it 4 hours a day for a month costs about $16. With the $300 free credit, you can run it for ~2,200 hours before paying anything.
 
 **If you need faster runs:** `c2-standard-8` has dedicated high-frequency Intel CPUs (not shared) and 8 cores. It's 3x the price but runs WindNinja significantly faster on larger domains.
+
+The current test VM, `mwj-test`, uses `e2-highcpu-8` in `us-central1-b`
+with Ubuntu 22.04. That shape has 8 vCPUs but only 8 GB RAM, which is adequate
+for the small Berthoud validation domain. For larger terrain domains, prefer a
+standard or C2 machine with more memory.
 
 ### Spot VMs: 50-70% Cheaper (Advanced)
 
@@ -112,38 +208,59 @@ From the VM instances page, click **SSH** next to your VM. This opens a browser 
 
 ```bash
 gcloud compute ssh windninja
+
+# Current test VM:
+gcloud compute ssh mwj-test --zone us-central1-b
 ```
 
 ## Step 4: Clone and Bootstrap
 
+Fresh Ubuntu images sometimes have first-boot package work still running. If
+`apt-get update` reports a lock, wait a minute and retry. Do not delete lock
+files. Use this simple path first:
+
 ```bash
-sudo git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
-sudo chown -R $USER:$USER /opt/mountain_windninja
+# Repair first-boot or interrupted apt state if needed.
+sudo dpkg --configure -a
+sudo apt-get update
+sudo apt-get install -y git
+
+sudo mkdir -p /opt
+sudo chown "$USER:$USER" /opt
+
+git clone https://github.com/Austfi/mountain_windninja.git /opt/mountain_windninja
 cd /opt/mountain_windninja
+
 ./deploy/gcp/bootstrap_repo.sh
+newgrp docker
+docker run hello-world
+
+./deploy/gcp/mwn.sh init --image pull
 ```
 
-This installs Docker and sets up the initial directory structure. You may need to log out and back in for Docker permissions to take effect:
-
-```bash
-exit
-# SSH back in
-cd /opt/mountain_windninja
-```
-
-Create the local runtime directories and config file:
-
-```bash
-./deploy/gcp/mwn.sh init
-```
+The bootstrap script installs Docker and Docker Compose from Ubuntu packages,
+creates `runtime/`, `static_data/`, and `config/runtime.env` when needed, and
+adds your user to the Docker group. If Docker works with `sudo` but not as your
+user, run `newgrp docker` or log out and SSH back in.
 
 ## Step 5: Pull Or Build the Docker Image
+
+Normal operators should use the published GitHub Container Registry image. It
+already includes WindNinja, OpenFOAM, GDAL, Python dependencies, and the public
+HRRR pastcast patch.
 
 ```bash
 ./deploy/gcp/mwn.sh pull
 ```
 
-If pulling fails, build locally:
+This records the image in `config/runtime.env` as `MWN_DOCKER_IMAGE`, normally:
+
+```text
+MWN_DOCKER_IMAGE=ghcr.io/austfi/mountain-windninja:3.12.2
+```
+
+If pulling fails, or if you changed `Dockerfile` or files under `docker/`, build
+locally:
 
 ```bash
 ./deploy/gcp/mwn.sh build-local
@@ -151,6 +268,38 @@ If pulling fails, build locally:
 
 Local build takes **~30 minutes** the first time. It compiles WindNinja,
 OpenFOAM, GDAL, and dependencies from source inside the Docker image.
+
+Changes under `scripts/`, `config/`, or `docs/` do not require a Docker rebuild
+because those directories are bind-mounted into the container.
+
+### Manual Docker Install Fallback
+
+Use this only if `bootstrap_repo.sh` cannot install a working Docker/Compose
+stack. The `docker-ce` package is not available on a brand-new Ubuntu image until
+Docker's apt repository is added:
+
+```bash
+sudo apt-get install -y ca-certificates curl gnupg git nano tmux
+
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+. /etc/os-release
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker run hello-world
+
+sudo usermod -aG docker "$USER"
+newgrp docker
+docker run hello-world
+docker compose version
+```
 
 ## Step 6: Get Your Terrain Data
 
@@ -351,6 +500,107 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 ./deploy/gcp/mwn.sh run --hours 18
 ```
 
+### Forecast, Reanalysis, And Validation Runbook
+
+Use `forecast` mode for current/future weather. Use `reanalysis` for historical
+HRRR pastcast. Use `validate-study` when you need observed station comparison
+against both parent HRRR and WindNinja-downscaled HRRR.
+
+Forecast examples:
+
+```bash
+# Default HRRR forecast for the default domain
+./deploy/gcp/mwn.sh run --hours 6
+
+# NBM forecast, useful for calibrated blended guidance
+./deploy/gcp/mwn.sh run --model NBM --hours 12
+
+# Long-range global forecast
+./deploy/gcp/mwn.sh run --model GFS --hours 48
+```
+
+Historical HRRR reanalysis examples:
+
+```bash
+# Last 12 hours ending at the current UTC hour
+./deploy/gcp/mwn.sh run --mode reanalysis --hours 12 --model HRRR
+
+# Exact UTC window; use this for reproducible event analysis
+./deploy/gcp/mwn.sh run --mode reanalysis \
+  --start 202601010000 \
+  --end 202601020000 \
+  --model HRRR \
+  --domain keystone \
+  --keep-temp \
+  --no-upload
+```
+
+Chunked validation examples:
+
+```bash
+# Print the plan first
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --pilot-hours 3 \
+  --plan
+
+# Run a short pilot
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --pilot-hours 3
+
+# Run a full month in 24-hour chunks
+./deploy/gcp/mwn.sh validate-study berthoud_pass \
+  --start 202601010000 \
+  --end 202602010000 \
+  --chunk-hours 24
+
+# Build plots after chunks finish
+./deploy/gcp/mwn.sh plot-validation \
+  --study-root runtime/validation/berthoud_pass \
+  --title "Berthoud Pass Validation - January 2026"
+```
+
+Historical validation does not feed observations into WindNinja. HRRR drives the
+simulation. Synoptic observations are used afterward for station coordinates,
+sensor heights, and observed wind comparison.
+
+### Long-Run Operating Notes
+
+Use a terminal multiplexer for anything that takes more than a few minutes:
+
+```bash
+# If tmux is missing on a fresh VM:
+sudo apt-get install -y tmux
+
+tmux new -s mwn
+./deploy/gcp/mwn.sh run --mode reanalysis --start 202601010000 --end 202601080000 --model HRRR
+```
+
+Detach with `Ctrl-b`, then `d`. Reattach with:
+
+```bash
+tmux attach -t mwn
+```
+
+Monitor health from a second SSH session:
+
+| Command | What to check |
+|---------|---------------|
+| `docker ps` | Confirms the run container is still alive |
+| `docker stats` | CPU should be active during OpenFOAM solver steps |
+| `df -h .` | Keep enough disk free for weather caches, temp runs, and Docker |
+| `./deploy/gcp/mwn.sh logs` | Scheduler logs, if running scheduled forecasts |
+
+For chunked validation, count completed chunks with:
+
+```bash
+find runtime/validation/<study>/chunks -maxdepth 2 -name summary.json | wc -l
+```
+
+Historical chunks can be rerun cleanly. `validate-study` reuses completed chunk
+summaries unless you pass `--force`.
+
 ### Other Run Examples
 
 ```bash
@@ -370,6 +620,42 @@ If you have an LCP file instead of a DEM, use that as the `elevation_file`. Wind
 ./deploy/gcp/mwn.sh run --hours 6 --keep-temp
 ```
 
+### Run Options Cheat Sheet
+
+Common `run` options:
+
+| Option | Use |
+|--------|-----|
+| `--mode forecast` | Current/future weather-model run, default |
+| `--mode reanalysis` | Historical HRRR pastcast run |
+| `--mode domain-average` | Manual speed/direction, no weather download |
+| `--model HRRR` | Default high-resolution CONUS model; also native historical model |
+| `--model NBM` | Forecast-only blended guidance |
+| `--model NAM` | Forecast-only NAM nest guidance |
+| `--model RAP` | Forecast-only rapid-refresh guidance |
+| `--model GFS` | Forecast-only long-range global guidance |
+| `--hours N` | Forecast/reanalysis duration when not using exact start/end |
+| `--start UTC --end UTC` | Exact reanalysis window; both must be hour-aligned UTC |
+| `--domain KEY` | Domain from `config/domains.json` |
+| `--height N` | Output wind height above ground in meters |
+| `--keep-temp` | Keep raw rasters/KMZ/config under `runtime/temp/` |
+| `--no-upload` | Skip GCS upload even if configured |
+| `--dry-run` | Generate config without running WindNinja |
+| `--speed N --direction N` | Required with `--mode domain-average` |
+| `--speed-units mph\|mps\|kph\|kts` | Units for domain-average speed |
+
+Useful environment settings in `config/runtime.env`:
+
+| Setting | Use |
+|---------|-----|
+| `MWN_DOMAIN_ID` | Default domain when `--domain` is omitted |
+| `MWN_DOCKER_IMAGE` | Image used by Docker Compose |
+| `MWN_NUM_THREADS` | Overrides WindNinja `num_threads`; keep near physical CPU count |
+| `MWN_GCS_UPLOAD_ENABLED` | Enables upload after successful runs |
+| `MWN_GCS_BUCKET` | Upload destination bucket |
+| `MWN_SYNOPTIC_TOKEN` | Required for Synoptic validation |
+| `CUSTOM_SRTM_API_KEY` | Required for SRTM DEM downloads |
+
 ## Step 9: Get Your Output
 
 Output files are in `runtime/` on the VM:
@@ -385,6 +671,28 @@ gcloud compute scp windninja:/opt/mountain_windninja/runtime/archives/*.zip ~/Do
 ```
 
 Open the KMZ files in [Google Earth](https://earth.google.com/web/) to see the wind simulation.
+
+## Step 10: Stop Or Clean Up
+
+Stop the VM whenever you are done working:
+
+```bash
+exit
+gcloud compute instances stop windninja --zone us-central1-a
+```
+
+Clean generated mesh caches and raw temp output before a handoff or after a
+failed OpenFOAM mesh run:
+
+```bash
+./deploy/gcp/mwn.sh clean
+```
+
+`clean` preserves `config/runtime.env`, terrain inputs under `static_data/`, and
+validation summaries under `runtime/validation/`.
+
+Do not run cleanup while a validation container is active. Check `docker ps` and
+any active `tmux` or `screen` session first.
 
 ## Optional: GCS Upload
 
@@ -566,7 +874,9 @@ export OMPI_MCA_btl_vader_single_copy_mechanism=none
 Our Docker setup should handle this, but if you see it, add the variable to `config/runtime.env`.
 
 **"Error during decomposePar" with "Essential entry 'value' missing":**
-This means the wrong OpenFOAM version is being used. WindNinja requires OpenFOAM 8 (the version built in our Docker image). If you built OpenFOAM separately, make sure it's the correct version. In our Docker container, this should not happen.
+This means the wrong OpenFOAM version is being used. This repo's Docker image
+uses OpenFOAM 9. If you built OpenFOAM separately, make sure it matches the repo
+image. In our Docker container, this should not happen.
 
 **Momentum solver diverges or produces garbage output:**
 Usually caused by a rough or noisy DEM. WindNinja v3.11+ has a built-in DEM smoothing algorithm. You can also try:

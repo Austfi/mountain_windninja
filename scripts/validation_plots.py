@@ -181,6 +181,250 @@ def metric_summary(rows: list[dict], model_label: str = "HRRR") -> dict:
     }
 
 
+def mean_or_none(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def rmse_or_none(values: list[float]) -> float | None:
+    return math.sqrt(sum(value * value for value in values) / len(values)) if values else None
+
+
+def clean_delta(baseline_value: float | None, windninja_value: float | None) -> float | None:
+    if not finite(baseline_value) or not finite(windninja_value):
+        return None
+    return clean_number(baseline_value - windninja_value)
+
+
+def raw_model_metrics(rows: list[dict], prefix: str) -> dict[str, float | None]:
+    speed_errors = field_values(rows, f"{prefix}_speed_error")
+    direction_errors = field_values(rows, f"{prefix}_dir_abs_error_deg")
+    vector_errors = field_values(rows, f"{prefix}_vector_error")
+    return {
+        "speed_bias": mean_or_none(speed_errors),
+        "speed_mae": mean_or_none([abs(value) for value in speed_errors]),
+        "speed_rmse": rmse_or_none(speed_errors),
+        "dir_mae_deg": mean_or_none(direction_errors),
+        "vector_rmse": rmse_or_none(vector_errors),
+    }
+
+
+def clean_metrics(metrics: dict[str, float | None]) -> dict[str, float | None]:
+    return {key: clean_number(value) for key, value in metrics.items()}
+
+
+def diagnostic_metric_record(label: str, rows: list[dict]) -> dict:
+    wn = raw_model_metrics(rows, "wn")
+    wx = raw_model_metrics(rows, "wx")
+    return {
+        "label": label,
+        "sample_count": len(rows),
+        "windninja": clean_metrics(wn),
+        "hrrr": clean_metrics(wx),
+        "improvement": {
+            "speed_mae": clean_delta(wx["speed_mae"], wn["speed_mae"]),
+            "speed_rmse": clean_delta(wx["speed_rmse"], wn["speed_rmse"]),
+            "vector_rmse": clean_delta(wx["vector_rmse"], wn["vector_rmse"]),
+            "dir_mae_deg": clean_delta(wx["dir_mae_deg"], wn["dir_mae_deg"]),
+        },
+    }
+
+
+def grouped_diagnostic_records(
+    rows: list[dict],
+    labels: list[str],
+    group_fn,
+) -> list[dict]:
+    grouped = {label: [] for label in labels}
+    for row in rows:
+        label = group_fn(row)
+        if label in grouped:
+            grouped[label].append(row)
+    return [diagnostic_metric_record(label, grouped[label]) for label in labels]
+
+
+def month_diagnostic_records(rows: list[dict]) -> list[dict]:
+    labels = sorted({row["_time"].strftime("%Y-%m") for row in rows})
+    return grouped_diagnostic_records(
+        rows,
+        labels,
+        lambda row: row["_time"].strftime("%Y-%m"),
+    )
+
+
+def utc_hour_diagnostic_records(rows: list[dict]) -> list[dict]:
+    labels = [f"{hour:02d}Z" for hour in range(24)]
+    return grouped_diagnostic_records(
+        rows,
+        labels,
+        lambda row: f"{row['_time'].hour:02d}Z",
+    )
+
+
+SPEED_BINS = [
+    ("0-5 mph", 0.0, 5.0),
+    ("5-10 mph", 5.0, 10.0),
+    ("10-20 mph", 10.0, 20.0),
+    ("20-30 mph", 20.0, 30.0),
+    ("30+ mph", 30.0, None),
+]
+
+
+def observed_speed_bin(row: dict) -> str | None:
+    speed = row.get("speed_obs")
+    if not finite(speed):
+        return None
+    for label, low, high in SPEED_BINS:
+        if speed >= low and (high is None or speed < high):
+            return label
+    return None
+
+
+SECTOR_LABELS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
+def observed_direction_sector(row: dict) -> str | None:
+    direction = row.get("dir_obs_deg")
+    if not finite(direction):
+        return None
+    index = int((((direction % 360.0) + 22.5) % 360.0) // 45.0)
+    return SECTOR_LABELS[index]
+
+
+def speed_bin_diagnostic_records(rows: list[dict]) -> list[dict]:
+    return grouped_diagnostic_records(
+        rows,
+        [label for label, _, _ in SPEED_BINS],
+        observed_speed_bin,
+    )
+
+
+def direction_sector_diagnostic_records(rows: list[dict]) -> list[dict]:
+    return grouped_diagnostic_records(rows, SECTOR_LABELS, observed_direction_sector)
+
+
+NOTICEABLE_SAMPLE_COUNT = 20
+NOTICEABLE_SPEED_DELTA = 1.0
+NOTICEABLE_DIRECTION_DELTA = 10.0
+
+
+def noticeable_patterns(records: list[dict], category: str, model_label: str) -> list[dict]:
+    metric_thresholds = {
+        "speed_mae": NOTICEABLE_SPEED_DELTA,
+        "speed_rmse": NOTICEABLE_SPEED_DELTA,
+        "vector_rmse": NOTICEABLE_SPEED_DELTA,
+        "dir_mae_deg": NOTICEABLE_DIRECTION_DELTA,
+    }
+    patterns = []
+    for record in records:
+        if record["sample_count"] < NOTICEABLE_SAMPLE_COUNT:
+            continue
+        for metric, threshold in metric_thresholds.items():
+            difference = record["improvement"].get(metric)
+            if not finite(difference) or abs(difference) < threshold:
+                continue
+            patterns.append({
+                "category": category,
+                "label": record["label"],
+                "sample_count": record["sample_count"],
+                "metric": metric,
+                "difference": clean_number(difference),
+                "winner": "WindNinja" if difference > 0 else model_label,
+                "threshold": threshold,
+            })
+    return patterns
+
+
+def event_record(row: dict) -> dict:
+    speed_improvement = None
+    if finite(row.get("wn_speed_error")) and finite(row.get("wx_speed_error")):
+        speed_improvement = abs(row["wx_speed_error"]) - abs(row["wn_speed_error"])
+    direction_improvement = None
+    if finite(row.get("wn_dir_abs_error_deg")) and finite(row.get("wx_dir_abs_error_deg")):
+        direction_improvement = row["wx_dir_abs_error_deg"] - row["wn_dir_abs_error_deg"]
+    vector_improvement = None
+    if finite(row.get("wn_vector_error")) and finite(row.get("wx_vector_error")):
+        vector_improvement = row["wx_vector_error"] - row["wn_vector_error"]
+    vector_errors = [
+        value
+        for value in (row.get("wn_vector_error"), row.get("wx_vector_error"))
+        if finite(value)
+    ]
+    return {
+        "station_id": row["station_id"],
+        "sample_time_utc": row["sample_time_utc"],
+        "obs_time_utc": row.get("obs_time_utc"),
+        "speed_obs": clean_number(row.get("speed_obs")),
+        "dir_obs_deg": clean_number(row.get("dir_obs_deg")),
+        "wn_speed": clean_number(row.get("wn_speed")),
+        "wx_speed": clean_number(row.get("wx_speed")),
+        "wn_speed_error": clean_number(row.get("wn_speed_error")),
+        "wx_speed_error": clean_number(row.get("wx_speed_error")),
+        "wn_dir_abs_error_deg": clean_number(row.get("wn_dir_abs_error_deg")),
+        "wx_dir_abs_error_deg": clean_number(row.get("wx_dir_abs_error_deg")),
+        "wn_vector_error": clean_number(row.get("wn_vector_error")),
+        "wx_vector_error": clean_number(row.get("wx_vector_error")),
+        "speed_mae_improvement": clean_number(speed_improvement),
+        "dir_mae_improvement": clean_number(direction_improvement),
+        "vector_error_improvement": clean_number(vector_improvement),
+        "largest_vector_error": clean_number(max(vector_errors) if vector_errors else None),
+    }
+
+
+def top_event_records(rows: list[dict], limit: int = 10) -> dict[str, list[dict]]:
+    event_rows = [event_record(row) for row in rows]
+    top_errors = sorted(
+        event_rows,
+        key=lambda row: row["largest_vector_error"] if row["largest_vector_error"] is not None else -1.0,
+        reverse=True,
+    )[:limit]
+    comparable = [
+        row
+        for row in event_rows
+        if row["vector_error_improvement"] is not None
+    ]
+    top_wins = sorted(
+        comparable,
+        key=lambda row: row["vector_error_improvement"],
+        reverse=True,
+    )[:limit]
+    top_losses = sorted(comparable, key=lambda row: row["vector_error_improvement"])[:limit]
+    return {
+        "top_error_events": top_errors,
+        "top_windninja_wins": top_wins,
+        "top_windninja_losses": top_losses,
+    }
+
+
+def build_diagnostics(rows: list[dict], model_label: str) -> dict:
+    monthly = month_diagnostic_records(rows)
+    utc_hour = utc_hour_diagnostic_records(rows)
+    speed_bins = speed_bin_diagnostic_records(rows)
+    direction_sectors = direction_sector_diagnostic_records(rows)
+    noticeable = []
+    for category, records in (
+        ("monthly", monthly),
+        ("utc_hour", utc_hour),
+        ("observed_speed_bin", speed_bins),
+        ("observed_direction_sector", direction_sectors),
+    ):
+        noticeable.extend(noticeable_patterns(records, category, model_label))
+
+    return {
+        "support_rule": {
+            "sample_count_min": NOTICEABLE_SAMPLE_COUNT,
+            "speed_or_vector_difference_min": NOTICEABLE_SPEED_DELTA,
+            "direction_difference_min_deg": NOTICEABLE_DIRECTION_DELTA,
+        },
+        "overall": diagnostic_metric_record("overall", rows),
+        "monthly": monthly,
+        "utc_hour": utc_hour,
+        "observed_speed_bins": speed_bins,
+        "observed_direction_sectors": direction_sectors,
+        "noticeable_patterns": noticeable,
+        **top_event_records(rows),
+    }
+
+
 def finite(value: float | None) -> bool:
     return value is not None and not math.isnan(value)
 
@@ -1129,6 +1373,7 @@ def write_summary_json(
     source_paths: list[Path],
     plots: list[str],
     station_metrics: list[dict],
+    diagnostics: dict,
 ) -> None:
     payload = {
         "generated_at_utc": dt.datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1136,6 +1381,7 @@ def write_summary_json(
         "plots": plots,
         "summary": summary,
         "station_metrics": station_metrics,
+        "analysis": diagnostics,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
@@ -1157,12 +1403,169 @@ def format_table_value(value, suffix: str = "") -> str:
     return f"{text}{suffix}"
 
 
+def metric_cell(record: dict, model: str, metric: str, suffix: str = "") -> str:
+    return html.escape(format_table_value(record[model].get(metric), suffix))
+
+
+def improvement_cell(record: dict, metric: str, suffix: str = "") -> str:
+    value = record["improvement"].get(metric)
+    return html.escape(format_table_value(value, suffix))
+
+
+def diagnostic_table(title: str, records: list[dict], model_label: str) -> str:
+    rows = "\n".join(
+        "<tr>"
+        f"<td>{html.escape(str(record['label']))}</td>"
+        f"<td>{html.escape(str(record['sample_count']))}</td>"
+        f"<td>{metric_cell(record, 'hrrr', 'speed_mae')}</td>"
+        f"<td>{metric_cell(record, 'windninja', 'speed_mae')}</td>"
+        f"<td>{improvement_cell(record, 'speed_mae')}</td>"
+        f"<td>{metric_cell(record, 'hrrr', 'vector_rmse')}</td>"
+        f"<td>{metric_cell(record, 'windninja', 'vector_rmse')}</td>"
+        f"<td>{improvement_cell(record, 'vector_rmse')}</td>"
+        f"<td>{metric_cell(record, 'hrrr', 'dir_mae_deg', ' deg')}</td>"
+        f"<td>{metric_cell(record, 'windninja', 'dir_mae_deg', ' deg')}</td>"
+        f"<td>{improvement_cell(record, 'dir_mae_deg', ' deg')}</td>"
+        "</tr>"
+        for record in records
+    )
+    return f"""
+  <section>
+    <h2>{html.escape(title)}</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Segment</th>
+            <th>N</th>
+            <th>{html.escape(model_label)} speed MAE</th>
+            <th>WN speed MAE</th>
+            <th>Speed diff</th>
+            <th>{html.escape(model_label)} vector RMSE</th>
+            <th>WN vector RMSE</th>
+            <th>Vector diff</th>
+            <th>{html.escape(model_label)} dir MAE</th>
+            <th>WN dir MAE</th>
+            <th>Dir diff</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows}
+        </tbody>
+      </table>
+    </div>
+  </section>
+"""
+
+
+def noticeable_patterns_table(patterns: list[dict], model_label: str) -> str:
+    if not patterns:
+        body = (
+            '<p class="note">No grouped pattern met the support threshold '
+            "of at least 20 samples and the minimum model-difference thresholds.</p>"
+        )
+    else:
+        rows = "\n".join(
+            "<tr>"
+            f"<td>{html.escape(str(pattern['category']))}</td>"
+            f"<td>{html.escape(str(pattern['label']))}</td>"
+            f"<td>{html.escape(str(pattern['sample_count']))}</td>"
+            f"<td>{html.escape(str(pattern['winner']))}</td>"
+            f"<td>{html.escape(str(pattern['metric']))}</td>"
+            f"<td>{html.escape(format_table_value(pattern['difference']))}</td>"
+            "</tr>"
+            for pattern in patterns
+        )
+        body = f"""
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Segment</th>
+            <th>N</th>
+            <th>Lower error</th>
+            <th>Metric</th>
+            <th>Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows}
+        </tbody>
+      </table>
+    </div>
+"""
+    return f"""
+  <section>
+    <h2>Noticeable Patterns</h2>
+    <p class="note">
+      A pattern is listed only when N >= 20 and WindNinja differs from
+      {html.escape(model_label)} by at least 1 mph for speed/vector metrics
+      or 10 degrees for direction MAE. Positive differences mean WindNinja
+      has lower error.
+    </p>
+    {body}
+  </section>
+"""
+
+
+def event_table(title: str, events: list[dict], model_label: str) -> str:
+    if not events:
+        rows = '<tr><td colspan="11">No events available.</td></tr>'
+    else:
+        rows = "\n".join(
+            "<tr>"
+            f"<td>{html.escape(str(event['sample_time_utc']))}</td>"
+            f"<td>{html.escape(str(event['station_id']))}</td>"
+            f"<td>{html.escape(format_table_value(event['speed_obs']))}</td>"
+            f"<td>{html.escape(format_table_value(event['dir_obs_deg'], ' deg'))}</td>"
+            f"<td>{html.escape(format_table_value(event['wn_vector_error']))}</td>"
+            f"<td>{html.escape(format_table_value(event['wx_vector_error']))}</td>"
+            f"<td>{html.escape(format_table_value(event['vector_error_improvement']))}</td>"
+            f"<td>{html.escape(format_table_value(event['wn_speed_error']))}</td>"
+            f"<td>{html.escape(format_table_value(event['wx_speed_error']))}</td>"
+            f"<td>{html.escape(format_table_value(event['wn_dir_abs_error_deg'], ' deg'))}</td>"
+            f"<td>{html.escape(format_table_value(event['wx_dir_abs_error_deg'], ' deg'))}</td>"
+            "</tr>"
+            for event in events
+        )
+    return f"""
+  <section>
+    <h2>{html.escape(title)}</h2>
+    <p class="note">Positive vector diff means WindNinja has lower vector error.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Station</th>
+            <th>Obs speed</th>
+            <th>Obs dir</th>
+            <th>WN vector</th>
+            <th>{html.escape(model_label)} vector</th>
+            <th>Vector diff</th>
+            <th>WN speed err</th>
+            <th>{html.escape(model_label)} speed err</th>
+            <th>WN dir err</th>
+            <th>{html.escape(model_label)} dir err</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows}
+        </tbody>
+      </table>
+    </div>
+  </section>
+"""
+
+
 def write_index(
     path: Path,
     summary: dict,
     plots: list[str],
     title: str,
     station_metrics: list[dict],
+    diagnostics: dict,
 ) -> None:
     def card(label: str, value: str) -> str:
         return (
@@ -1243,6 +1646,22 @@ def write_index(
     </div>
   </section>
 """
+    diagnostic_sections = (
+        noticeable_patterns_table(diagnostics["noticeable_patterns"], model_label)
+        + diagnostic_table("Monthly Metrics", diagnostics["monthly"], model_label)
+        + diagnostic_table("UTC-Hour Metrics", diagnostics["utc_hour"], model_label)
+        + diagnostic_table("Observed-Speed Bin Metrics", diagnostics["observed_speed_bins"], model_label)
+        + diagnostic_table(
+            "Observed-Direction Sector Metrics",
+            diagnostics["observed_direction_sectors"],
+            model_label,
+        )
+    )
+    event_sections = (
+        event_table("Top Vector Error Events", diagnostics["top_error_events"], model_label)
+        + event_table("Top WindNinja Wins", diagnostics["top_windninja_wins"], model_label)
+        + event_table("Top WindNinja Losses", diagnostics["top_windninja_losses"], model_label)
+    )
     images = "\n".join(
         f'<section><h2>{html.escape(Path(plot).stem.replace("_", " ").title())}</h2>'
         f'<img src="{html.escape(plot)}" alt="{html.escape(plot)}"></section>'
@@ -1300,6 +1719,8 @@ def write_index(
     {"".join(cards)}
   </div>
   {metrics_table}
+  {diagnostic_sections}
+  {event_sections}
   {images}
 </main>
 </body>
@@ -1362,6 +1783,7 @@ def main(argv: list[str] | None = None) -> int:
     model_label = infer_model_label(study_root, args.model_label)
     rows = load_samples(source_paths, args.station_id)
     summary = metric_summary(rows, model_label)
+    diagnostics = build_diagnostics(rows, model_label)
     time_fields = [
         "speed_obs",
         "wn_speed",
@@ -1451,8 +1873,16 @@ def main(argv: list[str] | None = None) -> int:
         source_paths,
         plots,
         station_metrics,
+        diagnostics,
     )
-    write_index(output_dir / "index.html", summary, plots, args.title, station_metrics)
+    write_index(
+        output_dir / "index.html",
+        summary,
+        plots,
+        args.title,
+        station_metrics,
+        diagnostics,
+    )
 
     print(f"Wrote validation plots to {output_dir}")
     print(f"Samples: {summary['sample_count']} | Stations: {summary['station_count']}")

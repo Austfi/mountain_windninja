@@ -219,6 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Units used by the model raster outputs.")
     parser.add_argument("--token",
                         help="Synoptic API token. Defaults to MWN_SYNOPTIC_TOKEN or CUSTOM_API_KEY.")
+    parser.add_argument("--allow-empty", action="store_true",
+                        help="Write empty outputs instead of failing when a window has no matched samples.")
     return parser
 
 
@@ -259,7 +261,29 @@ def main() -> int:
         args.tolerance_minutes,
     )
     if not sample_rows:
-        raise ValueError("No matched station/model samples were found for the requested time window.")
+        if not args.allow_empty:
+            raise ValueError("No matched station/model samples were found for the requested time window.")
+        sv.rows_to_csv(samples_csv, [])
+        sv.rows_to_csv(station_summary_csv, [])
+        sv.rows_to_csv(group_summary_csv, [])
+        sv.write_json(summary_json, {
+            "generated_at_utc": sv.isoformat_utc(dt.datetime.now(UTC)),
+            "run_dir": str(run_dir),
+            "metadata_file": str(metadata_file),
+            "start_utc": sv.isoformat_utc(start_time),
+            "end_utc": sv.isoformat_utc(end_time),
+            "tolerance_minutes": args.tolerance_minutes,
+            "speed_units": args.speed_units,
+            "matched_sample_count": 0,
+            "matched_station_count": 0,
+            "timestamp_count": 0,
+            "overall": sv.summarize_samples([]),
+            "empty_reason": "no_matched_station_model_samples",
+        })
+        print(f"No matched samples for {sv.isoformat_utc(start_time)} to {sv.isoformat_utc(end_time)}.")
+        print(f"Wrote empty samples CSV: {samples_csv}")
+        print(f"Wrote empty overall summary JSON: {summary_json}")
+        return 0
 
     station_rows = summary_rows(sample_rows, "station_id")
     group_rows = summary_rows(sample_rows, "group")

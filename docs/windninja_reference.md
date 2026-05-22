@@ -368,10 +368,11 @@ Output CSV columns: `ID,lat,lon,height,datetime,u,v,w,wx_u,wx_v`
 
 ## Docker Build (Official)
 
-The official Dockerfile (from `firelab/windninja/Dockerfile`) uses Ubuntu 20.04 and
-OpenFOAM 8. Our project Dockerfile follows the
+Some upstream examples use older Ubuntu/OpenFOAM combinations. This repo's
+Dockerfile uses Ubuntu 22.04 and OpenFOAM 9, following the
 [22.04 wiki build instructions](https://github.com/firelab/windninja/wiki/Building-WindNinja-on-Linux-22.04):
 - Base: `ubuntu:22.04`
+- OpenFOAM: `9`
 - CMake flags:
   - `-D SUPRESS_WARNINGS=ON`
   - `-D NINJAFOAM=ON` (momentum solver)

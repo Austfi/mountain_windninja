@@ -171,6 +171,7 @@ def test_help_advanced_lists_advanced_commands(tmp_path):
     assert "fetch-dem" in result.stdout
     assert "run-grid" in result.stdout
     assert "forcing-from-grib" in result.stdout
+    assert "validate-k0co-height-hrrr" in result.stdout
     assert "synoptic-points" in result.stdout
     assert "plot-validation" in result.stdout
 
@@ -275,6 +276,28 @@ def test_validate_study_dispatches_to_study_script(tmp_path):
     assert "validation_study.py" in docker_log
     assert "berthoud_pass" in docker_log
     assert "--pilot-hours 3" in docker_log
+
+
+def test_validate_k0co_height_hrrr_dispatches_to_runner_script(tmp_path):
+    repo = _copy_cli_repo(tmp_path)
+    log_path, env = _install_docker_stub(repo)
+
+    result = _run_cli(
+        repo,
+        "validate-k0co-height-hrrr",
+        "--start",
+        "202601010000",
+        "--end",
+        "202601020000",
+        "--plan",
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    docker_log = log_path.read_text(encoding="utf-8")
+    assert "k0co_height_hrrr_validation.py" in docker_log
+    assert "--start 202601010000" in docker_log
+    assert "--end 202601020000" in docker_log
 
 
 def test_plot_validation_runs_on_host_python(tmp_path):

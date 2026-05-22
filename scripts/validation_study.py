@@ -267,6 +267,7 @@ def validate_chunk(
             str(study.tolerance_minutes),
             "--speed-units",
             study.speed_units,
+            "--allow-empty",
         ],
         dry_run=dry_run,
     )
@@ -310,9 +311,6 @@ def load_sample_rows(paths: list[Path]) -> list[dict]:
 
 def aggregate_outputs(study: StudyConfig, chunks: list[Chunk], sample_paths: list[Path]) -> None:
     sample_rows = load_sample_rows(sample_paths)
-    if not sample_rows:
-        raise ValueError("No sample rows found to aggregate.")
-
     output_paths = {
         "samples": study.validation_root / "samples.csv",
         "station_summary": study.validation_root / "station_summary.csv",
@@ -320,8 +318,16 @@ def aggregate_outputs(study: StudyConfig, chunks: list[Chunk], sample_paths: lis
         "summary": study.validation_root / "summary.json",
     }
 
-    station_rows = raster_validation.summary_rows(sample_rows, "station_id")
-    group_rows = raster_validation.summary_rows(sample_rows, "group")
+    station_rows = (
+        raster_validation.summary_rows(sample_rows, "station_id")
+        if sample_rows
+        else []
+    )
+    group_rows = (
+        raster_validation.summary_rows(sample_rows, "group")
+        if sample_rows
+        else []
+    )
     overall = sv.summarize_samples(sample_rows)
 
     sv.rows_to_csv(output_paths["samples"], sample_rows)
@@ -349,6 +355,7 @@ def aggregate_outputs(study: StudyConfig, chunks: list[Chunk], sample_paths: lis
             "matched_sample_count": len(sample_rows),
             "matched_station_count": len({row["station_id"] for row in sample_rows}),
             "overall": overall,
+            **({"empty_reason": "no_sample_rows_found_to_aggregate"} if not sample_rows else {}),
         },
     )
 

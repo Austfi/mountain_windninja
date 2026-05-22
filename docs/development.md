@@ -65,6 +65,7 @@ Generated outputs are ignored and should stay out of commits:
 - `runtime/`
 - `static_data/`
 - `.pytest_cache/`
+- `.ruff_cache/`
 - `__pycache__/`
 - `config/runtime.env`
 
@@ -76,8 +77,21 @@ Source inputs are intentionally trackable:
 Before committing, remove stale ignored artifacts from the repo root:
 
 ```bash
-rm -rf .pytest_cache scripts/__pycache__ tests/__pycache__ runtime/temp/*
+./deploy/gcp/mwn.sh clean
+find runtime -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+rm -rf .pytest_cache .ruff_cache
+mkdir -p runtime/archives runtime/forcing runtime/forecasts runtime/logs runtime/state runtime/temp runtime/validation
+find . -path ./.git -prune -o -path ./.venv -prune -o -name '__pycache__' -type d -prune -exec rm -rf {} +
+find . -path ./.git -prune -o -path ./.venv -prune -o -name '.DS_Store' -type f -delete
 ```
 
-Do not remove `config/runtime.env` or non-reproducible terrain files unless you
-have intentionally backed them up outside the repo.
+For a validation handoff, also remove WindNinja weather archive caches that can
+land beside terrain files:
+
+```bash
+find static_data -maxdepth 1 -type d -name 'PASTCAST-*' -exec rm -rf {} +
+```
+
+Do not remove `config/runtime.env`, `.venv/`, or non-reproducible terrain files
+such as `static_data/*.tif`, `static_data/*.lcp`, and `static_data/*.prj`
+unless you have intentionally backed them up outside the repo.
