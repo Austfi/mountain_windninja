@@ -1,5 +1,5 @@
 {
-  "default_domain": "my_area",
+  "default_domain": "breck_tenmile_9p6",
   "domains": {
     "my_area": {
       "label": "My Area",
@@ -21,10 +21,70 @@
       "template": "config/template_validation.cfg",
       "elevation_file": "copper_mountain_kccu_5km.lcp"
     },
+    "copper_mountain_9p6": {
+      "label": "Copper Mountain 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "copper_mountain_9p6.lcp"
+    },
+    "copper_mountain_9p6_mass": {
+      "label": "Copper Mountain 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "copper_mountain_9p6.lcp"
+    },
+    "vail_central_9p6": {
+      "label": "Vail Central/Back Bowls 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "vail_central_9p6.lcp"
+    },
+    "vail_central_9p6_mass": {
+      "label": "Vail Central/Back Bowls 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "vail_central_9p6.lcp"
+    },
+    "monarch_pass_9p6": {
+      "label": "Monarch Pass 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "monarch_pass_9p6.lcp"
+    },
+    "monarch_pass_9p6_mass": {
+      "label": "Monarch Pass 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "monarch_pass_9p6.lcp"
+    },
     "summit_county": {
       "label": "Summit County / Loveland Pass",
       "template": "config/template.cfg",
       "elevation_file": "summit_county_surface.lcp"
+    },
+    "breck_tenmile_9p6": {
+      "label": "Breckenridge Tenmile 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "breck_tenmile_9p6.lcp"
+    },
+    "breck_tenmile_9p6_mass": {
+      "label": "Breckenridge Tenmile 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "breck_tenmile_9p6.lcp"
+    },
+    "keystone_9p6": {
+      "label": "Keystone 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "keystone_9p6.lcp"
+    },
+    "keystone_9p6_mass": {
+      "label": "Keystone 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "keystone_9p6.lcp"
+    },
+    "loveland_abasin_9p6": {
+      "label": "Loveland A-Basin 9.6 km",
+      "template": "config/template_validation.cfg",
+      "elevation_file": "loveland_abasin_9p6.lcp"
+    },
+    "loveland_abasin_9p6_mass": {
+      "label": "Loveland A-Basin 9.6 km Mass Solver",
+      "template": "config/template_validation_mass.cfg",
+      "elevation_file": "loveland_abasin_9p6.lcp"
     }
   }
 }

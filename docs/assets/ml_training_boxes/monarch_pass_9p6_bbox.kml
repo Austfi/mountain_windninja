@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Monarch Pass 9.6 km ML Training Box</name>
+    <Placemark>
+      <name>monarch_pass_9p6</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -106.39466624,38.55346738,0
+              -106.28433376,38.55346738,0
+              -106.28433376,38.46713262,0
+              -106.39466624,38.46713262,0
+              -106.39466624,38.55346738,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

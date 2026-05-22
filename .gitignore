@@ -24,6 +24,15 @@ temp/
 # Runtime output (generated, not committed)
 runtime/
 
+# ML experiment outputs (generated, not committed)
+ml/residual_unet/data/raw/
+ml/residual_unet/data/interim/
+ml/residual_unet/data/processed/
+ml/residual_unet/outputs/
+ml/residual_unet/colab/
+ml/residual_unet/checkpoints/
+ml/residual_unet/notebooks/.ipynb_checkpoints/
+
 # Data files
 *.csv
 !config/stations/

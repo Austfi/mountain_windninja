@@ -55,6 +55,14 @@ Common Berthoud study keys:
 | `berthoud_pass` | Multistation K0CO, CABTP, and USGS validation | `runtime/validation/berthoud_pass/` |
 | `berthoud_pass_k0co` | K0CO-only momentum-solver validation | `runtime/validation/berthoud_pass_k0co/` |
 | `berthoud_pass_k0co_mass` | K0CO-only mass-solver validation | `runtime/validation/berthoud_pass_k0co_mass/` |
+| `berthoud_pass_k0co_cabtp` | K0CO+CABTP native momentum baseline; CABTP height is provisional 5 m | `runtime/validation/berthoud_pass_k0co_cabtp/` |
+| `berthoud_pass_k0co_cabtp_mass` | K0CO+CABTP native mass baseline; currently partial unless rerun | `runtime/validation/berthoud_pass_k0co_cabtp_mass/` |
+
+The two-station K0CO+CABTP baseline is useful when comparing K0CO against the
+nearby CAIC station without including the USGS pass station. The mass version
+was paused after two daily chunks in the current local workspace, so do not use
+that output root as a complete Jan-Apr result unless it has been rerun to 90
+chunks.
 
 ## Berthoud Sampling Points
 
@@ -96,11 +104,22 @@ The clean research question is:
 
 ## K0CO Height-Adjusted HRRR Experiment
 
-`validate-k0co-height-hrrr` is a focused K0CO-only experiment. It is not a
+`validate-k0co-height-hrrr` is a focused K0CO-first experiment. It is not a
 replacement for the baseline `validate-study` workflow. It uses HRRR 10 m and
-80 m winds plus HRRR surface height, samples GMTED2010 at 500 m, blends toward
-the 80 m wind where terrain sits above HRRR's smoothed surface, and caps adjusted
-speed to 0.75x through 1.35x of raw HRRR 10 m speed.
+80 m winds plus HRRR surface height, samples GMTED2010 at 500 m, blends U/V
+vectors toward the 80 m wind where coarse terrain sits above HRRR's smoothed
+surface, and feeds the adjusted speed/direction grid into WindNinja as gridded
+initialization.
+
+The current preferred setting is:
+
+```bash
+--adjustment-setting exposure-gate-400m-10-80-cap
+```
+
+That setting adds a simple 3 km TPI exposure gate and caps speed relative to the
+HRRR 10 m/80 m level envelope. It adjusts HRRR points at the coarse adjusted
+forcing grid; it does not pre-warp the final WindNinja high-resolution terrain.
 
 The first output compares observed K0CO, HRRR, and adjusted HRRR:
 
@@ -109,6 +128,7 @@ The first output compares observed K0CO, HRRR, and adjusted HRRR:
   --start 202601010000 \
   --end 202604010000 \
   --chunk-hours 24 \
+  --adjustment-setting exposure-gate-400m-10-80-cap \
   --hrrr-only
 ```
 
@@ -119,12 +139,27 @@ The full run also feeds the adjusted HRRR grids into WindNinja:
   --start 202601010000 \
   --end 202604010000 \
   --chunk-hours 24 \
+  --adjustment-setting exposure-gate-400m-10-80-cap \
   --skip-native
 ```
 
 Outputs are written under
-`runtime/validation/berthoud_pass_k0co_height_hrrr/`. Use `--skip-native` only
-when the normal K0CO HRRR validation samples already exist.
+`runtime/validation/berthoud_pass_k0co_height_hrrr_exposure_gate_400m_10_80_cap/`
+for the current preferred setting. Use `--skip-native` only when the normal K0CO
+HRRR validation samples already exist.
+
+Completed K0CO Jan-Apr metrics for the current setting:
+
+| Result | Speed MAE | Bias | Direction MAE | Vector RMSE |
+|--------|-----------|------|---------------|-------------|
+| HRRR | 8.66 mph | -8.16 mph | 18.61 deg | 12.23 mph |
+| Adjusted HRRR | 4.66 mph | -0.56 mph | 18.76 deg | 9.95 mph |
+| WindNinja from HRRR | 8.89 mph | -7.80 mph | 17.77 deg | 12.76 mph |
+| Momentum WindNinja from adjusted HRRR | 6.61 mph | -3.09 mph | 15.78 deg | 10.66 mph |
+| Mass WindNinja from adjusted HRRR | 15.29 mph | +14.82 mph | 19.30 deg | 20.37 mph |
+
+Use momentum WindNinja for the adjusted-HRRR path at K0CO. The mass-solver run
+overspeeds K0CO and is not the recommended path.
 
 For assumptions, diagnostics, and the tuning path, see
 [K0CO Height-Adjusted HRRR V1 Assessment](k0co_height_hrrr_v1_assessment.md).

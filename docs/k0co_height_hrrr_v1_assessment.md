@@ -5,7 +5,7 @@ decide whether a coarse terrain-aware HRRR forcing grid improves the final
 WindNinja result at K0CO, not to build a complete mountain wind correction
 model.
 
-## Current V1 Method
+## Current Selected Method
 
 For each HRRR analysis hour:
 
@@ -16,26 +16,40 @@ For each HRRR analysis hour:
 
 ```text
 elevation_delta = GMTED 500 m elevation - HRRR surface HGT
-weight = clamp(elevation_delta / 300 m, 0, 1)
+height_weight = clamp(elevation_delta / 300 m, 0, 1)
 ```
 
-5. Blend the vector wind:
+5. Compute a simple coarse exposure gate from 3 km terrain-position index:
+
+```text
+exposure_weight = clamp(TPI_3km / 400 m, 0, 1)
+weight = height_weight * exposure_weight
+```
+
+6. Blend the vector wind:
 
 ```text
 u_adjusted = (1 - weight) * u10 + weight * u80
 v_adjusted = (1 - weight) * v10 + weight * v80
 ```
 
-6. Cap adjusted speed to 0.75x through 1.35x of raw HRRR 10 m speed.
-7. Feed the adjusted HRRR grid into WindNinja as gridded initialization.
-8. WindNinja still runs on the high-resolution Berthoud terrain.
+7. Cap adjusted speed to 0.75x of the lower HRRR 10 m/80 m speed and 1.10x of
+   the higher HRRR 10 m/80 m speed.
+8. Feed the adjusted HRRR grid into WindNinja as gridded initialization.
+9. WindNinja still runs on the high-resolution Berthoud terrain.
+
+The current command setting is:
+
+```bash
+--adjustment-setting exposure-gate-400m-10-80-cap
+```
 
 ## Output Layout
 
-Canonical K0CO experiment outputs live under:
+Canonical K0CO exposure-gated experiment outputs live under:
 
 ```text
-runtime/validation/berthoud_pass_k0co_height_hrrr/
+runtime/validation/berthoud_pass_k0co_height_hrrr_exposure_gate_400m_10_80_cap/
 ```
 
 Key files and folders:
@@ -45,10 +59,13 @@ Key files and folders:
 | `hrrr_comparison.html` | Full-period observed vs HRRR vs adjusted HRRR report | Keep |
 | `hrrr_comparison_samples.csv` | Full-period K0CO HRRR-only sample table | Keep |
 | `hrrr_comparison_metrics.csv` | Full-period K0CO HRRR-only metrics | Keep |
+| `comparison_metrics.csv` | Full K0CO HRRR, adjusted HRRR, native WindNinja, and adjusted momentum WindNinja metrics | Keep |
+| `comparison_metrics_mass.csv` | Full K0CO mass-solver comparison; useful as a failed-path diagnostic | Keep |
 | `tuning/point_tuning_202601010000_202604010000.html` | Full-period HRRR-only tuning report | Keep |
 | `tuning/point_tuning_202601010000_202604010000_metrics.csv` | Full-period tuning metrics | Keep |
 | `tuning/point_fields_202601010000_202604010000.csv` | Cached K0CO point HRRR 10 m/80 m fields for tuning | Keep |
-| `chunks/*/height_adjusted_hrrr/` | Completed adjusted-HRRR WindNinja validation chunks | Keep while run is active |
+| `chunks/*/height_adjusted_hrrr_exposure_gate_400m_10_80_cap/` | Completed adjusted-HRRR momentum validation chunks | Keep |
+| `chunks/*/height_adjusted_hrrr_exposure_gate_400m_10_80_cap_mass/` | Completed adjusted-HRRR mass validation chunks | Keep as diagnostic |
 | `forcing/YYYYMMDDHHMM/` | Reusable adjusted-HRRR forcing grids | Keep while testing this method |
 | `gmted_500m/` | Coarse DEM grid used for the adjustment | Keep |
 | `cabtp_hrrr_adjusted/` | CABTP side-check data, not a tuning target | Keep as context |
@@ -69,10 +86,12 @@ after their final full-period equivalents exist.
 - GMTED2010 at 500 m is enough for the adjustment field because this step is
   correcting the HRRR-scale forcing, not replacing WindNinja's high-resolution
   terrain downscaling.
-- Elevation difference is the only V1 terrain signal. Exposure, slope, curvature,
-  forest/roughness, stability, and flow separation are intentionally deferred.
-- The 300 m blend scale and 0.75x-1.35x cap are first-test constants, not proven
-  universal values.
+- The method includes only one exposure signal: coarse 3 km TPI from the 500 m
+  GMTED grid. Slope, curvature, forest/roughness, stability, and flow separation
+  are intentionally deferred.
+- The 300 m height blend scale, 400 m full-exposure TPI scale, and 10 m/80 m
+  envelope cap are tuned for this first K0CO experiment, not proven universal
+  values.
 
 ## Primary Comparison
 
@@ -95,6 +114,45 @@ WindNinja from HRRR vs WindNinja from adjusted HRRR
 That isolates whether the adjusted gridded initialization improves the same
 WindNinja path.
 
+## Completed K0CO Jan-Apr Results
+
+Full period: 2026-01-01 00:00 UTC through 2026-04-01 00:00 UTC.
+
+| Result | Samples | Speed MAE | Bias | Direction MAE | Vector RMSE |
+|--------|---------|-----------|------|---------------|-------------|
+| HRRR | 2063 | 8.66 mph | -8.16 mph | 18.61 deg | 12.23 mph |
+| Adjusted HRRR | 2063 | 4.66 mph | -0.56 mph | 18.76 deg | 9.95 mph |
+| WindNinja from HRRR | 2063 | 8.89 mph | -7.80 mph | 17.77 deg | 12.76 mph |
+| Momentum WindNinja from adjusted HRRR | 2063 | 6.61 mph | -3.09 mph | 15.78 deg | 10.66 mph |
+| Mass WindNinja from adjusted HRRR | 2063 | 15.29 mph | +14.82 mph | 19.30 deg | 20.37 mph |
+
+Conclusion for K0CO: the adjusted HRRR forcing itself is the clearest win, and
+momentum WindNinja from adjusted HRRR improves over native WindNinja from HRRR.
+The mass solver from adjusted HRRR overspeeds badly and should not be the
+recommended K0CO path.
+
+## CABTP Side Check
+
+CABTP is close to K0CO but is a different terrain/exposure problem. Existing
+adjusted-run rasters were sampled at CABTP without launching a new WindNinja run.
+
+| Result | Samples | Speed MAE | Bias | Direction MAE | Vector RMSE |
+|--------|---------|-----------|------|---------------|-------------|
+| HRRR | 1925 | 4.75 mph | +3.47 mph | 24.35 deg | 8.86 mph |
+| Adjusted HRRR exposure gate | 1925 | 4.71 mph | +3.42 mph | 24.41 deg | 8.82 mph |
+| Momentum WN from adjusted HRRR | 1925 | 6.53 mph | -5.68 mph | 51.96 deg | 12.20 mph |
+| Mass WN from adjusted HRRR | 1925 | 6.95 mph | +6.59 mph | 21.93 deg | 10.40 mph |
+
+The exposure gate mostly leaves CABTP unchanged because the coarse 3 km TPI
+signal is weak there:
+
+```text
+K0CO  TPI ~303 m, exposure weight ~0.757
+CABTP TPI ~35 m,  exposure weight ~0.088
+```
+
+Do not treat CABTP as a validation win for the K0CO-tuned WindNinja path.
+
 ## Success Criteria
 
 Primary:
@@ -113,7 +171,7 @@ Secondary:
 
 ## Required Final Diagnostics
 
-After the full run finishes, produce one final summary table for the full
+For future candidate runs, produce one final summary table for the full
 2026-01-01 00:00 UTC through 2026-04-01 00:00 UTC window:
 
 - sample count

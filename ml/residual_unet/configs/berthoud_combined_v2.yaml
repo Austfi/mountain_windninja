@@ -1,0 +1,17 @@
+data:
+  processed_dir: ml/residual_unet/data/processed/berthoud_combined_v2
+  batch_size: 8
+  num_workers: 0
+
+model:
+  in_channels: 5
+  out_channels: 2
+  base_channels: 32
+
+training:
+  epochs: 80
+  learning_rate: 0.001
+  weight_decay: 0.000001
+  speed_loss_weight: 0.1
+  checkpoint_dir: ml/residual_unet/outputs/berthoud_combined_v2_checkpoints
+  log_csv: ml/residual_unet/outputs/berthoud_combined_v2_train_log.csv

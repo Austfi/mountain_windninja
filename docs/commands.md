@@ -340,26 +340,36 @@ Without `--keep-temp`, only archive zip is kept in `runtime/archives/`, but it s
 
 ## clean
 
-Remove generated OpenFOAM mesh caches and raw temp run output:
+Remove generated OpenFOAM mesh caches and raw temp run output after all
+WindNinja/OpenFOAM jobs are stopped:
 
 ```bash
 ./deploy/gcp/mwn.sh clean
 ```
 
 This removes `static_data/NINJAFOAM_*` and `runtime/temp/*`. It intentionally
-does not remove terrain inputs, `config/runtime.env`, archived validation
-summaries, logs, or Python/tool caches.
+does not remove terrain inputs, `config/runtime.env`, validation summaries,
+logs, or Python/tool caches.
 
-Do not run cleanup while a validation container is active. First check `docker ps`
-and any active `tmux` or `screen` session, then clean only after the run has
-finished or been stopped intentionally.
+Do not run cleanup while a validation container is active. First check `docker ps`,
+the host-side process list, and any active `tmux` or `screen` session:
 
-For a full local handoff cleanup after validation work, run `clean`, then remove
-ignored runtime and Python/tool artifacts while preserving local terrain:
+```bash
+docker ps
+pgrep -af 'WindNinja_cli|daily_run.py|validate-study|gridded_run.py|mwn.sh|ml.residual_unet.hrrr_pair_runs'
+```
+
+Clean only after the run has finished or been stopped intentionally. Stopping the
+Docker container alone is not enough if the host `validate-study` process can
+launch the next chunk.
+
+For a local handoff cleanup after validation work, remove disposable temp/cache
+artifacts while preserving local terrain and final validation results:
 
 ```bash
 ./deploy/gcp/mwn.sh clean
-find runtime -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+rm -rf runtime/temp/*
+find runtime/forecasts runtime/forcing runtime/archives runtime/logs -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 rm -rf .pytest_cache .ruff_cache
 mkdir -p runtime/archives runtime/forcing runtime/forecasts runtime/logs runtime/state runtime/temp runtime/validation
 find . -path ./.git -prune -o -path ./.venv -prune -o -name '__pycache__' -type d -prune -exec rm -rf {} +
@@ -368,7 +378,9 @@ find static_data -maxdepth 1 -type d -name 'PASTCAST-*' -exec rm -rf {} +
 ```
 
 Do not delete `static_data/*.tif`, `static_data/*.lcp`, or `static_data/*.prj`
-unless the terrain can be re-downloaded or has been backed up elsewhere.
+unless the terrain can be re-downloaded or has been backed up elsewhere. Treat
+`runtime/validation/` as result storage; delete old study roots only when the
+user confirms they are obsolete.
 
 ## run-grid
 
@@ -886,6 +898,7 @@ Build only the observed/HRRR/adjusted-HRRR comparison:
   --start 202601010000 \
   --end 202604010000 \
   --chunk-hours 24 \
+  --adjustment-setting exposure-gate-400m-10-80-cap \
   --hrrr-only
 ```
 
@@ -896,38 +909,45 @@ Run the full adjusted-HRRR WindNinja comparison:
   --start 202601010000 \
   --end 202604010000 \
   --chunk-hours 24 \
+  --adjustment-setting exposure-gate-400m-10-80-cap \
   --skip-native
 ```
 
-Run the next WindNinja confirmation candidate in a separate output root:
+Run the mass-solver diagnostic only when explicitly comparing solvers. The K0CO
+Jan-Apr mass run oversped badly, so momentum remains the recommended adjusted
+WindNinja path:
 
 ```bash
 ./deploy/gcp/mwn.sh validate-k0co-height-hrrr \
   --start 202601010000 \
-  --end 202601080000 \
+  --end 202604010000 \
   --chunk-hours 24 \
-  --adjustment-setting balanced-300m-10-80-cap \
+  --adjustment-setting exposure-gate-400m-10-80-cap \
+  --windninja-solver mass \
   --skip-native
 ```
 
-That candidate uses a 300 m blend scale and caps against both HRRR 10 m and
-80 m speed, so it does not overwrite or reuse the current `v1-current` run.
+The selected exposure-gate setting uses a 300 m height blend scale, a coarse
+3 km TPI exposure gate with 400 m full-exposure scaling, and caps against the
+HRRR 10 m/80 m speed envelope.
 
-Output root:
+Selected setting output root:
+
+```text
+runtime/validation/berthoud_pass_k0co_height_hrrr_exposure_gate_400m_10_80_cap/
+```
+
+Older candidate roots may still exist for comparison:
 
 ```text
 runtime/validation/berthoud_pass_k0co_height_hrrr/
-```
-
-The balanced candidate default output root is:
-
-```text
 runtime/validation/berthoud_pass_k0co_height_hrrr_balanced_300m_10_80_cap/
 ```
 
 Use `--skip-native` only when the normal K0CO HRRR validation samples already
-exist. The command reuses completed adjusted WindNinja hours and cleans generated
-`NINJAFOAM_<domain>_*` caches as it goes to avoid filling `static_data/`.
+exist. The command reuses completed adjusted WindNinja hours. Do not delete
+`static_data/NINJAFOAM_<domain>_*` manually while a WindNinja/OpenFOAM process is
+active.
 See [K0CO Height-Adjusted HRRR V1 Assessment](k0co_height_hrrr_v1_assessment.md)
 for the assumptions, final diagnostics, and tuning path.
 

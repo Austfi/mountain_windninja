@@ -58,6 +58,9 @@ DOCUMENTED_END = "202604010000"
 DEFAULT_ARCHIVE_BASE_URL = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
 GMTED_RESOLUTION_M = 500
 ADJUSTMENT_GRID_VERSION = "gmted_500m_v2"
+MOMENTUM_SOLVER = "momentum"
+MASS_SOLVER = "mass"
+SOLVER_CHOICES = (MOMENTUM_SOLVER, MASS_SOLVER)
 
 HRRR_FIELDS = {
     "u10": ("UGRD", "10 m above ground"),
@@ -157,11 +160,42 @@ ADJUSTMENT_SETTINGS = {
         exposure_inner_skip_m=500.0,
         full_exposure_tpi_m=250.0,
     ),
+    "exposure-gate-400m-10-80-cap": AdjustmentSetting(
+        key="exposure-gate-400m-10-80-cap",
+        output_suffix="_exposure_gate_400m_10_80_cap",
+        windninja_label=f"{ADJUSTED_LABEL}_exposure_gate_400m_10_80_cap",
+        blend_scale_m=300.0,
+        cap_mode="levels_10_80",
+        low_cap=0.75,
+        high_cap=1.10,
+        exposure_radius_m=3000.0,
+        exposure_inner_skip_m=500.0,
+        full_exposure_tpi_m=400.0,
+    ),
 }
 
 
 def default_validation_root(adjustment_setting: AdjustmentSetting) -> str:
     return f"runtime/validation/{HEIGHT_STUDY_KEY}{adjustment_setting.output_suffix}"
+
+
+def windninja_domain_for_solver(study_domain: str, solver: str) -> str:
+    if solver == MOMENTUM_SOLVER:
+        return study_domain
+    if solver == MASS_SOLVER:
+        mass_domain = f"{study_domain}_mass"
+        if mass_domain not in config_loader.list_domains():
+            raise HeightHrrrError(f"Mass-solver domain not configured: {mass_domain}")
+        return mass_domain
+    raise HeightHrrrError(f"Unsupported WindNinja solver: {solver}")
+
+
+def solver_label_suffix(solver: str) -> str:
+    return "" if solver == MOMENTUM_SOLVER else f"_{solver}"
+
+
+def windninja_label_for_solver(adjustment_setting: AdjustmentSetting, solver: str) -> str:
+    return f"{adjustment_setting.windninja_label}{solver_label_suffix(solver)}"
 
 
 def ymdhm(value: dt.datetime) -> str:
@@ -1453,10 +1487,22 @@ def install_validation_rasters(run_dir: Path, run_time: dt.datetime, forcing_pat
 def install_windninja_validation_names(run_dir: Path, run_time: dt.datetime, domain: str) -> None:
     label = run_time.strftime("%Y%m%d_%H%M")
     for kind in ("vel", "ang"):
-        source = run_dir / f"{domain}_100m_{kind}.asc"
-        if not source.exists():
-            source = run_dir / f"{domain}_{kind}.asc"
-        if source.exists():
+        candidates = [
+            run_dir / f"{domain}_100m_{kind}.asc",
+            run_dir / f"{domain}_{kind}.asc",
+        ]
+        candidates.extend(
+            path
+            for path in sorted(run_dir.glob(f"*_100m_{kind}.asc"))
+            if not path.name.startswith("HEIGHT-HRRR-")
+        )
+        candidates.extend(
+            path
+            for path in sorted(run_dir.glob(f"*_{kind}.asc"))
+            if not path.name.startswith("HEIGHT-HRRR-")
+        )
+        source = next((path for path in candidates if path.exists()), None)
+        if source is not None:
             target = run_dir / f"{domain}_{label}_100m_{kind}.asc"
             if source.resolve() != target.resolve():
                 shutil.copy2(source, target)
@@ -1471,22 +1517,28 @@ def run_grid_hour(
     force: bool,
     skip_runs: bool,
     adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
+    solver: str = MOMENTUM_SOLVER,
 ) -> Path:
+    windninja_domain = windninja_domain_for_solver(study.domain, solver)
+    windninja_label = windninja_label_for_solver(adjustment_setting, solver)
     run_dir = Path(config_loader.TEMP_DIR) / build_grid_output_dir_name(
-        study.domain,
+        windninja_domain,
         run_time.replace(tzinfo=None),
-        adjustment_setting.windninja_label,
+        windninja_label,
     )
-    if run_dir.exists() and _has_complete_validation_set(run_dir, run_time) and not force:
-        logger.info(f"Using existing adjusted WindNinja run: {run_dir}")
-        cleanup_ninjafoam_caches(study.domain)
-        return run_dir
+    if run_dir.exists() and not force:
+        install_validation_rasters(run_dir, run_time, forcing_paths)
+        install_windninja_validation_names(run_dir, run_time, windninja_domain)
+        if _has_complete_validation_set(run_dir, run_time):
+            logger.info(f"Using existing adjusted WindNinja run: {run_dir}")
+            cleanup_ninjafoam_caches(windninja_domain)
+            return run_dir
     if skip_runs:
-        cleanup_ninjafoam_caches(study.domain)
+        cleanup_ninjafoam_caches(windninja_domain)
         return run_dir
     if run_dir.exists():
         shutil.rmtree(run_dir)
-    cleanup_ninjafoam_caches(study.domain)
+    cleanup_ninjafoam_caches(windninja_domain)
     command = [
         sys.executable,
         str(config_loader.SCRIPTS_DIR / "gridded_run.py"),
@@ -1497,22 +1549,22 @@ def run_grid_hour(
         "--time",
         ymdhm(run_time),
         "--domain",
-        study.domain,
+        windninja_domain,
         "--height",
         "10.0",
         "--label",
-        adjustment_setting.windninja_label,
+        windninja_label,
         "--keep-temp",
         "--no-upload",
     ]
     try:
         subprocess.run(command, check=True)
     except subprocess.CalledProcessError:
-        cleanup_ninjafoam_caches(study.domain)
+        cleanup_ninjafoam_caches(windninja_domain)
         raise
     install_validation_rasters(run_dir, run_time, forcing_paths)
-    install_windninja_validation_names(run_dir, run_time, study.domain)
-    cleanup_ninjafoam_caches(study.domain)
+    install_windninja_validation_names(run_dir, run_time, windninja_domain)
+    cleanup_ninjafoam_caches(windninja_domain)
     return run_dir
 
 
@@ -1543,8 +1595,11 @@ def mode_chunk_paths(validation_root: Path, chunk: vs.Chunk, mode: str) -> dict[
     }
 
 
-def adjusted_mode_name(adjustment_setting: AdjustmentSetting) -> str:
-    return f"height_adjusted_hrrr{adjustment_setting.output_suffix}"
+def adjusted_mode_name(
+    adjustment_setting: AdjustmentSetting,
+    solver: str = MOMENTUM_SOLVER,
+) -> str:
+    return f"height_adjusted_hrrr{adjustment_setting.output_suffix}{solver_label_suffix(solver)}"
 
 
 def mode_validation_is_complete(validation_root: Path, chunk: vs.Chunk, mode: str) -> bool:
@@ -1574,8 +1629,9 @@ def validate_grid_chunk(
     *,
     force: bool,
     adjustment_setting: AdjustmentSetting = ADJUSTMENT_SETTINGS["v1-current"],
+    solver: str = MOMENTUM_SOLVER,
 ) -> Path:
-    paths = mode_chunk_paths(validation_root, chunk, adjusted_mode_name(adjustment_setting))
+    paths = mode_chunk_paths(validation_root, chunk, adjusted_mode_name(adjustment_setting, solver))
     if paths["summary"].exists() and paths["samples"].exists() and not force:
         return paths["samples"]
     stage_validation_rasters(run_dirs, paths["rasters"], force=force)
@@ -1614,6 +1670,7 @@ def summarize_windninja_outputs(
     adjusted_paths: list[Path],
     start: dt.datetime,
     end: dt.datetime,
+    solver: str = MOMENTUM_SOLVER,
 ) -> None:
     native_rows = dedupe_sample_rows(filter_rows_for_window(vs.load_sample_rows(native_paths), start, end))
     adjusted_rows = dedupe_sample_rows(filter_rows_for_window(vs.load_sample_rows(adjusted_paths), start, end))
@@ -1643,7 +1700,13 @@ def summarize_windninja_outputs(
             ], "adjusted_hrrr"),
         },
     ]
-    comparison_csv = validation_root / "comparison_metrics.csv"
+    output_suffix = solver_label_suffix(solver)
+    comparison_csv = validation_root / f"comparison_metrics{output_suffix}.csv"
+    adjusted_windninja_result = (
+        "windninja_from_adjusted_hrrr"
+        if solver == MOMENTUM_SOLVER
+        else f"windninja_{solver}_from_adjusted_hrrr"
+    )
     with comparison_csv.open("w", encoding="utf-8", newline="") as handle:
         fieldnames = [
             "result",
@@ -1660,11 +1723,12 @@ def summarize_windninja_outputs(
         writer.writerow({"result": "hrrr", **native_summary["hrrr"], "sample_count": native_summary["sample_count"]})
         writer.writerow({"result": "adjusted_hrrr", **adjusted_summary["hrrr"], "sample_count": adjusted_summary["sample_count"]})
         writer.writerow({"result": "windninja_from_hrrr", **native_summary["windninja"], "sample_count": native_summary["sample_count"]})
-        writer.writerow({"result": "windninja_from_adjusted_hrrr", **adjusted_summary["windninja"], "sample_count": adjusted_summary["sample_count"]})
+        writer.writerow({"result": adjusted_windninja_result, **adjusted_summary["windninja"], "sample_count": adjusted_summary["sample_count"]})
     sv.write_json(
-        validation_root / "comparison_summary.json",
+        validation_root / f"comparison_summary{output_suffix}.json",
         {
             "generated_at_utc": sv.isoformat_utc(dt.datetime.now(UTC)),
+            "windninja_solver": solver,
             "metrics": {
                 "native_hrrr_run": native_summary,
                 "adjusted_hrrr_run": adjusted_summary,
@@ -1679,11 +1743,17 @@ def print_plan(
     height_study: vs.StudyConfig,
     chunks: list[vs.Chunk],
     adjustment_setting: AdjustmentSetting,
+    solver: str,
 ) -> None:
     hour_count = sum(len(iter_chunk_hours(chunk)) for chunk in chunks)
+    windninja_domain = windninja_domain_for_solver(height_study.domain, solver)
     print(json.dumps({
         "study": HEIGHT_STUDY_KEY,
         "adjustment_setting": adjustment_setting.key,
+        "windninja_solver": solver,
+        "windninja_domain": windninja_domain,
+        "windninja_label": windninja_label_for_solver(adjustment_setting, solver),
+        "windninja_validation_mode": adjusted_mode_name(adjustment_setting, solver),
         "validation_root": str(height_study.validation_root),
         "chunk_count": len(chunks),
         "hour_count": hour_count,
@@ -1735,6 +1805,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-native", action="store_true")
     parser.add_argument("--skip-runs", action="store_true")
     parser.add_argument("--hrrr-only", action="store_true")
+    parser.add_argument(
+        "--windninja-solver",
+        choices=SOLVER_CHOICES,
+        default=MOMENTUM_SOLVER,
+        help=(
+            "WindNinja solver for adjusted gridded runs. 'mass' uses the "
+            "matching *_mass domain/template and writes separate mass-labeled outputs."
+        ),
+    )
     parser.add_argument(
         "--workers",
         type=int,
@@ -1800,8 +1879,9 @@ def main(argv: list[str] | None = None) -> int:
     start = vs.parse_utc(args.start)
     end = vs.parse_utc(args.end)
     chunks = vs.plan_chunks(start, end, args.chunk_hours)
+    windninja_domain_for_solver(height_study.domain, args.windninja_solver)
     if args.plan:
-        print_plan(height_study, chunks, adjustment_setting)
+        print_plan(height_study, chunks, adjustment_setting, args.windninja_solver)
         return 0
     if not args.no_preflight:
         vs.run_preflight(source_study)
@@ -1908,6 +1988,7 @@ def main(argv: list[str] | None = None) -> int:
                         force=args.force,
                         skip_runs=args.skip_runs,
                         adjustment_setting=adjustment_setting,
+                        solver=args.windninja_solver,
                     )
                 )
             except subprocess.CalledProcessError as exc:
@@ -1922,9 +2003,17 @@ def main(argv: list[str] | None = None) -> int:
                     run_dirs,
                     force=args.force,
                     adjustment_setting=adjustment_setting,
+                    solver=args.windninja_solver,
                 )
             )
-    summarize_windninja_outputs(validation_root, native_paths, adjusted_sample_paths, start, end)
+    summarize_windninja_outputs(
+        validation_root,
+        native_paths,
+        adjusted_sample_paths,
+        start,
+        end,
+        solver=args.windninja_solver,
+    )
     return 0
 
 

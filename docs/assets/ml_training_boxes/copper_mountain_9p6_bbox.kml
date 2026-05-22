@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Copper Mountain 9.6 km ML Training Box</name>
+    <Placemark>
+      <name>copper_mountain_9p6</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -106.20753062,39.52716738,0
+              -106.09566938,39.52716738,0
+              -106.09566938,39.44083262,0
+              -106.20753062,39.44083262,0
+              -106.20753062,39.52716738,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>
