@@ -35,6 +35,151 @@ fuel-model category embeddings, and no canopy-height stack. Five-channel V1
 datasets and six-channel LCP-canopy datasets cannot be mixed in one combined
 training set.
 
+## Site-Specific Breck And Keystone Direction
+
+The current generalization experiments show useful improvement, but unseen-terrain
+performance is capped by the complexity of terrain-specific momentum corrections.
+For the next practical step, prioritize terrain-specific models for:
+
+```text
+breck_tenmile_9p6
+keystone_9p6
+```
+
+These domains already have `.lcp`, `.prj`, and `.tif` terrain files, so this
+work avoids the current LANDFIRE/LFPS blocker affecting new Copper/Vail/Monarch
+terrain fetches.
+
+The domain-specific datasets should use:
+
+```text
+z_rel
+dzdx
+dzdy
+canopy_cover
+u_mass
+v_mass
+```
+
+with the same target:
+
+```text
+delta_u = u_momentum - u_mass
+delta_v = v_momentum - v_mass
+```
+
+### Data Target
+
+For each of Breck and Keystone:
+
+- HRRR: full UTC year, 2025-05-01 00Z through 2026-05-01 00Z, chunked into
+  24-hour mass/momentum runs.
+- Controlled baseline: existing 15-degree controlled matrix, 11 speeds from
+  5-80 mph.
+- Controlled midpoint fill: new 7.5-degree offset matrix using directions
+  `7.5, 22.5, ..., 352.5` and the same 11 speeds.
+
+This doubles the controlled direction resolution without duplicating the
+existing 15-degree cases:
+
+```text
+existing controlled: 11 speeds x 24 directions = 264 cases/domain
+midpoint controlled: 11 speeds x 24 directions = 264 cases/domain
+combined controlled: 528 cases/domain
+```
+
+Full-year HRRR gives up to 8,760 hourly paired samples per domain if all chunks
+complete. The controlled samples are intentionally smaller in count but cover
+edge wind directions and high wind speeds that HRRR may not sample evenly.
+
+### Staged Runtime Artifacts
+
+Full-year HRRR plans already exist:
+
+```text
+runtime/ml/residual_unet/hrrr_pairs/breck_tenmile_9p6_hrrr_20250501_20260501_v1/run_hrrr_pairs.sh
+runtime/ml/residual_unet/hrrr_pairs/keystone_9p6_hrrr_20250501_20260501_v1/run_hrrr_pairs.sh
+```
+
+The 7.5-degree midpoint controlled matrices are staged under:
+
+```text
+runtime/ml/residual_unet/raw/controlled_9p6_7p5_midpoints/breck_tenmile_9p6/run_controlled_matrix.sh
+runtime/ml/residual_unet/raw/controlled_9p6_7p5_midpoints/keystone_9p6/run_controlled_matrix.sh
+```
+
+The tracked GCP wrapper for the full data build, package, sync, and shutdown
+path is:
+
+```bash
+ml/residual_unet/run_breck_keystone_specific_data_build_gcp.sh
+```
+
+It restores static terrain from GCS, optionally restores existing Breck/Keystone
+`runtime/temp` outputs from GCS for skip/reuse, runs Breck and Keystone HRRR in
+parallel, runs the new controlled midpoint matrices in parallel, builds
+domain-specific datasets, uploads Colab ZIP artifacts, syncs results, and shuts
+the VM down.
+
+### Dataset Build Commands
+
+After the HRRR and midpoint controlled runs are complete, build the Breck
+dataset:
+
+```bash
+.venv/bin/python -m ml.residual_unet.build_domain_specific_lcp_canopy \
+  --domain breck \
+  --force
+```
+
+Build the Keystone dataset:
+
+```bash
+.venv/bin/python -m ml.residual_unet.build_domain_specific_lcp_canopy \
+  --domain keystone \
+  --force
+```
+
+Outputs:
+
+```text
+ml/residual_unet/data/processed/breck_tenmile_9p6_specific_lcp_canopy_v1
+ml/residual_unet/data/processed/keystone_9p6_specific_lcp_canopy_v1
+```
+
+Training configs:
+
+```text
+ml/residual_unet/configs/breck_tenmile_9p6_specific_lcp_canopy_v1.yaml
+ml/residual_unet/configs/keystone_9p6_specific_lcp_canopy_v1.yaml
+```
+
+Package either dataset for Colab:
+
+```bash
+.venv/bin/python -m ml.residual_unet.prepare_colab_upload \
+  --processed-dir ml/residual_unet/data/processed/breck_tenmile_9p6_specific_lcp_canopy_v1 \
+  --skip-build \
+  --force \
+  --gcs-bucket "$MWN_GCP_BUCKET" \
+  --notebook ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+```
+
+### Evaluation Goal
+
+For these site-specific models, evaluate success primarily by closeness to the
+momentum solver on held-out same-terrain samples:
+
+- ML vector RMSE vs momentum
+- mass vector RMSE vs momentum
+- improvement percent
+- pixel-level error thresholds such as `<0.5 m/s`, `<1.0 m/s`, and `<2.0 m/s`
+- HRRR and controlled results reported separately
+
+The site-specific goal is not clean unseen-terrain proof. It is to make the
+fast mass-solver plus residual U-Net path closely emulate the slow momentum
+solver for the specific terrain box.
+
 Target:
 
 ```text
