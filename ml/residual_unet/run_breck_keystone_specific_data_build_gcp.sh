@@ -77,7 +77,7 @@ stage_run_scripts() {
     --start 202505010000 \
     --end 202605010000 \
     --chunk-hours 24 \
-    --threads 4 \
+    --threads 6 \
     --momentum-domain breck_tenmile_9p6 \
     --mass-domain breck_tenmile_9p6_mass \
     --label breck_tenmile_9p6_hrrr_20250501_20260501_v1 \
@@ -87,7 +87,7 @@ stage_run_scripts() {
     --start 202505010000 \
     --end 202605010000 \
     --chunk-hours 24 \
-    --threads 4 \
+    --threads 6 \
     --momentum-domain keystone_9p6 \
     --mass-domain keystone_9p6_mass \
     --label keystone_9p6_hrrr_20250501_20260501_v1 \
@@ -100,7 +100,7 @@ stage_run_scripts() {
     --raw-root runtime/ml/residual_unet/raw/controlled_9p6_7p5_midpoints/breck_tenmile_9p6 \
     --domain-label breck_tenmile_9p6 \
     --terrain-file static_data/breck_tenmile_9p6.lcp \
-    --num-threads 4 \
+    --num-threads 6 \
     --write-configs \
     --write-run-script
 
@@ -111,7 +111,7 @@ stage_run_scripts() {
     --raw-root runtime/ml/residual_unet/raw/controlled_9p6_7p5_midpoints/keystone_9p6 \
     --domain-label keystone_9p6 \
     --terrain-file static_data/keystone_9p6.lcp \
-    --num-threads 4 \
+    --num-threads 6 \
     --write-configs \
     --write-run-script
 }

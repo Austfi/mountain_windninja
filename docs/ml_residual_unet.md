@@ -121,6 +121,12 @@ parallel, runs the new controlled midpoint matrices in parallel, builds
 domain-specific datasets, uploads Colab ZIP artifacts, syncs results, and shuts
 the VM down.
 
+On the current `c4-standard-24` VM plan, the wrapper stages each active domain
+at 6 OpenFOAM threads. Breck and Keystone run in parallel, so the expensive
+solver phases use about 12 physical-core workers total. This is the intended
+high-utilization setting for 9.6 km boxes without jumping to risky
+over-decomposition.
+
 ### Dataset Build Commands
 
 After the HRRR and midpoint controlled runs are complete, build the Breck
@@ -584,14 +590,15 @@ Fetch/register terrain when Docker is available:
   --label "Breckenridge Tenmile 9.6 km"
 ```
 
-Run a 24-hour Breck smoke pair, then a 7-day pair window if the smoke is clean:
+Run a 24-hour Breck smoke pair, then a 7-day pair window if the smoke is clean.
+Use 6 threads on the GCP c4 VM; reduce to 4 on a smaller local machine:
 
 ```bash
 .venv/bin/python -m ml.residual_unet.hrrr_pair_runs \
   --start 202601010000 \
   --end 202601020000 \
   --chunk-hours 24 \
-  --threads 4 \
+  --threads 6 \
   --momentum-domain breck_tenmile_9p6 \
   --mass-domain breck_tenmile_9p6_mass \
   --label breck_tenmile_9p6_smoke \
