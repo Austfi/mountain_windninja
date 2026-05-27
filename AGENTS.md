@@ -436,6 +436,43 @@ The comparison code is `ml.residual_unet.compare_results`; it scans every result
 folder and writes `comparison_metrics.csv`, `comparison_run_summary.csv`,
 `comparison_summary.json`, and `comparison_report.md`.
 
+The current practical ML direction is terrain-specific momentum emulation for
+fixed 9.6 km boxes, especially Breck/Tenmile and Keystone. The preferred
+terrain-specific Colab entrypoint is:
+
+```text
+ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
+```
+
+That notebook expects these packaged datasets once the GCP data build finishes:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
+keystone_9p6_specific_lcp_canopy_v1_dataset.zip
+```
+
+It trains `breck_tenmile_9p6_specific_lcp_canopy_v1` and
+`keystone_9p6_specific_lcp_canopy_v1` separately, evaluates each source dataset,
+writes the cross-run comparison, and writes a momentum-emulator scorecard via
+`ml.residual_unet.emulator_scorecard`.
+
+For terrain-specific models, do not lead with leave-one-terrain-out results.
+Use same-terrain held-out HRRR test samples as the primary operational metric,
+controlled-only samples as direction/speed stress tests, and the scorecard
+breakdowns for high wind, season/month, 45-degree direction sector,
+canopy-cover bin, and lee/windward slope bin.
+
+Scorecard outputs live under:
+
+```text
+MyDrive/windninja_ml/results/<run_name>/scorecard/
+```
+
+The first file to read is `scorecard_report.md`. If the HRRR-only test metric is
+good but high-wind, lee-side, or specific direction-sector rows regress, treat
+the model as not ready for operational use on that terrain until those regimes
+get more paired data or a model change.
+
 The next terrain-expansion plan is:
 
 ```text

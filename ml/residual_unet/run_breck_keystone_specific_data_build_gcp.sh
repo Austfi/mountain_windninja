@@ -120,7 +120,7 @@ package_domain() {
   local key="$1"
   local dataset="$2"
   local processed_dir="ml/residual_unet/data/processed/${dataset}"
-  local notebook="ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb"
+  local notebook="ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb"
 
   echo "package_domain_started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ) ${key}"
   "$PYTHON_BIN" -m ml.residual_unet.build_domain_specific_lcp_canopy \

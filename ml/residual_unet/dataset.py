@@ -83,7 +83,15 @@ class ResidualWindDataset:
             "valid_mask": torch.from_numpy(valid_mask),
             "sample_id": row["sample_id"],
             "source_dataset": row.get("source_dataset", ""),
+            "source_sample_id": row.get("source_sample_id", ""),
             "timestamp_utc": row.get("timestamp_utc", row["sample_id"]),
+            "date": row.get("date", ""),
+            "case_id": row.get("case_id", ""),
+            "speed_mps": row.get("speed_mps", ""),
+            "direction_deg": row.get("direction_deg", ""),
+            "domain": row.get("domain", ""),
+            "mass_domain": row.get("mass_domain", ""),
+            "momentum_domain": row.get("momentum_domain", ""),
         }
 
 

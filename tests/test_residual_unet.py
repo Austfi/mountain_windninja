@@ -11,6 +11,12 @@ from ml.residual_unet.analyze_results import (
     summarize_samples,
     summarize_training,
 )
+from ml.residual_unet.emulator_scorecard import (
+    direction_sector_label,
+    range_label,
+    season_for_month,
+    source_kind,
+)
 from ml.residual_unet.build_controlled_dataset import (
     controlled_split,
     infer_controlled_metadata,
@@ -405,6 +411,17 @@ def test_evaluate_reports_pixel_level_close_and_win_rates():
     accumulated = _finalize_metrics(totals)
     assert accumulated["ml_better_pixel_count"] == 2
     assert accumulated["ml_vector_error_le_3p0mps_fraction"] == pytest.approx(0.75)
+
+
+def test_emulator_scorecard_group_labels():
+    assert source_kind("breck_tenmile_9p6_hrrr_specific_lcp_canopy_v1") == "hrrr"
+    assert source_kind("breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg") == "controlled"
+    assert season_for_month(1) == "winter"
+    assert season_for_month(7) == "summer"
+    assert direction_sector_label(44.9, sector_size=45) == "000_045"
+    assert direction_sector_label(45.0, sector_size=45) == "045_090"
+    assert direction_sector_label(359.0, sector_size=45) == "315_000"
+    assert range_label("target", 10.0, float("inf"), "mps") == "target_ge_10mps"
 
 
 def test_compare_results_scans_colab_eval_sources(tmp_path):
