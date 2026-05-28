@@ -255,7 +255,7 @@ def runtime_env(repo_root: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        env.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        env[key.strip()] = value.strip().strip('"').strip("'")
     return env
 
 

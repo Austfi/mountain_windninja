@@ -19,6 +19,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /opt/mountain_windninja
 
 COPY docker/patch_windninja_public_pastcast.py /tmp/patch_windninja_public_pastcast.py
+COPY docker/patch_windninja_generic_warp.py /tmp/patch_windninja_generic_warp.py
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -35,6 +36,8 @@ RUN apt-get update && \
       libboost-program-options-dev \
       libboost-test-dev \
       libcurl4-gnutls-dev \
+      libeccodes0 \
+      libeccodes-tools \
       libfontconfig1-dev \
       libgeos-dev \
       libnetcdf-dev \
@@ -55,6 +58,7 @@ RUN apt-get update && \
     git clone --branch "${WINDNINJA_REF}" --depth 1 \
         https://github.com/firelab/windninja.git /opt/src/windninja && \
     python3 /tmp/patch_windninja_public_pastcast.py /opt/src/windninja/src/ninja/gcp_wx_init.cpp && \
+    python3 /tmp/patch_windninja_generic_warp.py /opt/src/windninja/src/ninja/genericSurfInitialization.cpp && \
     cd /opt/src && \
     wget https://poppler.freedesktop.org/poppler-22.02.0.tar.xz && \
     tar -xf poppler-22.02.0.tar.xz && \

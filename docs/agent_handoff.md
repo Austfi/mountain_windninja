@@ -218,6 +218,7 @@ Changes under these paths require `./deploy/gcp/mwn.sh build`:
 Upstream WindNinja 3.12.2 hard-checks for GCS credentials before reading public HRRR archive data. This repo patches upstream `src/ninja/gcp_wx_init.cpp` at build time via:
 
 - [docker/patch_windninja_public_pastcast.py](../docker/patch_windninja_public_pastcast.py)
+- [docker/patch_windninja_generic_warp.py](../docker/patch_windninja_generic_warp.py)
 
 If reanalysis fails with `Missing required GCS credentials`, the most likely cause is a stale image that was not rebuilt after pulling Docker changes.
 
@@ -282,6 +283,7 @@ Additional field-learned notes:
 - [scripts/synoptic_validation.py](../scripts/synoptic_validation.py)
 - [Dockerfile](../Dockerfile)
 - [docker/patch_windninja_public_pastcast.py](../docker/patch_windninja_public_pastcast.py)
+- [docker/patch_windninja_generic_warp.py](../docker/patch_windninja_generic_warp.py)
 - [config/template.cfg](../config/template.cfg)
 - [config/template_validation.cfg](../config/template_validation.cfg)
 - [config/domains.json](../config/domains.json)

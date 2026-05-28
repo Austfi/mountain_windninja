@@ -8,7 +8,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_DIR"
 
 HOST_PYTHON="${PYTHON:-python3}"
-DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2"
+DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1"
 
 if [ -f "$REPO_DIR/config/runtime.env" ]; then
   set -a
@@ -177,6 +177,8 @@ Beginner commands:
 Common run flags:
   --hours N            Forecast window
   --domain KEY         Use a registered domain
+  --weather-source native|herbie
+                      Use WindNinja native weather downloads or Herbie
   --keep-temp          Keep raw output in runtime/temp/
   --mode reanalysis    Run historical HRRR reanalysis
 
@@ -233,6 +235,15 @@ Validation:
 Run flags:
   --mode forecast|reanalysis|domain-average
   --model HRRR|NBM|NAM|NAM-CONUS|NAM-ALASKA|RAP|GFS
+          Herbie also supports RRFS, HIRESW, HREF,
+          HRDPS, RDPS, GDPS, GRAPHCAST, and regional variants
+  --weather-source native|herbie
+  --herbie-product PRODUCT
+  --herbie-member MEMBER
+  --herbie-domain DOMAIN
+  --herbie-cycle UTC
+  --herbie-priority aws,google,azure,nomads
+  --herbie-extra KEY=VALUE
   --hours N
   --start UTC
   --end UTC

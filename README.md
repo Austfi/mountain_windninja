@@ -87,7 +87,7 @@ on `smoke` or `run` when you want raw output left under `runtime/temp/`.
 `mwn.sh init` tries to pull the published GHCR image:
 
 ```bash
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
 ```
 
 If the pull fails or you are changing image-level dependencies, build locally:
@@ -206,6 +206,17 @@ terrain-backed sampling maps beside the comparison plots.
 Historical `validate-study` runs are HRRR only because WindNinja exposes native
 HRRR pastcast but not native NBM pastcast. NBM remains available for native
 forecast runs through `./deploy/gcp/mwn.sh run --model NBM`.
+
+Forecast runs can also opt into a Herbie-prepared parent-model file:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
+```
+
+This path keeps WindNinja in `wxModelInitialization` and passes a local
+`forecast_filename`. It requires the Docker image with Herbie/ecCodes
+dependencies; rebuild after pulling those changes with `./deploy/gcp/mwn.sh build-local`.
 
 `MWN_NUM_THREADS=6` is the current high-thread setting for a 6-physical /
 12-logical CPU machine. OpenFOAM momentum runs should stay at or below physical

@@ -37,10 +37,31 @@ Rebuild after changes to:
 - `requirements.txt`
 - compiled WindNinja/OpenFOAM/GDAL behavior
 - `docker/patch_windninja_public_pastcast.py`
+- `docker/patch_windninja_generic_warp.py`
 
 ```bash
 ./deploy/gcp/mwn.sh build-local
 ```
+
+Herbie support changes the Docker image because it adds Herbie, cfgrib, xarray,
+netCDF4, and ecCodes. Before publishing a GHCR image for a Herbie change:
+
+1. Run the Python test suite.
+2. Rebuild locally with `./deploy/gcp/mwn.sh build-local`.
+3. Run `./deploy/gcp/mwn.sh check` and `./deploy/gcp/mwn.sh smoke --keep-temp`.
+4. Run at least these opt-in Herbie smokes on a small domain:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model GFS --hours 1 --keep-temp --no-upload
+```
+
+Publish a new `ghcr.io/austfi/mountain-windninja:<version>` only after those
+pass. Before making Herbie the default, also compare native HRRR against Herbie
+HRRR on a small domain and confirm the output is close enough for operations.
+Then update `DEFAULT_REMOTE_IMAGE` and operator docs to reference the new
+version where they use a published GHCR image.
 
 ## Tests
 
