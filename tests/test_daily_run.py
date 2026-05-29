@@ -22,12 +22,20 @@ def test_resolve_weather_model_supports_forecast_and_pastcast():
 
 def test_resolve_weather_model_supports_opt_in_herbie_models():
     assert (
+        daily_run.resolve_weather_model("HRRR", "forecast", weather_source="herbie")
+        == "Herbie HRRR"
+    )
+    assert (
         daily_run.resolve_weather_model("RRFS", "forecast", weather_source="herbie")
         == "Herbie RRFS"
     )
     assert (
         daily_run.resolve_weather_model("GFS", "forecast", weather_source="herbie")
         == "Herbie GFS"
+    )
+    assert (
+        daily_run.resolve_weather_model("HRRRAK", "forecast", weather_source="herbie")
+        == "Herbie HRRRAK"
     )
 
 
@@ -46,10 +54,28 @@ def test_herbie_model_registry_only_lists_windninja_sensible_templates():
         "GEFS-WAVE-REFORECAST",
         "IFS",
         "AIFS",
+        "RAP",
+        "NAM",
+        "NAM-CONUS",
+        "NAM-ALASKA",
+        "NBM",
+        "GRAPHCAST",
+        "HIRESW",
+        "HREF",
+        "HRDPS",
+        "HRDPS-NORTH",
+        "RDPS",
+        "GDPS",
         "NAVGEM-GODAE",
         "NAVGEM-NOMADS",
     }
     assert excluded.isdisjoint(daily_run.HERBIE_MODEL_MAP)
+    assert sorted(daily_run.HERBIE_MODEL_MAP) == ["GFS", "HRRR", "HRRRAK", "RRFS"]
+
+
+def test_resolve_weather_model_rejects_unvalidated_herbie_models():
+    with pytest.raises(ValueError, match="Herbie weather source only supports"):
+        daily_run.resolve_weather_model("RAP", "forecast", weather_source="herbie")
 
 
 def test_resolve_weather_model_rejects_unsupported_reanalysis_model():

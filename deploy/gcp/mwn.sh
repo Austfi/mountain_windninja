@@ -8,7 +8,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_DIR"
 
 HOST_PYTHON="${PYTHON:-python3}"
-DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1"
+DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2"
 
 if [ -f "$REPO_DIR/config/runtime.env" ]; then
   set -a
@@ -235,8 +235,7 @@ Validation:
 Run flags:
   --mode forecast|reanalysis|domain-average
   --model HRRR|NBM|NAM|NAM-CONUS|NAM-ALASKA|RAP|GFS
-          Herbie also supports RRFS, HIRESW, HREF,
-          HRDPS, RDPS, GDPS, GRAPHCAST, and regional variants
+          Herbie supports HRRR, GFS, RRFS, and HRRRAK
   --weather-source native|herbie
   --herbie-product PRODUCT
   --herbie-member MEMBER

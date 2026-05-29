@@ -35,7 +35,7 @@ docker ps
 
 # Create missing local dirs/config and use the published GHCR image.
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
 
 # Check the active domain before spending time on a real run.
 ./deploy/gcp/mwn.sh check
@@ -256,7 +256,7 @@ HRRR pastcast patch.
 This records the image in `config/runtime.env` as `MWN_DOCKER_IMAGE`, normally:
 
 ```text
-MWN_DOCKER_IMAGE=ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
+MWN_DOCKER_IMAGE=ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
 ```
 
 If pulling fails, or if you changed `Dockerfile` or files under `docker/`, build

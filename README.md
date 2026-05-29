@@ -87,7 +87,7 @@ on `smoke` or `run` when you want raw output left under `runtime/temp/`.
 `mwn.sh init` tries to pull the published GHCR image:
 
 ```bash
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
 ```
 
 If the pull fails or you are changing image-level dependencies, build locally:

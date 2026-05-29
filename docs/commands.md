@@ -27,7 +27,7 @@ cd /opt/mountain_windninja
 git pull --ff-only
 docker ps
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
 ./deploy/gcp/mwn.sh check
 ./deploy/gcp/mwn.sh smoke
 ```
@@ -208,11 +208,11 @@ Options:
 
 ## pull
 
-Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1`.
+Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2`.
 
 ```bash
 ./deploy/gcp/mwn.sh pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
 ```
 
 ## check
@@ -298,7 +298,7 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | `--weather-source native\|herbie` | Use WindNinja native weather downloads or a Herbie-prepared local file | `native` |
 | `--herbie-cycle UTC` | Pin the Herbie model cycle for forecast mode | auto |
 | `--herbie-product PRODUCT` | Override the default Herbie product for a model | model default |
-| `--herbie-member MEMBER` | Override ensemble member for models such as RRFS/HIRESW | model default |
+| `--herbie-member MEMBER` | Override ensemble member for models such as RRFS | model default |
 | `--herbie-domain DOMAIN` | Override regional Herbie domain where supported | model default |
 | `--herbie-priority LIST` | Comma-separated Herbie source priority | `MWN_HERBIE_PRIORITY` |
 | `--herbie-extra KEY=VALUE` | Advanced Herbie template argument; repeat as needed | none |
@@ -332,24 +332,22 @@ WindNinja rejects `input_points_file` when `momentum_flag = true`. For Synoptic 
 | `GFS` | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km | Global | Worldwide, long-range up to 16 days |
 
 Additional Herbie forecast models are opt-in with `--weather-source herbie`.
-The current WindNinja-sensible Herbie set includes native-parity models
-(`HRRR`, `RAP`, `GFS`, `NBM`, `NAM`, `NAM-CONUS`, `NAM-ALASKA`) plus:
+The current VM-tested Herbie set is intentionally small:
 
 | Short Name | Herbie Template | Default Product/Domain | Best For |
 |-----------|-----------------|------------------------|----------|
+| `HRRR` | `hrrr` | `sfc`, CONUS | HRRR parity/source comparison |
+| `GFS` | `gfs` | `pgrb2.0p25`, global | Longer-range global source comparison |
 | `RRFS` | `rrfs` with current NOAA/AWS `2dfld` override | CONUS | Experimental rapid-refresh forecast checks |
-| `HIRESW` | `hiresw` | `arw_2p5km`, CONUS member 1 | High-resolution window comparison |
-| `HREF` | `href` | `mean`, CONUS | Ensemble-mean high-resolution comparison |
-| `HRDPS` / `HRDPS-NORTH` | `hrdps` / `hrdps_north` | Canadian regional grids | Canada/northern domains |
-| `RDPS` / `GDPS` | `rdps` / `gdps` | Canadian regional/global grids | Canada/global coarse checks |
-| `GRAPHCAST` | `graphcast` | `pgrb2.0p25` | GraphCast comparison where fields are available |
 | `HRRRAK` | `hrrrak` | `sfc` | Alaska HRRR |
 
 Herbie can expose many more templates, but this wrapper intentionally does not
 list wave-only, storm-specific, climate, reforecast, single-variable archive,
 or full-file-only global/ensemble templates as normal WindNinja run models.
-ECMWF IFS/AIFS and GEFS are excluded until the adapter can reliably fetch only
-the needed surface fields without full-file downloads.
+RAP, NAM, NBM, GRAPHCAST, HIRESW, HREF, HRDPS/RDPS/GDPS, ECMWF IFS/AIFS, and
+GEFS are excluded from `--weather-source herbie` until the adapter can reliably
+fetch only the needed surface fields without missing subset files or full-file
+downloads. Use WindNinja native mode for RAP, NAM, and NBM.
 
 **Which model should I use?**
 - For US mountain terrain with short forecasts: **HRRR** (default, best resolution)
