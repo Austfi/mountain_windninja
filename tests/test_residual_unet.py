@@ -549,6 +549,7 @@ def test_site_specific_specs_are_config_driven():
 
     assert specs["breck"].domain == "breck_tenmile_9p6"
     assert specs["keystone"].mass_domain == "keystone_9p6_mass"
+    assert specs["breck"].dataset_name == "breck_tenmile_9p6_specific_lcp_canopy_v2"
     assert specs["breck"].controlled_midpoint_test_directions == (67.5, 157.5, 247.5, 337.5)
 
 

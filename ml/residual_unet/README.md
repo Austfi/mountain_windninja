@@ -92,6 +92,9 @@ Use the site-specific notebook for current Breck/Keystone work:
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
+The notebook now targets V2 packages by default so V1 remains available as the
+comparison baseline.
+
 Current GCS handoff artifacts:
 
 ```text
@@ -99,6 +102,13 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/residual_unet_code.zi
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/06_train_site_specific_9p6_colab.ipynb
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
+```
+
+The next stricter rebuild writes V2 artifacts:
+
+```text
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
 ```
 
 Results sync back to:
@@ -182,6 +192,9 @@ Add future terrain boxes there and reuse the same builder with
 `--domain <site-key>`. The spec also controls midpoint controlled validation
 and test direction holdouts.
 
+The current default site spec writes V2 dataset names. V1 is the existing
+baseline; V2 is the rebuild with independent midpoint controlled holdouts.
+
 Package a processed dataset and notebook for Colab:
 
 ```bash
@@ -193,6 +206,9 @@ Package a processed dataset and notebook for Colab:
   --notebook ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
+For the next V2 package, use the corresponding V2 processed directory after the
+build completes.
+
 The tracked GCP wrapper for the full Breck/Keystone data build is:
 
 ```bash
@@ -202,6 +218,15 @@ ml/residual_unet/run_breck_keystone_specific_data_build_gcp.sh
 It runs Breck and Keystone HRRR pairs, controlled midpoint pairs, packaging,
 GCS sync, and VM shutdown. The current completed package used 362 good HRRR
 days after skipping three repeatedly failing dates.
+
+If the raw HRRR and controlled outputs are already in GCS, prefer the
+package-only V2 wrapper:
+
+```bash
+ml/residual_unet/package_breck_keystone_specific_v2_gcp.sh
+```
+
+On a GCP VM, run it with `SHUTDOWN_ON_COMPLETE=1` to shut down after packaging.
 
 ## Inference on a Mass-Solver Run
 

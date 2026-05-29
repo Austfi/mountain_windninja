@@ -137,6 +137,14 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_spe
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
 ```
 
+The next validation-quality rebuild should write separate V2 artifacts so the
+current V1 results remain comparable:
+
+```text
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
+```
+
 Dataset composition:
 
 | Dataset | Total samples | HRRR samples | 15-degree controlled | 7.5-degree midpoint controlled |
@@ -164,6 +172,13 @@ Use this notebook for the current site-specific training path:
 
 ```text
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
+```
+
+The notebook now targets the V2 package by default:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2
+keystone_9p6_specific_lcp_canopy_v2
 ```
 
 In Colab, use a GPU runtime. L4 is sufficient; A100/H100 is faster but not
@@ -291,6 +306,22 @@ The tracked GCP wrapper for the Breck/Keystone site-specific data build is:
 ml/residual_unet/run_breck_keystone_specific_data_build_gcp.sh
 ```
 
+If the existing HRRR and controlled raw outputs are already in GCS, use the
+package-only V2 wrapper first. It restores `static_data`, `runtime_temp`, and
+`runtime_ml`, rebuilds the processed datasets with the midpoint controlled
+validation/test split, uploads the V2 dataset ZIPs and notebook, and syncs logs:
+
+```bash
+ml/residual_unet/package_breck_keystone_specific_v2_gcp.sh
+```
+
+On a GCP VM, add `SHUTDOWN_ON_COMPLETE=1` if the VM should shut down after the
+package step:
+
+```bash
+SHUTDOWN_ON_COMPLETE=1 ml/residual_unet/package_breck_keystone_specific_v2_gcp.sh
+```
+
 It restores static terrain from GCS, optionally restores previous `runtime/temp`
 outputs, stages HRRR and controlled runners, runs Breck and Keystone in
 parallel, builds domain-specific datasets, uploads Colab artifacts, syncs
@@ -331,6 +362,9 @@ ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
 Add a future terrain box there first, then run the same builder with
 `--domain <site-key>`. That keeps future terrain packages config-driven instead
 of adding another hardcoded Python branch.
+
+The current default site spec writes V2 dataset names. V1 remains the existing
+baseline result; V2 is the stricter midpoint-holdout rebuild.
 
 Package a processed dataset for Colab:
 

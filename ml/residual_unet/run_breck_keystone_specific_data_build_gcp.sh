@@ -190,9 +190,9 @@ main() {
   echo "controlled_status=${controlled_status}"
 
   if [[ "$hrrr_status" -eq 0 && "$controlled_status" -eq 0 ]]; then
-    package_domain breck breck_tenmile_9p6_specific_lcp_canopy_v1
+    package_domain breck breck_tenmile_9p6_specific_lcp_canopy_v2
     package_breck_status=$?
-    package_domain keystone keystone_9p6_specific_lcp_canopy_v1
+    package_domain keystone keystone_9p6_specific_lcp_canopy_v2
     package_keystone_status=$?
   else
     package_breck_status=99
@@ -219,8 +219,8 @@ main() {
     echo "package_keystone_status=${package_keystone_status}"
     echo "sync_ml_status=${sync_ml_status}"
     echo "sync_temp_status=${sync_temp_status}"
-    echo "breck_dataset_zip=gs://${BUCKET}/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip"
-    echo "keystone_dataset_zip=gs://${BUCKET}/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip"
+    echo "breck_dataset_zip=gs://${BUCKET}/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip"
+    echo "keystone_dataset_zip=gs://${BUCKET}/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip"
     echo "finished_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } >"$STATUS_FILE"
 

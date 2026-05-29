@@ -2,20 +2,20 @@
   "breck": {
     "domain": "breck_tenmile_9p6",
     "mass_domain": "breck_tenmile_9p6_mass",
-    "dataset_name": "breck_tenmile_9p6_specific_lcp_canopy_v1",
-    "hrrr_source": "breck_tenmile_9p6_hrrr_specific_lcp_canopy_v1",
-    "controlled_15_source": "breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg",
-    "controlled_midpoint_source": "breck_tenmile_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v1",
+    "dataset_name": "breck_tenmile_9p6_specific_lcp_canopy_v2",
+    "hrrr_source": "breck_tenmile_9p6_hrrr_specific_lcp_canopy_v2",
+    "controlled_15_source": "breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg_v2",
+    "controlled_midpoint_source": "breck_tenmile_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v2",
     "controlled_midpoint_val_directions": [37.5, 127.5, 217.5, 307.5],
     "controlled_midpoint_test_directions": [67.5, 157.5, 247.5, 337.5]
   },
   "keystone": {
     "domain": "keystone_9p6",
     "mass_domain": "keystone_9p6_mass",
-    "dataset_name": "keystone_9p6_specific_lcp_canopy_v1",
-    "hrrr_source": "keystone_9p6_hrrr_specific_lcp_canopy_v1",
-    "controlled_15_source": "keystone_9p6_controlled_lcp_canopy_9p6_15deg",
-    "controlled_midpoint_source": "keystone_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v1",
+    "dataset_name": "keystone_9p6_specific_lcp_canopy_v2",
+    "hrrr_source": "keystone_9p6_hrrr_specific_lcp_canopy_v2",
+    "controlled_15_source": "keystone_9p6_controlled_lcp_canopy_9p6_15deg_v2",
+    "controlled_midpoint_source": "keystone_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v2",
     "controlled_midpoint_val_directions": [37.5, 127.5, 217.5, 307.5],
     "controlled_midpoint_test_directions": [67.5, 157.5, 247.5, 337.5]
   }

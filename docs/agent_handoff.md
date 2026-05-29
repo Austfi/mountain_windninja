@@ -123,6 +123,13 @@ package, so it helps training but is not independently evaluated yet. The
 site-specific builder now supports explicit midpoint validation/test direction
 holdouts for the next rebuild.
 
+The next rebuild should use separate V2 dataset/result names:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2
+keystone_9p6_specific_lcp_canopy_v2
+```
+
 The VM `mwn-ml-general-9p6` was terminated after packaging/training handoff.
 Refresh live GCP state before making operational decisions; this document is
 handoff context, not a live monitor.
@@ -140,6 +147,13 @@ Site-specific package definitions live in:
 
 ```text
 ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
+```
+
+If raw Breck/Keystone HRRR and controlled outputs are already in GCS, use the
+package-only V2 wrapper first:
+
+```text
+ml/residual_unet/package_breck_keystone_specific_v2_gcp.sh
 ```
 
 The prepared large HRRR-pair plan is local and ignored:

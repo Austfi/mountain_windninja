@@ -348,6 +348,13 @@ package; it helps fitting but is not independently evaluated yet. The
 site-specific builder now supports explicit midpoint validation/test direction
 holdouts for the next rebuild.
 
+The next rebuild is V2 and should not overwrite the current V1 baseline:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2
+keystone_9p6_specific_lcp_canopy_v2
+```
+
 Read `docs/ml_residual_unet.md` for current ML status, result interpretation,
 Colab steps, and cleanup boundaries. For returned Colab artifacts, read:
 
@@ -402,6 +409,13 @@ ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
 
 Add future fixed terrain boxes there before using
 `ml.residual_unet.build_domain_specific_lcp_canopy --domain <site-key>`.
+
+If raw Breck/Keystone HRRR and controlled outputs are already synced to GCS,
+prefer the package-only V2 wrapper before running any new solvers:
+
+```text
+ml/residual_unet/package_breck_keystone_specific_v2_gcp.sh
+```
 
 The next terrain-expansion plan remains:
 
