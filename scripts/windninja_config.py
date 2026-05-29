@@ -20,8 +20,11 @@ def generate_config(date_str, start_time, stop_time, domain_config,
                     wx_model_type_override=None, surface_vegetation=None,
                     sub_dir=None, output_wind_height=10.0,
                     input_points_file=None, output_points_file=None,
-                    run_type="forecast"):
+                    run_type="forecast", forecast_filename=None):
     """Read a template .cfg, fill placeholders, write a ready-to-run config."""
+    if wx_model_type_override and forecast_filename:
+        raise ValueError("Use either wx_model_type_override or forecast_filename, not both.")
+
     run_output_dir = sub_dir or os.path.join(config_loader.TEMP_DIR, date_str)
     utils.ensure_dir(run_output_dir)
 
@@ -46,6 +49,7 @@ def generate_config(date_str, start_time, stop_time, domain_config,
     out_lines = []
     found_vegetation = False
     found_num_threads = False
+    found_forecast_filename = False
     num_threads = _read_template_num_threads(domain_config.template_path)
 
     for line in lines:
@@ -68,6 +72,14 @@ def generate_config(date_str, start_time, stop_time, domain_config,
         if run_type == "reanalysis" and stripped.startswith("forecast_duration"):
             continue
 
+        if stripped.startswith("forecast_filename"):
+            continue
+
+        if forecast_filename and stripped.startswith("wx_model_type"):
+            out_lines.append(f"forecast_filename = {Path(forecast_filename).as_posix()}")
+            found_forecast_filename = True
+            continue
+
         if wx_model_type_override and stripped.startswith("wx_model_type"):
             out_lines.append(f"wx_model_type = {wx_model_type_override}")
             continue
@@ -81,6 +93,9 @@ def generate_config(date_str, start_time, stop_time, domain_config,
 
     if not found_num_threads:
         out_lines.insert(0, f"num_threads = {num_threads}")
+
+    if forecast_filename and not found_forecast_filename:
+        out_lines.append(f"forecast_filename = {Path(forecast_filename).as_posix()}")
 
     if (surface_vegetation and surface_vegetation != "none"
             and domain_config.elevation_file.suffix.lower() != ".lcp"

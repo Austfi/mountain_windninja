@@ -35,7 +35,7 @@ docker ps
 
 # Create missing local dirs/config and use the published GHCR image.
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
 
 # Check the active domain before spending time on a real run.
 ./deploy/gcp/mwn.sh check
@@ -256,7 +256,7 @@ HRRR pastcast patch.
 This records the image in `config/runtime.env` as `MWN_DOCKER_IMAGE`, normally:
 
 ```text
-MWN_DOCKER_IMAGE=ghcr.io/austfi/mountain-windninja:3.12.2
+MWN_DOCKER_IMAGE=ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
 ```
 
 If pulling fails, or if you changed `Dockerfile` or files under `docker/`, build
@@ -634,6 +634,8 @@ Common `run` options:
 | `--model NAM` | Forecast-only NAM nest guidance |
 | `--model RAP` | Forecast-only rapid-refresh guidance |
 | `--model GFS` | Forecast-only long-range global guidance |
+| `--weather-source native` | Default WindNinja NOMADS/GCP weather path |
+| `--weather-source herbie` | Opt-in Herbie forecast-file path; requires rebuilt image |
 | `--hours N` | Forecast/reanalysis duration when not using exact start/end |
 | `--start UTC --end UTC` | Exact reanalysis window; both must be hour-aligned UTC |
 | `--domain KEY` | Domain from `config/domains.json` |
@@ -653,8 +655,25 @@ Useful environment settings in `config/runtime.env`:
 | `MWN_NUM_THREADS` | Overrides WindNinja `num_threads`; keep near physical CPU count |
 | `MWN_GCS_UPLOAD_ENABLED` | Enables upload after successful runs |
 | `MWN_GCS_BUCKET` | Upload destination bucket |
+| `MWN_HERBIE_CACHE` | Local cache for Herbie GRIB subsets and WindNinja NetCDF files |
+| `MWN_HERBIE_PRIORITY` | Herbie source priority, for example `aws,google,azure,nomads` |
 | `MWN_SYNOPTIC_TOKEN` | Required for Synoptic validation |
 | `CUSTOM_SRTM_API_KEY` | Required for SRTM DEM downloads |
+
+Herbie forecast support is image-level because it adds `herbie-data`, `xarray`,
+`cfgrib`, `netCDF4`, and the ecCodes runtime library. After pulling code that
+adds or changes that path, rebuild with:
+
+```bash
+./deploy/gcp/mwn.sh build-local
+```
+
+Do a native smoke test first, then a Herbie opt-in smoke:
+
+```bash
+./deploy/gcp/mwn.sh smoke --keep-temp
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+```
 
 ## Step 9: Get Your Output
 

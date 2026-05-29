@@ -1,2 +1,6 @@
 google-cloud-storage>=2.14.0
 python-dotenv>=1.0.0
+herbie-data>=2025.7.0
+xarray>=2025.1.0
+cfgrib>=0.9.15.0
+netCDF4>=1.7.0

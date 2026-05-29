@@ -1,9 +1,13 @@
 .git
 .pytest_cache
 .venv
+.ruff_cache
 __pycache__
 *.pyc
 runtime
 static_data
+ml/residual_unet/data
+ml/residual_unet/outputs
+ml/residual_unet/colab/results
 crontab.bak
 new_crontab

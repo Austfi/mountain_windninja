@@ -27,7 +27,7 @@ cd /opt/mountain_windninja
 git pull --ff-only
 docker ps
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
 ./deploy/gcp/mwn.sh check
 ./deploy/gcp/mwn.sh smoke
 ```
@@ -208,11 +208,11 @@ Options:
 
 ## pull
 
-Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2`.
+Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1`.
 
 ```bash
 ./deploy/gcp/mwn.sh pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1
 ```
 
 ## check
@@ -239,6 +239,24 @@ Downloads live weather data from NOAA and simulates future wind:
 ./deploy/gcp/mwn.sh run --model GFS --hours 48
 ./deploy/gcp/mwn.sh run --domain summit_county
 ```
+
+Native WindNinja weather downloads remain the default. Herbie is available as an
+explicit forecast source when the Docker image has been rebuilt with the Herbie
+dependencies:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model GFS --hours 6 --keep-temp --no-upload
+```
+
+The Herbie path downloads only the parent-model surface fields needed by
+WindNinja, writes `runtime/weather/herbie/<model>/<cycle>/<domain>/windninja_generic_GFS.nc`,
+and passes that file to WindNinja with `forecast_filename` while keeping
+`initialization_method = wxModelInitialization`. It does not use the
+`griddedInitialization` ASCII forcing path. The `GFS` suffix is a WindNinja
+generic-NetCDF reader compatibility filename; it does not mean the source model
+was changed to GFS.
 
 ### Reanalysis Mode (Historical)
 
@@ -277,6 +295,13 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 |------|-------------|---------|
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
 | `--model HRRR\|NBM\|NAM\|NAM-CONUS\|NAM-ALASKA\|RAP\|GFS` | Weather model; reanalysis currently supports HRRR only | `HRRR` |
+| `--weather-source native\|herbie` | Use WindNinja native weather downloads or a Herbie-prepared local file | `native` |
+| `--herbie-cycle UTC` | Pin the Herbie model cycle for forecast mode | auto |
+| `--herbie-product PRODUCT` | Override the default Herbie product for a model | model default |
+| `--herbie-member MEMBER` | Override ensemble member for models such as RRFS/HIRESW | model default |
+| `--herbie-domain DOMAIN` | Override regional Herbie domain where supported | model default |
+| `--herbie-priority LIST` | Comma-separated Herbie source priority | `MWN_HERBIE_PRIORITY` |
+| `--herbie-extra KEY=VALUE` | Advanced Herbie template argument; repeat as needed | none |
 | `--hours N` | Number of hours to simulate | `18` |
 | `--start UTC` | Fixed reanalysis start time | none |
 | `--end UTC` | Fixed reanalysis end time | none |
@@ -305,6 +330,26 @@ WindNinja rejects `input_points_file` when `momentum_flag = true`. For Synoptic 
 | `NAM-ALASKA` | `NOMADS-NAM-ALASKA-11.25-KM` | 11.25 km | Alaska | Alaska coverage |
 | `RAP` | `NOMADS-RAP-CONUS-13-KM` | 13 km | CONUS (US) | Rapid refresh, hourly, 21h range |
 | `GFS` | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km | Global | Worldwide, long-range up to 16 days |
+
+Additional Herbie forecast models are opt-in with `--weather-source herbie`.
+The current WindNinja-sensible Herbie set includes native-parity models
+(`HRRR`, `RAP`, `GFS`, `NBM`, `NAM`, `NAM-CONUS`, `NAM-ALASKA`) plus:
+
+| Short Name | Herbie Template | Default Product/Domain | Best For |
+|-----------|-----------------|------------------------|----------|
+| `RRFS` | `rrfs` with current NOAA/AWS `2dfld` override | CONUS | Experimental rapid-refresh forecast checks |
+| `HIRESW` | `hiresw` | `arw_2p5km`, CONUS member 1 | High-resolution window comparison |
+| `HREF` | `href` | `mean`, CONUS | Ensemble-mean high-resolution comparison |
+| `HRDPS` / `HRDPS-NORTH` | `hrdps` / `hrdps_north` | Canadian regional grids | Canada/northern domains |
+| `RDPS` / `GDPS` | `rdps` / `gdps` | Canadian regional/global grids | Canada/global coarse checks |
+| `GRAPHCAST` | `graphcast` | `pgrb2.0p25` | GraphCast comparison where fields are available |
+| `HRRRAK` | `hrrrak` | `sfc` | Alaska HRRR |
+
+Herbie can expose many more templates, but this wrapper intentionally does not
+list wave-only, storm-specific, climate, reforecast, single-variable archive,
+or full-file-only global/ensemble templates as normal WindNinja run models.
+ECMWF IFS/AIFS and GEFS are excluded until the adapter can reliably fetch only
+the needed surface fields without full-file downloads.
 
 **Which model should I use?**
 - For US mountain terrain with short forecasts: **HRRR** (default, best resolution)

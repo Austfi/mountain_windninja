@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import sys
 import zipfile
 from pathlib import Path
 
@@ -17,6 +18,38 @@ UTC = dt.timezone.utc
 def test_resolve_weather_model_supports_forecast_and_pastcast():
     assert daily_run.resolve_weather_model("NBM", "forecast") == "NOMADS-NBM-CONUS-2.5-KM"
     assert daily_run.resolve_weather_model("HRRR", "reanalysis") == "PASTCAST-GCP-HRRR-CONUS-3-KM"
+
+
+def test_resolve_weather_model_supports_opt_in_herbie_models():
+    assert (
+        daily_run.resolve_weather_model("RRFS", "forecast", weather_source="herbie")
+        == "Herbie RRFS"
+    )
+    assert (
+        daily_run.resolve_weather_model("GFS", "forecast", weather_source="herbie")
+        == "Herbie GFS"
+    )
+
+
+def test_resolve_weather_model_rejects_herbie_only_models_on_native_source():
+    with pytest.raises(ValueError, match="only available with --weather-source herbie"):
+        daily_run.resolve_weather_model("RRFS", "forecast")
+
+
+def test_herbie_model_registry_only_lists_windninja_sensible_templates():
+    excluded = {
+        "HAFSA",
+        "HAFSB",
+        "CFS",
+        "GEFS",
+        "GEFS-REFORECAST",
+        "GEFS-WAVE-REFORECAST",
+        "IFS",
+        "AIFS",
+        "NAVGEM-GODAE",
+        "NAVGEM-NOMADS",
+    }
+    assert excluded.isdisjoint(daily_run.HERBIE_MODEL_MAP)
 
 
 def test_resolve_weather_model_rejects_unsupported_reanalysis_model():
@@ -70,6 +103,101 @@ def test_generate_config_applies_weather_model_override(tmp_path):
     contents = Path(config_path).read_text(encoding="utf-8")
     assert "wx_model_type = NOMADS-NBM-CONUS-2.5-KM" in contents
     assert "output_path =" in contents
+
+
+def test_generate_config_applies_forecast_filename(tmp_path):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    forecast_file = tmp_path / "weather" / "windninja_generic.nc"
+
+    config_path, _ = daily_run.generate_config(
+        date_str="20260101",
+        start_time=dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        stop_time=dt.datetime(2026, 1, 1, 6, 0, tzinfo=UTC),
+        domain_config=domain,
+        sub_dir=str(tmp_path / "out"),
+        forecast_filename=str(forecast_file),
+    )
+
+    contents = Path(config_path).read_text(encoding="utf-8")
+    assert f"forecast_filename = {forecast_file.as_posix()}" in contents
+    assert "wx_model_type =" not in contents
+
+
+def test_generate_config_rejects_weather_model_and_forecast_filename(tmp_path):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    with pytest.raises(ValueError, match="either wx_model_type_override or forecast_filename"):
+        daily_run.generate_config(
+            date_str="20260101",
+            start_time=dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            stop_time=dt.datetime(2026, 1, 1, 6, 0, tzinfo=UTC),
+            domain_config=domain,
+            sub_dir=str(tmp_path / "out"),
+            wx_model_type_override="NOMADS-HRRR-CONUS-3-KM",
+            forecast_filename=str(tmp_path / "weather.nc"),
+        )
+
+
+def test_main_herbie_dry_run_uses_forecast_filename(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    weather_file = tmp_path / "weather" / "windninja_generic.nc"
+    weather_file.parent.mkdir()
+    weather_file.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(daily_run.config_loader, "init_directories", lambda: None)
+    monkeypatch.setattr(daily_run.config_loader, "list_domains", lambda: ["test"])
+    monkeypatch.setattr(daily_run.config_loader, "DEFAULT_DOMAIN", "test")
+    monkeypatch.setattr(daily_run.config_loader, "get_domain_config", lambda key: domain)
+    monkeypatch.setattr(daily_run.config_loader, "TEMP_DIR", tmp_path / "temp")
+    monkeypatch.setattr(daily_run.config_loader, "GCS_UPLOAD_ENABLED", False)
+
+    import scripts.herbie_wx_model as herbie_wx_model
+
+    monkeypatch.setattr(
+        herbie_wx_model,
+        "prepare_herbie_wx_model",
+        lambda **_kwargs: weather_file,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily_run.py",
+            "--domain",
+            "test",
+            "--weather-source",
+            "herbie",
+            "--model",
+            "HRRR",
+            "--hours",
+            "1",
+            "--dry-run",
+            "--no-upload",
+        ],
+    )
+
+    daily_run.main()
+
+    configs = list((tmp_path / "temp").glob("test_*_forecast_1h_HRRR/*.cfg"))
+    assert len(configs) == 1
+    contents = configs[0].read_text(encoding="utf-8")
+    assert f"forecast_filename = {weather_file.as_posix()}" in contents
+    assert "wx_model_type =" not in contents
 
 
 def test_generate_config_allows_env_thread_override(tmp_path, monkeypatch):
@@ -305,7 +433,9 @@ def test_resolve_weather_model_rejects_unsupported_reanalysis_models():
 
 def test_all_model_names_is_sorted_union():
     expected = sorted(set(
-        list(daily_run.FORECAST_MODEL_MAP) + list(daily_run.PASTCAST_MODEL_MAP)
+        list(daily_run.FORECAST_MODEL_MAP)
+        + list(daily_run.PASTCAST_MODEL_MAP)
+        + list(daily_run.HERBIE_MODEL_MAP)
     ))
     assert daily_run.ALL_MODEL_NAMES == expected
 

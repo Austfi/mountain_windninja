@@ -25,7 +25,9 @@ try:
     from .weather_models import (
         ALL_MODEL_NAMES,
         FORECAST_MODEL_MAP,
+        HERBIE_MODEL_MAP,
         PASTCAST_MODEL_MAP,
+        WEATHER_SOURCES,
         resolve_weather_model,
     )
     from .windninja_config import (
@@ -55,7 +57,9 @@ except ImportError:
     from weather_models import (
         ALL_MODEL_NAMES,
         FORECAST_MODEL_MAP,
+        HERBIE_MODEL_MAP,
         PASTCAST_MODEL_MAP,
+        WEATHER_SOURCES,
         resolve_weather_model,
     )
     from windninja_config import (
@@ -69,7 +73,9 @@ except ImportError:
 __all__ = [
     "ALL_MODEL_NAMES",
     "FORECAST_MODEL_MAP",
+    "HERBIE_MODEL_MAP",
     "PASTCAST_MODEL_MAP",
+    "WEATHER_SOURCES",
     "archive_results",
     "build_archive_name_base",
     "build_domain_average_archive_name",
@@ -171,6 +177,15 @@ def resolve_cli_path(raw_path):
     return (Path(os.fspath(config_loader.BASE_DIR)) / path).resolve()
 
 
+def _parse_herbie_member(raw_member):
+    if raw_member is None:
+        return None
+    try:
+        return int(raw_member)
+    except ValueError:
+        return raw_member
+
+
 def _extract_domain_average_start_label(domain_key: str, output_dir: str) -> str:
     dirname = Path(output_dir).name
     prefix = f"{domain_key}_domavg_"
@@ -212,6 +227,21 @@ def main():
                         default=config_loader.DEFAULT_DOMAIN)
     parser.add_argument("--model", choices=ALL_MODEL_NAMES,
                         default="HRRR")
+    parser.add_argument("--weather-source", choices=WEATHER_SOURCES,
+                        default="native",
+                        help="Weather data source for forecast runs (default: native)")
+    parser.add_argument("--herbie-cycle",
+                        help="UTC Herbie cycle to use (YYYYMMDDHHMM or YYYY-MM-DDTHH:MM)")
+    parser.add_argument("--herbie-product",
+                        help="Override the default Herbie product for --model")
+    parser.add_argument("--herbie-member",
+                        help="Override the default Herbie member for ensemble models")
+    parser.add_argument("--herbie-domain",
+                        help="Override the default Herbie domain for regional models")
+    parser.add_argument("--herbie-priority",
+                        help="Comma-separated Herbie source priority (default: MWN_HERBIE_PRIORITY)")
+    parser.add_argument("--herbie-extra", action="append",
+                        help="Advanced Herbie template option as KEY=VALUE; repeat as needed")
     parser.add_argument("--speed", type=float, default=None,
                         help="Wind speed for domain-average mode (in --speed-units)")
     parser.add_argument("--direction", type=float, default=None,
@@ -308,9 +338,16 @@ def main():
         parser.error(str(exc))
 
     try:
-        wx_model = resolve_weather_model(args.model, run_params["type"])
+        wx_model = resolve_weather_model(
+            args.model,
+            run_params["type"],
+            weather_source=args.weather_source,
+        )
     except ValueError as exc:
         parser.error(str(exc))
+
+    if args.weather_source == "herbie" and run_params["type"] != "forecast":
+        parser.error("--weather-source herbie is currently supported for forecast runs only.")
 
     date_str = run_params["start"].strftime("%Y%m%d")
     output_dir = os.path.join(
@@ -320,7 +357,10 @@ def main():
         ),
     )
 
-    logger.info(f"Mode: {args.mode.upper()} | Model: {args.model} ({wx_model})")
+    logger.info(
+        f"Mode: {args.mode.upper()} | Model: {args.model} ({wx_model}) | "
+        f"Weather source: {args.weather_source}"
+    )
     logger.info(f"Window: {run_params['start']} -> {run_params['stop']} UTC")
 
     if do_upload:
@@ -329,16 +369,41 @@ def main():
     try:
         utils.ensure_dir(output_dir)
 
+        forecast_filename = None
+        wx_model_type_override = wx_model
+        if args.weather_source == "herbie":
+            try:
+                from .herbie_wx_model import parse_extra_values, prepare_herbie_wx_model
+            except ImportError:
+                from herbie_wx_model import parse_extra_values, prepare_herbie_wx_model
+
+            herbie_cycle = parse_utc_timestamp(args.herbie_cycle) if args.herbie_cycle else None
+            herbie_member = _parse_herbie_member(args.herbie_member)
+            forecast_filename = prepare_herbie_wx_model(
+                model_name=args.model,
+                start_time=run_params["start"],
+                stop_time=run_params["stop"],
+                domain_config=domain_config,
+                priority=args.herbie_priority,
+                cycle=herbie_cycle,
+                product=args.herbie_product,
+                member=herbie_member,
+                domain=args.herbie_domain,
+                extra=parse_extra_values(args.herbie_extra),
+            )
+            wx_model_type_override = None
+
         config_path, _ = generate_config(
             date_str, run_params["start"], run_params["stop"],
             domain_config,
-            wx_model_type_override=wx_model,
+            wx_model_type_override=wx_model_type_override,
             surface_vegetation=config_loader.SURFACE_VEGETATION,
             sub_dir=output_dir,
             output_wind_height=args.height,
             input_points_file=str(points_input_path) if points_input_path else None,
             output_points_file=str(points_output_path) if points_output_path else None,
             run_type=run_params["type"],
+            forecast_filename=str(forecast_filename) if forecast_filename else None,
         )
 
         if not args.dry_run:

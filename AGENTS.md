@@ -17,7 +17,7 @@ WindNinja/HRRR workflow.
 Host (GCP VM or any Linux box)
   └── mwn.sh ← user-facing CLI, runs on host
         └── docker compose run --rm shell ← spins up container per command
-              └── ghcr.io/austfi/mountain-windninja:3.12.2 or local image
+              └── ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1 or local image
                     ├── WindNinja CLI (compiled C++)
                     ├── OpenFOAM 9 (momentum solver)
                     ├── GDAL 3.4 / PROJ 8.2
@@ -277,6 +277,33 @@ not a completed study.
 The residual U-Net code is under `ml/residual_unet/`. It should not change normal
 `mwn.sh` behavior. The operational path remains WindNinja/HRRR first; ML uses
 completed paired outputs as training data.
+
+### 17. Herbie forecast source is opt-in and image-level
+
+The default forecast path remains WindNinja's native `wxModelInitialization`
+with `wx_model_type`. Herbie runs are explicit:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+```
+
+The Herbie path prepares a local parent-model NetCDF under
+`runtime/weather/herbie/<model>/<cycle>/<domain>/windninja_generic_GFS.nc` and
+passes it to WindNinja with `forecast_filename`; it does not use
+`griddedInitialization` ASCII forcing. The `GFS` filename suffix is only a
+WindNinja generic-reader compatibility workaround; it is not a source-model
+change.
+
+This is a Docker image dependency change (`herbie-data`, `xarray`, `cfgrib`,
+`netCDF4`, ecCodes). If Herbie imports or GRIB decoding fail inside the
+container, rebuild with `./deploy/gcp/mwn.sh build-local` or pull a newer GHCR
+image after one has been published and tested. Do not make Herbie the default
+until native-vs-Herbie HRRR smoke tests are acceptably close for a small domain.
+
+Only expose Herbie templates that make sense for WindNinja parent weather:
+forecast grids with 10 m U/V and 2 m temperature. Do not list
+wave-only, storm-specific, climate, reforecast, single-variable archive, or
+full-file-only global templates as normal `mwn.sh run --model` choices.
 
 Current source inputs:
 
@@ -646,7 +673,9 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 - Base: Ubuntu 22.04
 - OpenFOAM 9 (package from dl.openfoam.org)
 - WindNinja compiled from source with `-D NINJA_QTGUI=OFF` (no GUI deps)
-- Build-time upstream patch script: `docker/patch_windninja_public_pastcast.py`
+- Build-time upstream patch scripts:
+  `docker/patch_windninja_public_pastcast.py` and
+  `docker/patch_windninja_generic_warp.py`
 - OpenFOAM custom libs (`libWindNinja.so`, `applyInit`) platform path: `linux64GccDPInt32Opt`
 - Full build ~30 min; cached layers make rebuilds fast
 
@@ -663,6 +692,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `scripts/synoptic_validation.py` | Builds station point CSVs and computes validation metrics |
 | `scripts/validation_study.py` | Chunked Synoptic/model/WindNinja validation workflow using explicit station manifests |
 | `scripts/forcing_from_grib.py` | Converts U/V or speed/direction GRIB/NetCDF fields into WindNinja grids |
+| `scripts/herbie_wx_model.py` | Opt-in Herbie adapter that writes WindNinja-compatible local weather-model NetCDF files |
 | `scripts/k0co_height_hrrr_validation.py` | Focused K0CO adjusted-HRRR forcing and WindNinja validation harness |
 | `scripts/hrrr_exposure_gate_assessment.py` | HRRR-level exposure-gate tuning and multistation diagnostics |
 | `scripts/validation_plots.py` | Pure-stdlib SVG/HTML plotting for completed validation sample chunks |
@@ -672,6 +702,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `compose.yaml` | Docker Compose config (services, volumes, env_file) |
 | `Dockerfile` | Builds the WindNinja + OpenFOAM environment |
 | `docker/patch_windninja_public_pastcast.py` | Patches upstream WindNinja pastcast auth gate at build time |
+| `docker/patch_windninja_generic_warp.py` | Patches upstream WindNinja generic NetCDF warping for GDAL band arrays |
 | `ml/residual_unet/` | Isolated ML offshoot for mass-to-momentum residual U-Net experiments |
 | `docs/ml_residual_unet.md` | Current ML workflow, results, and cleanup boundary |
 

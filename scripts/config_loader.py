@@ -84,6 +84,12 @@ STATIC_DATA_DIR = _resolve(os.getenv("MWN_STATIC_DATA_ROOT", "static_data"))
 TEMP_DIR = RUNTIME_DIR / "temp"
 ARCHIVE_DIR = RUNTIME_DIR / "archives"
 LOGS_DIR = RUNTIME_DIR / "logs"
+HERBIE_CACHE_DIR = _resolve(os.getenv("MWN_HERBIE_CACHE", "runtime/weather/herbie"))
+HERBIE_PRIORITY = os.getenv("MWN_HERBIE_PRIORITY", "aws,google,azure,nomads")
+try:
+    HERBIE_MAX_CYCLE_REWIND = max(0, int(os.getenv("MWN_HERBIE_MAX_CYCLE_REWIND", "4")))
+except ValueError:
+    HERBIE_MAX_CYCLE_REWIND = 4
 
 WINDNINJA_CLI = os.getenv("MWN_WINDNINJA_CLI",
                           os.getenv("WINDNINJA_CLI", "/usr/local/bin/WindNinja_cli"))
@@ -128,5 +134,5 @@ def get_gridded_domain_config(domain_key: str | None = None) -> DomainConfig:
 
 
 def init_directories() -> None:
-    for d in (RUNTIME_DIR, STATIC_DATA_DIR, TEMP_DIR, ARCHIVE_DIR, LOGS_DIR):
+    for d in (RUNTIME_DIR, STATIC_DATA_DIR, TEMP_DIR, ARCHIVE_DIR, LOGS_DIR, HERBIE_CACHE_DIR):
         d.mkdir(parents=True, exist_ok=True)
