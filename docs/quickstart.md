@@ -14,7 +14,7 @@ cd /opt/mountain_windninja
 ```
 
 `init` creates `runtime/`, `static_data/`, and `config/runtime.env` if missing,
-then tries to pull `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1`. If image pull
+then tries to pull `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2`. If image pull
 fails, run:
 
 ```bash

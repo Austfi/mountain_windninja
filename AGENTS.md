@@ -17,7 +17,7 @@ WindNinja/HRRR workflow.
 Host (GCP VM or any Linux box)
   └── mwn.sh ← user-facing CLI, runs on host
         └── docker compose run --rm shell ← spins up container per command
-              └── ghcr.io/austfi/mountain-windninja:3.12.2-herbie.1 or local image
+              └── ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2 or local image
                     ├── WindNinja CLI (compiled C++)
                     ├── OpenFOAM 9 (momentum solver)
                     ├── GDAL 3.4 / PROJ 8.2
@@ -486,9 +486,12 @@ image after one has been published and tested. Do not make Herbie the default
 until native-vs-Herbie HRRR smoke tests are acceptably close for a small domain.
 
 Only expose Herbie templates that make sense for WindNinja parent weather:
-forecast grids with 10 m U/V and 2 m temperature. Do not list
-wave-only, storm-specific, climate, reforecast, single-variable archive, or
-full-file-only global templates as normal `mwn.sh run --model` choices.
+forecast grids with tested field-subset access for 10 m U/V and 2 m
+temperature. The VM-tested Herbie suite is `HRRR`, `GFS`, `RRFS`, and
+`HRRRAK`; keep RAP/NAM/NBM on WindNinja native until their Herbie subset path is
+fixed. Do not list wave-only, storm-specific, climate, reforecast,
+single-variable archive, or full-file-only global templates as normal
+`mwn.sh run --model` choices.
 
 ## DEM Data Sources
 
