@@ -1,5 +1,11 @@
 # Residual U-Net Generalization Data Plan
 
+Status note: this is now a historical/secondary plan. The four-domain
+generalization work produced useful signal, but the current practical ML
+direction is terrain-specific Breck/Tenmile and Keystone momentum emulation.
+Use [the residual U-Net guide](ml_residual_unet.md) for current results,
+Colab artifacts, and next steps.
+
 This plan skips Vail for now and builds the first general mountain dataset from
 four 9.6 km boxes:
 
@@ -29,8 +35,10 @@ runtime/ml/residual_unet/hrrr_pairs/loveland_abasin_9p6_smoke/loveland_abasin_9p
 
 ## Repo And Branch Organization
 
-Keep the ML generalization work on a branch separate from the older K0CO
-validation branch. The local branch for this work is:
+The original generalization work used a separate branch from the older K0CO
+validation branch. Current ML documentation and site-specific notebooks are now
+tracked on `main`; check `git branch --show-current` before assuming an old
+branch name applies.
 
 ```text
 ml-generalization-data-build
@@ -68,9 +76,9 @@ per-hour outcome: 20 improved, 5 worse
 This is enough to justify a broader data run, but not enough to justify a huge
 run before V2 and multi-domain tests.
 
-## Active Cloud Run Snapshot
+## Historical Cloud Run Snapshot
 
-Current active production data build as of 2026-05-19 17:04 UTC:
+Historical production data build snapshot from 2026-05-19 17:04 UTC:
 
 ```text
 project: spring-nova-475120-r0

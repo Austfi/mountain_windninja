@@ -49,8 +49,9 @@ This document is the quickest orientation point for another agent or operator pi
   `MWN_NUM_THREADS=6` for the high-thread trial; do not use 12 for OpenFOAM
   momentum runs.
 - The residual U-Net ML offshoot lives under `ml/residual_unet/` and is separate
-  from the operational `mwn.sh` path. Current best Berthoud checkpoint artifacts
-  are organized under `ml/residual_unet/colab/results/berthoud_combined_v1/`.
+  from the operational `mwn.sh` path. The current practical ML direction is
+  site-specific Breck/Tenmile and Keystone momentum emulation; Berthoud
+  `berthoud_combined_v1` remains an older baseline.
 - A residual U-Net HRRR-pair process may run outside `mwn.sh` and launch
   short-lived Docker reanalysis chunks. Always include
   `ml.residual_unet.hrrr_pair_runs` in active-process checks before cleanup.
@@ -60,57 +61,78 @@ This document is the quickest orientation point for another agent or operator pi
 ### Residual U-Net ML Offshoot
 
 The ML path learns a correction from WindNinja mass-solver output to
-momentum-solver output. It currently uses five inputs:
+momentum-solver output. It is a momentum-emulator experiment, not an
+observation-calibrated truth model. The current practical direction is
+terrain-specific emulation for fixed 9.6 km boxes, especially Breck/Tenmile and
+Keystone.
+
+Current six-channel site-specific inputs:
 
 ```text
-z_rel, dzdx, dzdy, u_mass, v_mass
+z_rel, dzdx, dzdy, canopy_cover, u_mass, v_mass
 ```
 
-The current best local result is `berthoud_combined_v1`:
+The target remains:
 
 ```text
-all held-out ML vector RMSE:        1.958 m/s
-HRRR-only held-out ML vector RMSE:  0.716 m/s
-controlled held-out ML vector RMSE: 4.488 m/s
+delta_u = u_momentum - u_mass
+delta_v = v_momentum - v_mass
 ```
 
 Important files:
 
 - `docs/ml_residual_unet.md`
 - `docs/ml_generalization_data_plan.md`
+- `docs/ml_next_terrain_expansion_plan.md`
 - `ml/residual_unet/README.md`
 - `ml/residual_unet/hrrr_pair_runs.py`
 - `ml/residual_unet/build_controlled_dataset.py`
-- `ml/residual_unet/notebooks/03_train_berthoud_combined_colab.ipynb`
+- `ml/residual_unet/build_domain_specific_lcp_canopy.py`
+- `ml/residual_unet/emulator_scorecard.py`
+- `ml/residual_unet/compare_results.py`
+- `ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb`
 
-Current ML branch/worktree organization:
-
-```text
-branch: ml-generalization-data-build
-active source work: ML generalization data build plus docs
-ignored generated paths: runtime/, static_data/, ml/residual_unet/data/processed/, ml/residual_unet/outputs/, ml/residual_unet/colab/
-```
-
-Current active/preferred GCP data-generation run:
+Current site-specific Colab/GCS artifacts:
 
 ```text
-project: spring-nova-475120-r0
-zone: us-central1-a
-vm: mwn-ml-general-9p6
 bucket: gs://mwn-ml-general-9p6-spring-nova-475120-r0
-tmux session: mwn-monthly
-runner: runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
+datasets:
+  drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
+  drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
+notebook:
+  drive_upload/06_train_site_specific_9p6_colab.ipynb
+results:
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v1/
+  colab_results/keystone_9p6_specific_lcp_canopy_v1/
+  colab_results/_comparison/
 ```
 
-That run is intended to build mass/momentum pairs only: monthly HRRR windows for
-four 9.6 km domains plus controlled 15-degree speed/direction cases. The
-wrapper should sync `runtime/temp` and `runtime/ml/residual_unet` to the GCS
-bucket and shut the VM down when complete. Refresh live status before making
-operational decisions; this document is handoff context, not a live monitor.
+Latest held-out same-terrain results:
+
+```text
+Breck/Tenmile HRRR: mass RMSE 3.697 m/s, ML RMSE 0.626 m/s, 83.1% improvement, 95.6% better pixels
+Breck/Tenmile controlled 15-degree: mass RMSE 12.409 m/s, ML RMSE 2.392 m/s, 80.7% improvement
+Keystone HRRR: mass RMSE 2.815 m/s, ML RMSE 0.452 m/s, 83.9% improvement, 96.4% better pixels
+Keystone controlled 15-degree: mass RMSE 10.871 m/s, ML RMSE 2.897 m/s, 73.4% improvement
+```
+
+The Breck/Keystone data package used 362 good full-year HRRR days and skipped
+three repeatedly failing HRRR dates: 2025-06-27, 2025-11-20, and 2025-12-14.
+The 7.5-degree midpoint controlled set was included as train-only in this
+package, so it helps training but is not independently evaluated yet.
+
+The VM `mwn-ml-general-9p6` was terminated after packaging/training handoff.
+Refresh live GCP state before making operational decisions; this document is
+handoff context, not a live monitor.
 
 Generated ML data/checkpoints are ignored. Preserve `best.pt`, `metrics.json`,
-`sample_metrics.csv`, and `train_log.csv` under `ml/residual_unet/colab/results/`
-unless the user explicitly wants to discard returned Colab artifacts.
+`sample_metrics.csv`, `train_log.csv`, scorecards, and comparison reports unless
+the user explicitly wants to discard returned Colab artifacts.
+
+Next ML work should focus on stricter day/event-level splits, reserving some
+7.5-degree midpoint controlled cases for validation/test, and practical
+inference checks against fresh paired mass/momentum runs before changing model
+architecture.
 
 The prepared large HRRR-pair plan is local and ignored:
 

@@ -154,8 +154,8 @@ Examples:
 - [Terrain guide](docs/terrain.md) - DEM, LCP, source selection, and troubleshooting
 - [Scheduling guide](docs/scheduling.md) - automatic forecast runs
 - [Validation guide](docs/validation.md) - Synoptic and raster validation workflow
-- [Residual U-Net ML guide](docs/ml_residual_unet.md) - Berthoud mass-to-momentum research offshoot
-- [ML generalization data plan](docs/ml_generalization_data_plan.md) - current GCP data-build plan for 9.6 km terrain boxes
+- [Residual U-Net ML guide](docs/ml_residual_unet.md) - current mass-to-momentum emulator status, site-specific results, Colab flow, and cleanup boundary
+- [ML generalization data plan](docs/ml_generalization_data_plan.md) - GCP data-build plan for 9.6 km multi-terrain experiments
 - [Development guide](docs/development.md) - local Python/dev overrides
 - [GCP setup guide](docs/gcp_setup.md) - VM startup, GHCR image setup, sizing, costs, and operations
 - [WindNinja reference](docs/windninja_reference.md) - upstream config details

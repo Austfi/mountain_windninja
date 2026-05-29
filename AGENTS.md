@@ -278,40 +278,11 @@ The residual U-Net code is under `ml/residual_unet/`. It should not change norma
 `mwn.sh` behavior. The operational path remains WindNinja/HRRR first; ML uses
 completed paired outputs as training data.
 
-### 17. Herbie forecast source is opt-in and image-level
+This is a momentum-solver emulator, not observation calibration. The current
+practical direction is terrain-specific emulation for fixed 9.6 km boxes,
+especially Breck/Tenmile and Keystone.
 
-The default forecast path remains WindNinja's native `wxModelInitialization`
-with `wx_model_type`. Herbie runs are explicit:
-
-```bash
-./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
-```
-
-The Herbie path prepares a local parent-model NetCDF under
-`runtime/weather/herbie/<model>/<cycle>/<domain>/windninja_generic_GFS.nc` and
-passes it to WindNinja with `forecast_filename`; it does not use
-`griddedInitialization` ASCII forcing. The `GFS` filename suffix is only a
-WindNinja generic-reader compatibility workaround; it is not a source-model
-change.
-
-This is a Docker image dependency change (`herbie-data`, `xarray`, `cfgrib`,
-`netCDF4`, ecCodes). If Herbie imports or GRIB decoding fail inside the
-container, rebuild with `./deploy/gcp/mwn.sh build-local` or pull a newer GHCR
-image after one has been published and tested. Do not make Herbie the default
-until native-vs-Herbie HRRR smoke tests are acceptably close for a small domain.
-
-Only expose Herbie templates that make sense for WindNinja parent weather:
-forecast grids with 10 m U/V and 2 m temperature. Do not list
-wave-only, storm-specific, climate, reforecast, single-variable archive, or
-full-file-only global templates as normal `mwn.sh run --model` choices.
-
-Current source inputs:
-
-```text
-z_rel, dzdx, dzdy, u_mass, v_mass
-```
-
-Current LCP-canopy V2 candidate inputs:
+Current six-channel LCP-canopy inputs:
 
 ```text
 z_rel, dzdx, dzdy, canopy_cover, u_mass, v_mass
@@ -329,118 +300,61 @@ delta_u = u_momentum - u_mass
 delta_v = v_momentum - v_mass
 ```
 
-Current best Berthoud model artifacts are organized under:
+Preferred site-specific Colab entrypoint:
 
 ```text
-ml/residual_unet/colab/results/berthoud_combined_v1/
+ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
-Headline held-out results:
+Current GCS handoff artifacts:
 
 ```text
-all held-out ML vector RMSE:        1.958 m/s
-HRRR-only held-out ML vector RMSE:  0.716 m/s
-controlled held-out ML vector RMSE: 4.488 m/s
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/residual_unet_code.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/06_train_site_specific_9p6_colab.ipynb
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
 ```
 
-Candidate V2 training artifacts from the salvaged interrupted run:
+Latest site-specific held-out results:
 
 ```text
-ml/residual_unet/data/processed/berthoud_hrrr_oct_dec_2025_v1/
-ml/residual_unet/data/processed/berthoud_combined_v2/
-ml/residual_unet/outputs/drive_upload/berthoud_combined_v2_dataset.zip
-ml/residual_unet/notebooks/04_train_berthoud_combined_v2_colab.ipynb
-```
+Breck/Tenmile HRRR:
+  mass vector RMSE: 3.697 m/s
+  ML vector RMSE:   0.626 m/s
+  improvement:      83.1%
+  ML better pixels: 95.6%
 
-`berthoud_combined_v2` has 4,358 processed `96 x 96` samples, but it is only a
-candidate dataset until a Colab run returns checkpoint metrics. Keep
-`berthoud_combined_v1` as the current best checkpoint until V2 beats it on
-held-out and unseen-terrain checks.
-
-The first unseen-terrain check is `breck_tenmile_9p6`, a 9.6 km Breckenridge /
-Tenmile box centered at `39.4685,-106.0785` with bbox
-`39.51166738 -106.02258184 39.42533262 -106.13441816`. It is intended to cover
-the Breckenridge resort ridge segment from Peak 6 through Peak 10, not the full
-Tenmile Range.
-
-Completed V1 Breck/Tenmile smoke result:
-
-```text
-window: 2026-01-01 00Z through 2026-01-02 00Z
-samples: 25 hourly rasters
-mass vector RMSE: 4.291 m/s
-V1 ML vector RMSE: 3.731 m/s
-overall vector RMSE improvement: 13.0%
-per-hour outcome: 20 improved, 5 worse
-```
-
-The bounding-box KML is at:
-
-```text
-runtime/ml/residual_unet/hrrr_pairs/breck_tenmile_9p6_smoke/breck_tenmile_9p6_bbox.kml
-```
-
-Do not spend on a 7-day Breck V1 run by default. The six-channel
-`mountain_general_9p6_lcp_canopy_v1` Loveland/A-Basin holdout run completed on
-2026-05-22 and improved over the five-channel mountain-general baseline:
-
-```text
-Loveland/A-Basin HRRR LCP-canopy:
-  mass vector RMSE: 4.153 m/s
-  ML vector RMSE:   2.529 m/s
-  improvement:      39.1%
-
-Loveland/A-Basin controlled LCP-canopy:
-  mass vector RMSE: 12.891 m/s
-  ML vector RMSE:    8.846 m/s
-  improvement:       31.4%
-```
-
-The same six-channel `mountain_general_9p6_lcp_canopy_v1` Colab workflow then
-completed Keystone and Breck/Tenmile holdout checks:
-
-```text
-Keystone HRRR LCP-canopy:
-  mass vector RMSE: 2.878 m/s
-  ML vector RMSE:   3.211 m/s
-  improvement:     -11.6%
-
-Keystone controlled LCP-canopy:
-  mass vector RMSE: 10.871 m/s
-  ML vector RMSE:    9.454 m/s
-  improvement:       13.0%
-
-Breck/Tenmile HRRR LCP-canopy:
-  mass vector RMSE: 3.981 m/s
-  ML vector RMSE:   2.775 m/s
-  improvement:      30.3%
-
-Breck/Tenmile controlled LCP-canopy:
+Breck/Tenmile controlled 15-degree:
   mass vector RMSE: 12.409 m/s
-  ML vector RMSE:    8.264 m/s
-  improvement:       33.4%
+  ML vector RMSE:    2.392 m/s
+  improvement:       80.7%
+
+Keystone HRRR:
+  mass vector RMSE: 2.815 m/s
+  ML vector RMSE:   0.452 m/s
+  improvement:      83.9%
+  ML better pixels: 96.4%
+
+Keystone controlled 15-degree:
+  mass vector RMSE: 10.871 m/s
+  ML vector RMSE:    2.897 m/s
+  improvement:       73.4%
 ```
 
-Interpretation: Loveland and Breck HRRR improved, all controlled holdouts
-improved, but Keystone HRRR got worse. The current next training step is the
-all-domain six-channel LCP-canopy model, then source-by-source test evaluation
-with special attention to Keystone HRRR before adding more LCP features. The
-preferred notebook entrypoint is:
+The package used 362 good full-year HRRR days and skipped three repeatedly
+failing HRRR dates: `2025-06-27`, `2025-11-20`, and `2025-12-14`. The
+7.5-degree midpoint controlled matrix was included as train-only in this
+package; it helps fitting but is not independently evaluated yet.
+
+Read `docs/ml_residual_unet.md` for current ML status, result interpretation,
+Colab steps, and cleanup boundaries. For returned Colab artifacts, read:
 
 ```text
-ml/residual_unet/notebooks/05_train_mountain_general_9p6_colab.ipynb
+MyDrive/windninja_ml/results/<run_name>/scorecard/scorecard_report.md
+MyDrive/windninja_ml/results/_comparison/comparison_report.md
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/
 ```
 
-It now defaults to:
-
-```text
-mountain_general_9p6_lcp_canopy_v1
-```
-
-That all-domain run trains on all four terrain boxes and evaluates every HRRR
-and controlled source separately on the dataset test split.
-
-ML evaluation reports both average errors and pixel-level distribution metrics.
 For “how many vectors in the 96 x 96 crop are close vs off,” use:
 
 ```text
@@ -455,33 +369,6 @@ ml_vector_error_le_5p0mps_fraction
 ```
 
 These fields are written to both `metrics.json` and `sample_metrics.csv`.
-
-Future Colab runs should write/update a cross-run comparison under
-`MyDrive/windninja_ml/results/_comparison/` and sync it to
-`gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/_comparison/`.
-The comparison code is `ml.residual_unet.compare_results`; it scans every result
-folder and writes `comparison_metrics.csv`, `comparison_run_summary.csv`,
-`comparison_summary.json`, and `comparison_report.md`.
-
-The current practical ML direction is terrain-specific momentum emulation for
-fixed 9.6 km boxes, especially Breck/Tenmile and Keystone. The preferred
-terrain-specific Colab entrypoint is:
-
-```text
-ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
-```
-
-That notebook expects these packaged datasets once the GCP data build finishes:
-
-```text
-breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
-keystone_9p6_specific_lcp_canopy_v1_dataset.zip
-```
-
-It trains `breck_tenmile_9p6_specific_lcp_canopy_v1` and
-`keystone_9p6_specific_lcp_canopy_v1` separately, evaluates each source dataset,
-writes the cross-run comparison, and writes a momentum-emulator scorecard via
-`ml.residual_unet.emulator_scorecard`.
 
 For terrain-specific models, do not lead with leave-one-terrain-out results.
 Use same-terrain held-out HRRR test samples as the primary operational metric,
@@ -500,7 +387,12 @@ good but high-wind, lee-side, or specific direction-sector rows regress, treat
 the model as not ready for operational use on that terrain until those regimes
 get more paired data or a model change.
 
-The next terrain-expansion plan is:
+Next ML work should focus on stricter day/event-level splits, reserving some
+7.5-degree midpoint controlled cases for validation/test, and practical
+inference checks against fresh paired mass/momentum runs. Do not chase larger
+models until the split/evaluation design is sound.
+
+The next terrain-expansion plan remains:
 
 ```text
 docs/ml_next_terrain_expansion_plan.md
@@ -531,127 +423,47 @@ seven-domain V2 processed dataset.
 The Vail box is a representative central/back-bowls 9.6 km box, not full Vail
 resort coverage.
 
-The current no-Vail generalization data plan is:
-
-```text
-docs/ml_generalization_data_plan.md
-runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
-```
-
-The active/preferred GCP quota-compatible path uses one `c4-standard-24` VM to
-run monthly HRRR mass/momentum pairs and then controlled 15-degree forcing for
-`berthoud_pass`, `breck_tenmile_9p6`, `keystone_9p6`, and
-`loveland_abasin_9p6`. It skips Vail. The cloud data-generation path should
-skip ML inference; Colab training/evaluation happens after paired
-mass/momentum outputs are synced.
-
-Current active cloud-run context:
-
-```text
-project: spring-nova-475120-r0
-zone: us-central1-a
-vm: mwn-ml-general-9p6
-bucket: gs://mwn-ml-general-9p6-spring-nova-475120-r0
-tmux session: mwn-monthly
-```
-
-The monthly wrapper should sync `runtime/temp` and
-`runtime/ml/residual_unet` to GCS, then shut the VM down when complete. Refresh
-live status before making operational decisions; this file is not a live
-monitor.
-
-The staged ML data-generation runners are:
-
-```text
-runtime/ml/residual_unet/hrrr_pairs/general_9p6_monthly_202505_202604_v1/run_monthly_hrrr_plus_controlled_sync_and_stop.sh
-runtime/ml/residual_unet/hrrr_pairs/general_9p6_20250501_20260501_v1/run_full_year_hrrr_plus_controlled_sync_and_stop.sh
-runtime/ml/residual_unet/raw/controlled_9p6_15deg/
-```
-
-The preferred robust run is the monthly wrapper: one staggered 7-day HRRR window
-per month from May 2025 through April 2026, plus 15-degree controlled forcing
-over all four 9.6 km domains. Controlled speeds are 5, 10, 15, 20, 25, 30, 40,
-50, 60, 70, and 80 mph. The full-year-every-day HRRR wrapper is staged but is
-not the preferred first robust run because cost/runtime are much higher.
-
-After the raw run returns, build domain-specific HRRR and controlled processed
-datasets, then combine them into:
-
-```text
-ml/residual_unet/data/processed/mountain_general_9p6_monthly_controlled_v1
-```
-
-For the LCP-canopy version, build all four HRRR domains plus all four controlled
-domains from current raw/runtime outputs with:
-
-```bash
-.venv/bin/python -m ml.residual_unet.build_mountain_general_lcp_canopy --force
-```
-
-This writes:
-
-```text
-ml/residual_unet/data/processed/mountain_general_9p6_lcp_canopy_v1
-```
-
-Then package/upload that processed dataset for Colab with
-`ml.residual_unet.prepare_colab_upload --processed-dir ... --skip-build`.
-
-Use `ml.residual_unet.build_controlled_dataset --terrain-domain <domain>` for
-controlled datasets so stale absolute terrain paths in raw manifests do not
-misalign non-Berthoud terrain.
-
-The next practical data step is more HRRR mass/momentum pairs. A prepared local
-no-run plan exists under:
-
-```text
-runtime/ml/residual_unet/hrrr_pairs/berthoud_hrrr_20251001_20260501/
-```
-
-It plans 2025-10-01 00Z through 2026-05-01 00Z in 24h chunks. It is ignored by
-git and should not be run while another WindNinja/OpenFOAM container is active.
-
-For large emulator data generation, `ml.residual_unet.hrrr_pair_runs` can also
-include post-run ML inference with:
-
-```bash
-.venv/bin/python -m ml.residual_unet.hrrr_pair_runs \
-  --start 202510010000 \
-  --end 202605010000 \
-  --chunk-hours 24 \
-  --threads 6 \
-  --label berthoud_hrrr_20251001_20260501_emulator \
-  --infer-checkpoint ml/residual_unet/colab/results/berthoud_combined_v1/best.pt \
-  --write-run-script
-```
-
-This stages mass solver, momentum solver, and ML-corrected momentum-like outputs
-for the same HRRR chunks. It still does not start the expensive long run until
-the generated `run_hrrr_pairs.sh` is executed.
-
-A small 4-vs-6 momentum thread benchmark is prepared under:
-
-```text
-runtime/ml/residual_unet/thread_benchmark/
-```
-
-Run it only when no other WindNinja/OpenFOAM container is active, then decide
-whether the large HRRR plan should remain at 6 threads or be regenerated at 4.
-
-Residual U-Net inference is available for completed Berthoud mass-solver runs:
+Residual U-Net inference is available for completed mass-solver runs:
 
 ```bash
 .venv/bin/python -m ml.residual_unet.infer \
-  --checkpoint ml/residual_unet/colab/results/berthoud_combined_v1/best.pt \
-  --mass-run runtime/temp/<berthoud_pass_mass_run> \
+  --checkpoint ml/residual_unet/colab/results/<run_name>/best.pt \
+  --mass-run runtime/temp/<mass_run> \
   --out ml/residual_unet/outputs/inference/<run_name> \
   --source-root . \
   --speed-units mph
 ```
 
-Add `--momentum-run runtime/temp/<berthoud_pass_momentum_run>` when a paired
-momentum run exists and metrics are needed. The command writes the trained
-`96 x 96` center crop, not a full-domain raster.
+Add `--momentum-run runtime/temp/<momentum_run>` when a paired momentum run
+exists and metrics are needed. The command writes the trained `96 x 96` center
+crop, not a full-domain raster.
+
+### 17. Herbie forecast source is opt-in and image-level
+
+The default forecast path remains WindNinja's native `wxModelInitialization`
+with `wx_model_type`. Herbie runs are explicit:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+```
+
+The Herbie path prepares a local parent-model NetCDF under
+`runtime/weather/herbie/<model>/<cycle>/<domain>/windninja_generic_GFS.nc` and
+passes it to WindNinja with `forecast_filename`; it does not use
+`griddedInitialization` ASCII forcing. The `GFS` filename suffix is only a
+WindNinja generic-reader compatibility workaround; it is not a source-model
+change.
+
+This is a Docker image dependency change (`herbie-data`, `xarray`, `cfgrib`,
+`netCDF4`, ecCodes). If Herbie imports or GRIB decoding fail inside the
+container, rebuild with `./deploy/gcp/mwn.sh build-local` or pull a newer GHCR
+image after one has been published and tested. Do not make Herbie the default
+until native-vs-Herbie HRRR smoke tests are acceptably close for a small domain.
+
+Only expose Herbie templates that make sense for WindNinja parent weather:
+forecast grids with 10 m U/V and 2 m temperature. Do not list
+wave-only, storm-specific, climate, reforecast, single-variable archive, or
+full-file-only global templates as normal `mwn.sh run --model` choices.
 
 ## DEM Data Sources
 

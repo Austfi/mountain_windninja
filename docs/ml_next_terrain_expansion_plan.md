@@ -1,5 +1,12 @@
 # ML Terrain Expansion Plan
 
+Status note: this remains a useful future expansion plan, but it is no longer
+the immediate next step. The latest site-specific Breck/Tenmile and Keystone
+models are strong enough that the next ML work should first tighten
+same-terrain evaluation: day/event-level splits, midpoint-controlled test
+coverage, and practical inference checks. See
+[the residual U-Net guide](ml_residual_unet.md) for current results.
+
 This is the next data-expansion plan after the four-domain LCP-canopy model.
 The goal is to add new terrain shapes before adding more input channels. The
 current holdout results show useful signal on Loveland/A-Basin and
