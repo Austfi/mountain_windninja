@@ -121,6 +121,10 @@ controlled_9p6_7p5_midpoints: train=264, val=0, test=0 per domain
 That data can help the model learn between the 15-degree directions, but the
 latest results do not independently evaluate midpoint controlled cases. The next
 dataset version should reserve midpoint controlled cases for validation/test.
+The builder now supports this explicitly through configurable controlled
+direction holdouts; the default site-specific spec holds out midpoint directions
+`37.5, 127.5, 217.5, 307.5` for validation and `67.5, 157.5, 247.5, 337.5`
+for test when those midpoint raw cases are rebuilt.
 
 ## Packaged Data
 
@@ -318,6 +322,16 @@ Build a site-specific processed dataset after raw mass/momentum outputs exist:
   --force
 ```
 
+The site definitions live in:
+
+```text
+ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
+```
+
+Add a future terrain box there first, then run the same builder with
+`--domain <site-key>`. That keeps future terrain packages config-driven instead
+of adding another hardcoded Python branch.
+
 Package a processed dataset for Colab:
 
 ```bash
@@ -406,10 +420,11 @@ is supplied.
 Priority next steps:
 
 1. Rebuild the site-specific datasets with stricter day/event-level splits.
-   Current results are strong, but random sample splits can be optimistic if
-   nearby hours from the same weather event land in both train and test.
+   Current HRRR splits are day-blocked, but the deterministic 10-day cycle can
+   still be optimistic for weather events that span adjacent days.
 2. Reserve some 7.5-degree midpoint controlled cases for validation/test so the
-   midpoint matrix has an independent score.
+   midpoint matrix has an independent score. The builder now has this support;
+   the remaining step is to rebuild/package the datasets.
 3. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
    or direction-sector rows show weakness.
 4. Test practical inference on fresh mass-solver runs and compare against a

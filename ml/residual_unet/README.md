@@ -65,7 +65,9 @@ Controlled 15-degree stress tests improve strongly but remain harder:
 | Keystone | 10.871 m/s | 2.897 m/s | 73.4% |
 
 The 7.5-degree midpoint controlled set was included as train-only in this
-package, so it helps fitting but is not independently evaluated yet.
+package, so it helps fitting but is not independently evaluated yet. Current
+builder code can reserve midpoint validation/test directions for the next
+dataset rebuild.
 
 ## Folder Layout
 
@@ -169,6 +171,16 @@ After raw HRRR and controlled mass/momentum outputs exist:
   --domain keystone \
   --force
 ```
+
+Site package definitions are stored in:
+
+```text
+ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
+```
+
+Add future terrain boxes there and reuse the same builder with
+`--domain <site-key>`. The spec also controls midpoint controlled validation
+and test direction holdouts.
 
 Package a processed dataset and notebook for Colab:
 

@@ -344,7 +344,9 @@ Keystone controlled 15-degree:
 The package used 362 good full-year HRRR days and skipped three repeatedly
 failing HRRR dates: `2025-06-27`, `2025-11-20`, and `2025-12-14`. The
 7.5-degree midpoint controlled matrix was included as train-only in this
-package; it helps fitting but is not independently evaluated yet.
+package; it helps fitting but is not independently evaluated yet. The
+site-specific builder now supports explicit midpoint validation/test direction
+holdouts for the next rebuild.
 
 Read `docs/ml_residual_unet.md` for current ML status, result interpretation,
 Colab steps, and cleanup boundaries. For returned Colab artifacts, read:
@@ -391,6 +393,15 @@ Next ML work should focus on stricter day/event-level splits, reserving some
 7.5-degree midpoint controlled cases for validation/test, and practical
 inference checks against fresh paired mass/momentum runs. Do not chase larger
 models until the split/evaluation design is sound.
+
+Terrain-specific package definitions are config-driven through:
+
+```text
+ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
+```
+
+Add future fixed terrain boxes there before using
+`ml.residual_unet.build_domain_specific_lcp_canopy --domain <site-key>`.
 
 The next terrain-expansion plan remains:
 

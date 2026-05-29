@@ -14,6 +14,7 @@ from .build_dataset import LCP_CANOPY_CHANNEL, build_dataset
 DEFAULT_PROCESSED_ROOT = Path("ml/residual_unet/data/processed")
 DEFAULT_CONTROLLED_15_ROOT = Path("runtime/ml/residual_unet/raw/controlled_9p6_15deg")
 DEFAULT_CONTROLLED_MIDPOINT_ROOT = Path("runtime/ml/residual_unet/raw/controlled_9p6_7p5_midpoints")
+DEFAULT_SITE_SPECS_PATH = Path(__file__).resolve().parent / "configs/site_specific_9p6_lcp_canopy.json"
 
 
 @dataclass(frozen=True)
@@ -24,26 +25,44 @@ class DomainSpec:
     hrrr_source: str
     controlled_15_source: str
     controlled_midpoint_source: str
+    controlled_midpoint_val_directions: tuple[float, ...] = ()
+    controlled_midpoint_test_directions: tuple[float, ...] = ()
 
 
-DOMAIN_SPECS = {
-    "breck": DomainSpec(
-        domain="breck_tenmile_9p6",
-        mass_domain="breck_tenmile_9p6_mass",
-        dataset_name="breck_tenmile_9p6_specific_lcp_canopy_v1",
-        hrrr_source="breck_tenmile_9p6_hrrr_specific_lcp_canopy_v1",
-        controlled_15_source="breck_tenmile_9p6_controlled_lcp_canopy_9p6_15deg",
-        controlled_midpoint_source="breck_tenmile_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v1",
-    ),
-    "keystone": DomainSpec(
-        domain="keystone_9p6",
-        mass_domain="keystone_9p6_mass",
-        dataset_name="keystone_9p6_specific_lcp_canopy_v1",
-        hrrr_source="keystone_9p6_hrrr_specific_lcp_canopy_v1",
-        controlled_15_source="keystone_9p6_controlled_lcp_canopy_9p6_15deg",
-        controlled_midpoint_source="keystone_9p6_controlled_lcp_canopy_9p6_7p5deg_midpoints_v1",
-    ),
-}
+def _float_tuple(values: list[int | float] | None) -> tuple[float, ...]:
+    return tuple(float(value) for value in values or [])
+
+
+def load_domain_specs(path: Path = DEFAULT_SITE_SPECS_PATH) -> dict[str, DomainSpec]:
+    raw_specs = json.loads(path.read_text(encoding="utf-8"))
+    specs: dict[str, DomainSpec] = {}
+    required = {
+        "domain",
+        "mass_domain",
+        "dataset_name",
+        "hrrr_source",
+        "controlled_15_source",
+        "controlled_midpoint_source",
+    }
+    for key, raw in raw_specs.items():
+        missing = sorted(required - set(raw))
+        if missing:
+            raise ValueError(f"{path} site {key!r} is missing required keys: {missing}")
+        specs[key] = DomainSpec(
+            domain=str(raw["domain"]),
+            mass_domain=str(raw["mass_domain"]),
+            dataset_name=str(raw["dataset_name"]),
+            hrrr_source=str(raw["hrrr_source"]),
+            controlled_15_source=str(raw["controlled_15_source"]),
+            controlled_midpoint_source=str(raw["controlled_midpoint_source"]),
+            controlled_midpoint_val_directions=_float_tuple(
+                raw.get("controlled_midpoint_val_directions")
+            ),
+            controlled_midpoint_test_directions=_float_tuple(
+                raw.get("controlled_midpoint_test_directions")
+            ),
+        )
+    return specs
 
 
 def build_domain_specific_lcp_canopy(
@@ -101,6 +120,8 @@ def build_domain_specific_lcp_canopy(
             terrain_domain=spec.domain,
             terrain_features=terrain_features,
             source_dataset=spec.controlled_midpoint_source,
+            val_directions=spec.controlled_midpoint_val_directions or None,
+            test_directions=spec.controlled_midpoint_test_directions or None,
         )
         sources.append((spec.controlled_midpoint_source, controlled_midpoint_dir))
         source_summaries[spec.controlled_midpoint_source] = controlled_midpoint_summary
@@ -124,9 +145,10 @@ def build_domain_specific_lcp_canopy(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build a Breck or Keystone-specific LCP-canopy residual U-Net dataset."
+        description="Build a terrain-specific LCP-canopy residual U-Net dataset."
     )
-    parser.add_argument("--domain", choices=sorted(DOMAIN_SPECS), required=True)
+    parser.add_argument("--domain", required=True, help="Site key from --site-specs.")
+    parser.add_argument("--site-specs", default=DEFAULT_SITE_SPECS_PATH.as_posix())
     parser.add_argument("--source-root", default=".", help="Mountain WindNinja repo root.")
     parser.add_argument("--processed-root", default=DEFAULT_PROCESSED_ROOT.as_posix())
     parser.add_argument("--controlled-15-root", default=DEFAULT_CONTROLLED_15_ROOT.as_posix())
@@ -144,7 +166,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    spec = DOMAIN_SPECS[args.domain]
+    specs = load_domain_specs(Path(args.site_specs))
+    if args.domain not in specs:
+        raise SystemExit(
+            f"Unknown domain {args.domain!r}. Available site keys: {', '.join(sorted(specs))}"
+        )
+    spec = specs[args.domain]
     out_dir = Path(args.out) if args.out else Path(args.processed_root) / spec.dataset_name
     summary = build_domain_specific_lcp_canopy(
         spec=spec,

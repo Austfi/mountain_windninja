@@ -119,7 +119,9 @@ Keystone controlled 15-degree: mass RMSE 10.871 m/s, ML RMSE 2.897 m/s, 73.4% im
 The Breck/Keystone data package used 362 good full-year HRRR days and skipped
 three repeatedly failing HRRR dates: 2025-06-27, 2025-11-20, and 2025-12-14.
 The 7.5-degree midpoint controlled set was included as train-only in this
-package, so it helps training but is not independently evaluated yet.
+package, so it helps training but is not independently evaluated yet. The
+site-specific builder now supports explicit midpoint validation/test direction
+holdouts for the next rebuild.
 
 The VM `mwn-ml-general-9p6` was terminated after packaging/training handoff.
 Refresh live GCP state before making operational decisions; this document is
@@ -133,6 +135,12 @@ Next ML work should focus on stricter day/event-level splits, reserving some
 7.5-degree midpoint controlled cases for validation/test, and practical
 inference checks against fresh paired mass/momentum runs before changing model
 architecture.
+
+Site-specific package definitions live in:
+
+```text
+ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
+```
 
 The prepared large HRRR-pair plan is local and ignored:
 

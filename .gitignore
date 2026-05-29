@@ -55,6 +55,7 @@ Thumbs.db
 !config/domains.json
 !config/studies/
 !config/studies/*.json
+!ml/residual_unet/configs/site_specific_9p6_lcp_canopy.json
 *.key
 *.pem
 *credentials*

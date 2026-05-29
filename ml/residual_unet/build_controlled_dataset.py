@@ -19,6 +19,9 @@ from .raster_io import center_crop, read_ascii_grid, same_grid
 
 
 DEFAULT_CONTROLLED_SOURCE = "controlled_berthoud_training"
+DEFAULT_VAL_DIRECTIONS = (30.0, 120.0, 210.0, 300.0)
+DEFAULT_TEST_DIRECTIONS = (60.0, 150.0, 240.0, 330.0)
+DEFAULT_SPLIT_TOLERANCE_DEG = 0.25
 
 
 def safe_label(value: str) -> str:
@@ -82,12 +85,33 @@ def find_windninja_ascii_pair(output_dir: Path) -> tuple[Path, Path]:
     raise FileNotFoundError(f"No complete WindNinja *_vel.asc/*_ang.asc pair in {output_dir}")
 
 
-def controlled_split(direction_deg: float) -> str:
+def _direction_distance_deg(a: float, b: float) -> float:
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+def _parse_direction_values(values: list[str] | None) -> list[float] | None:
+    if values is None:
+        return None
+    parsed: list[float] = []
+    for value in values:
+        parsed.extend(float(item.strip()) for item in value.split(",") if item.strip())
+    return parsed
+
+
+def controlled_split(
+    direction_deg: float,
+    *,
+    val_directions: list[float] | tuple[float, ...] | None = None,
+    test_directions: list[float] | tuple[float, ...] | None = None,
+    tolerance_deg: float = DEFAULT_SPLIT_TOLERANCE_DEG,
+) -> str:
     """Hold out full direction sectors for a simple generalization check."""
-    direction = int(round(direction_deg)) % 360
-    if direction in {60, 150, 240, 330}:
+    direction = direction_deg % 360.0
+    test_values = test_directions or DEFAULT_TEST_DIRECTIONS
+    val_values = val_directions or DEFAULT_VAL_DIRECTIONS
+    if any(_direction_distance_deg(direction, candidate) <= tolerance_deg for candidate in test_values):
         return "test"
-    if direction in {30, 120, 210, 300}:
+    if any(_direction_distance_deg(direction, candidate) <= tolerance_deg for candidate in val_values):
         return "val"
     return "train"
 
@@ -116,6 +140,9 @@ def write_controlled_sample(
     terrain_channels,
     terrain_mask,
     crop_size: int,
+    val_directions: list[float] | tuple[float, ...] | None,
+    test_directions: list[float] | tuple[float, ...] | None,
+    split_tolerance_deg: float,
 ) -> dict[str, str]:
     import numpy as np
 
@@ -161,7 +188,12 @@ def write_controlled_sample(
         "mass_domain": f"{terrain_domain}_mass" if terrain_domain else "",
         "momentum_domain": terrain_domain,
         "terrain_file": terrain_file,
-        "split": controlled_split(direction_deg),
+        "split": controlled_split(
+            direction_deg,
+            val_directions=val_directions,
+            test_directions=test_directions,
+            tolerance_deg=split_tolerance_deg,
+        ),
         "npz_path": sample_path.relative_to(out_dir).as_posix(),
         "mass_speed_path": mass_speed.as_posix(),
         "mass_direction_path": mass_direction.as_posix(),
@@ -180,6 +212,9 @@ def build_controlled_dataset(
     terrain_domain: str | None = None,
     terrain_features: list[str] | None = None,
     source_dataset: str | None = None,
+    val_directions: list[float] | tuple[float, ...] | None = None,
+    test_directions: list[float] | tuple[float, ...] | None = None,
+    split_tolerance_deg: float = DEFAULT_SPLIT_TOLERANCE_DEG,
 ) -> dict:
     if out_dir.exists() and not force and (out_dir / "manifest.csv").exists():
         raise FileExistsError(f"Dataset already exists. Use --force to rebuild: {out_dir}")
@@ -229,6 +264,9 @@ def build_controlled_dataset(
                 terrain_channels=terrain_channels,
                 terrain_mask=terrain_mask,
                 crop_size=crop_size,
+                val_directions=val_directions,
+                test_directions=test_directions,
+                split_tolerance_deg=split_tolerance_deg,
             )
         )
 
@@ -253,6 +291,11 @@ def build_controlled_dataset(
         "terrain_features": features,
         "input_channels": input_channels,
         "target_channels": TARGETS,
+        "split_policy": {
+            "val_directions": list(val_directions or DEFAULT_VAL_DIRECTIONS),
+            "test_directions": list(test_directions or DEFAULT_TEST_DIRECTIONS),
+            "tolerance_deg": split_tolerance_deg,
+        },
         "split_counts": split_counts,
     }
     (out_dir / "dataset_summary.json").write_text(
@@ -278,6 +321,22 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--source-dataset", help="Source label to write into manifest rows and sample IDs.")
+    parser.add_argument(
+        "--val-direction",
+        action="append",
+        help="Validation holdout direction in degrees. Repeat or comma-separate values.",
+    )
+    parser.add_argument(
+        "--test-direction",
+        action="append",
+        help="Test holdout direction in degrees. Repeat or comma-separate values.",
+    )
+    parser.add_argument(
+        "--split-tolerance-deg",
+        type=float,
+        default=DEFAULT_SPLIT_TOLERANCE_DEG,
+        help="Direction matching tolerance for controlled val/test splits.",
+    )
     parser.add_argument("--force", action="store_true")
     return parser
 
@@ -293,6 +352,9 @@ def main() -> int:
         terrain_domain=args.terrain_domain,
         terrain_features=args.terrain_feature,
         source_dataset=args.source_dataset,
+        val_directions=_parse_direction_values(args.val_direction),
+        test_directions=_parse_direction_values(args.test_direction),
+        split_tolerance_deg=args.split_tolerance_deg,
     )
     print(json.dumps(summary, indent=2))
     return 0

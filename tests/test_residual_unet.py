@@ -23,6 +23,7 @@ from ml.residual_unet.build_controlled_dataset import (
     pair_manifest_rows,
 )
 from ml.residual_unet.build_combined_dataset import build_combined_dataset
+from ml.residual_unet.build_domain_specific_lcp_canopy import load_domain_specs
 from ml.residual_unet.compare_results import compare_results
 from ml.residual_unet.build_dataset import (
     CHANNELS,
@@ -526,6 +527,29 @@ def test_controlled_manifest_pairing_and_direction_split():
     assert controlled_split(30.0) == "val"
     assert controlled_split(120.0) == "val"
     assert controlled_split(90.0) == "train"
+    assert controlled_split(
+        67.5,
+        val_directions=[37.5, 127.5, 217.5, 307.5],
+        test_directions=[67.5, 157.5, 247.5, 337.5],
+    ) == "test"
+    assert controlled_split(
+        37.5,
+        val_directions=[37.5, 127.5, 217.5, 307.5],
+        test_directions=[67.5, 157.5, 247.5, 337.5],
+    ) == "val"
+    assert controlled_split(
+        7.5,
+        val_directions=[37.5, 127.5, 217.5, 307.5],
+        test_directions=[67.5, 157.5, 247.5, 337.5],
+    ) == "train"
+
+
+def test_site_specific_specs_are_config_driven():
+    specs = load_domain_specs()
+
+    assert specs["breck"].domain == "breck_tenmile_9p6"
+    assert specs["keystone"].mass_domain == "keystone_9p6_mass"
+    assert specs["breck"].controlled_midpoint_test_directions == (67.5, 157.5, 247.5, 337.5)
 
 
 def test_controlled_dataset_metadata_prefers_domain_over_stale_terrain_path(tmp_path):
