@@ -63,6 +63,23 @@ HRRR on a small domain and confirm the output is close enough for operations.
 Then update `DEFAULT_REMOTE_IMAGE` and operator docs to reference the new
 version where they use a published GHCR image.
 
+When expanding the Herbie model list, do not add a template directly to the
+public `HERBIE_MODEL_MAP` just because Herbie can find it. First verify the
+field access pattern:
+
+- NCEP and ECMWF indexed files: inspect `H.inventory(search=...)` and use raw,
+  anchored regex strings that match the intended surface layer.
+- ECCC single-message files: use Herbie `variable` and `level` kwargs, not
+  regex search, because those products do not provide index files.
+- Multi-step xarray datasets: confirm the adapter selects the requested
+  `valid_time` before writing the WindNinja generic NetCDF.
+- Regional models: run a domain-overlap check so Alaska or Canada grids cannot
+  silently feed a Colorado domain.
+
+Only promote a candidate model after the source-only matrix and a one-hour VM
+run pass, then publish a new GHCR image version and update the docs in the same
+PR.
+
 ## Tests
 
 Fast local checks:

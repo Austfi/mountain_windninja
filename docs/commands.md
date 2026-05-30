@@ -349,6 +349,16 @@ GEFS are excluded from `--weather-source herbie` until the adapter can reliably
 fetch only the needed surface fields without missing subset files or full-file
 downloads. Use WindNinja native mode for RAP, NAM, and NBM.
 
+Herbie subsetting is regex-based: the `search` string is matched against
+`H.inventory().search_this`, and Herbie downloads the matching GRIB byte ranges.
+When adding a Herbie model, first inspect inventory matches for the four fields
+WindNinja needs (`UGRD` 10 m, `VGRD` 10 m, `TMP` 2 m, and cloud cover where
+available). Use anchored raw regex strings such as
+`r":UGRD:10 m above ground:"`; loose expressions can match the wrong layer or
+produce subset files Herbie cannot reopen. Canadian ECCC models are different:
+their Herbie templates use one GRIB file per variable/level and have no index,
+so they must be wired with `variable`/`level` kwargs instead of regex searches.
+
 **Which model should I use?**
 - For US mountain terrain with short forecasts: **HRRR** (default, best resolution)
 - For the most statistically accurate forecast: **NBM** (blends multiple models)

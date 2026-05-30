@@ -34,6 +34,7 @@ class HerbieModelSpec:
     cycle_interval_hours: int = 1
     default_extra: dict[str, str | int | float | bool] | None = None
     field_extra: dict[str, dict[str, str | int | float | bool]] | None = None
+    fetch_strategy: str = "indexed"
     analysis: bool = False
     windninja_notes: str = ""
     search_patterns: dict[str, tuple[str | None, ...]] | None = None
@@ -66,10 +67,14 @@ class HerbieModelSpec:
 
 
 _NCEP_SEARCH_PATTERNS = {
-    "u10": (":UGRD:10 m above ground", ":UGRD:10 m"),
-    "v10": (":VGRD:10 m above ground", ":VGRD:10 m"),
-    "t2m": (":TMP:2 m above ground", ":TMP:2 m"),
-    "tcc": (":TCDC:", ":TCDC:entire atmosphere", ":TCDC:surface"),
+    "u10": (r":UGRD:10 m above ground:", r":UGRD:10 m:"),
+    "v10": (r":VGRD:10 m above ground:", r":VGRD:10 m:"),
+    "t2m": (r":TMP:2 m above ground:", r":TMP:2 m:"),
+    "tcc": (
+        r":TCDC:entire atmosphere[^:]*:(?!.*ave)",
+        r":TCDC:surface:(?!.*ave)",
+        r":TCDC:",
+    ),
 }
 
 _COMMON_ALIASES = {
