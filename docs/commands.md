@@ -248,6 +248,8 @@ dependencies:
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model GFS --hours 6 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model IFS --hours 6 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model NBM --hours 6 --keep-temp --no-upload
 ```
 
 The Herbie path downloads only the parent-model surface fields needed by
@@ -294,7 +296,7 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
-| `--model HRRR\|NBM\|NAM\|NAM-CONUS\|NAM-ALASKA\|RAP\|GFS` | Weather model; reanalysis currently supports HRRR only | `HRRR` |
+| `--model MODEL` | Weather model; native forecast supports the native table below, Herbie supports the expanded table below, and reanalysis currently supports HRRR only | `HRRR` |
 | `--weather-source native\|herbie` | Use WindNinja native weather downloads or a Herbie-prepared local file | `native` |
 | `--herbie-cycle UTC` | Pin the Herbie model cycle for forecast mode | auto |
 | `--herbie-product PRODUCT` | Override the default Herbie product for a model | model default |
@@ -332,22 +334,36 @@ WindNinja rejects `input_points_file` when `momentum_flag = true`. For Synoptic 
 | `GFS` | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km | Global | Worldwide, long-range up to 16 days |
 
 Additional Herbie forecast models are opt-in with `--weather-source herbie`.
-The current VM-tested Herbie set is intentionally small:
+The current Docker-tested Herbie set includes every Herbie template in this
+image that provides the WindNinja-required near-surface wind and temperature
+fields and passed live source prep:
 
 | Short Name | Herbie Template | Default Product/Domain | Best For |
 |-----------|-----------------|------------------------|----------|
-| `HRRR` | `hrrr` | `sfc`, CONUS | HRRR parity/source comparison |
+| `AIFS` | `aifs` | `oper`, global | ECMWF AI forecast comparison |
+| `GDPS` | `gdps` with current ECCC WXO-DD override | 15 km global | Canadian global deterministic comparison |
+| `GEFS` | `gefs` | `atmos.25`, control member | Global ensemble control comparison |
+| `GEFS-MEAN` | `gefs` | `atmos.25`, ensemble mean | Smoother global ensemble guidance |
 | `GFS` | `gfs` | `pgrb2.0p25`, global | Longer-range global source comparison |
-| `RRFS` | `rrfs` with current NOAA/AWS `2dfld` override | CONUS | Experimental rapid-refresh forecast checks |
+| `HIRESW` | `hiresw` | ARW 2.5 km, CONUS | High-resolution CONUS window comparison |
+| `HRRR` | `hrrr` | `sfc`, CONUS | HRRR parity/source comparison |
 | `HRRRAK` | `hrrrak` | `sfc` | Alaska HRRR |
+| `IFS` | `ifs` | `oper`, global | ECMWF deterministic forecast comparison |
+| `NAM` | `nam` | CONUS nest | Native NAM parity/source comparison |
+| `NAM-ALASKA` | `nam` | Alaska nest | Alaska NAM source comparison |
+| `NAM-CONUS` | `nam` | 12 km CONUS | Coarser NAM source comparison |
+| `NBM` | `nbm` | `co`, CONUS | Native NBM parity/source comparison |
+| `RAP` | `rap` | 13 km CONUS | Native RAP parity/source comparison |
+| `RDPS` | `rdps` | 10 km regional | Canadian regional deterministic comparison |
+| `RRFS` | `rrfs` with current NOAA/AWS `2dfld` override | CONUS | Experimental rapid-refresh forecast checks |
 
-Herbie can expose many more templates, but this wrapper intentionally does not
-list wave-only, storm-specific, climate, reforecast, single-variable archive,
-or full-file-only global/ensemble templates as normal WindNinja run models.
-RAP, NAM, NBM, GRAPHCAST, HIRESW, HREF, HRDPS/RDPS/GDPS, ECMWF IFS/AIFS, and
-GEFS are excluded from `--weather-source herbie` until the adapter can reliably
-fetch only the needed surface fields without missing subset files or full-file
-downloads. Use WindNinja native mode for RAP, NAM, and NBM.
+Herbie has more templates, but this wrapper intentionally does not list
+wave-only, radar, storm-specific, climate, reforecast, archive-analysis, or
+single-variable products as normal WindNinja forecast models. `HREF` is also
+excluded because its live products do not provide a complete 10 m vector-wind
+set for this handoff. `HRDPS`/`HRDPS-NORTH` remain excluded because the current
+Docker image's Herbie template did not find live 10 m wind files during source
+prep; `RDPS` and `GDPS` are enabled instead for Canadian guidance.
 
 Herbie subsetting is regex-based: the `search` string is matched against
 `H.inventory().search_this`, and Herbie downloads the matching GRIB byte ranges.
@@ -357,12 +373,15 @@ available). Use anchored raw regex strings such as
 `r":UGRD:10 m above ground:"`; loose expressions can match the wrong layer or
 produce subset files Herbie cannot reopen. Canadian ECCC models are different:
 their Herbie templates use one GRIB file per variable/level and have no index,
-so they must be wired with `variable`/`level` kwargs instead of regex searches.
+so they are wired with `variable`/`level` kwargs instead of regex searches.
+GDPS also uses a current WXO-DD URL override because the bundled template still
+points at an older path.
 
 **Which model should I use?**
 - For US mountain terrain with short forecasts: **HRRR** (default, best resolution)
 - For the most statistically accurate forecast: **NBM** (blends multiple models)
 - For longer-range planning (1-7 days): **GFS**
+- For ECMWF comparison: **IFS** or **AIFS** through `--weather-source herbie`
 - For Alaska: **NAM-ALASKA**
 - For historical analysis of past events: **HRRR** with `--mode reanalysis`
 
