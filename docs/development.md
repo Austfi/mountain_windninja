@@ -53,8 +53,15 @@ netCDF4, and ecCodes. Before publishing a GHCR image for a Herbie change:
 
 ```bash
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model NBM --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model RAP --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model NAM --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model GFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model IFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model AIFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model RDPS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model GDPS --hours 1 --keep-temp --no-upload
 ```
 
 Publish a new `ghcr.io/austfi/mountain-windninja:<version>` only after those
@@ -62,6 +69,12 @@ pass. Before making Herbie the default, also compare native HRRR against Herbie
 HRRR on a small domain and confirm the output is close enough for operations.
 Then update `DEFAULT_REMOTE_IMAGE` and operator docs to reference the new
 version where they use a published GHCR image.
+
+The full Herbie registry currently also includes `GEFS`, `GEFS-MEAN`,
+`HIRESW`, `HRRRAK`, `NAM-CONUS`, and `NAM-ALASKA`; include those in the live
+matrix when changing model search patterns or source overrides. Keep
+`HRDPS`/`HRDPS-NORTH` out of the advertised registry until their live 10 m wind
+files pass source prep with the pinned Docker image.
 
 When expanding the Herbie model list, do not add a template directly to the
 public `HERBIE_MODEL_MAP` just because Herbie can find it. First verify the

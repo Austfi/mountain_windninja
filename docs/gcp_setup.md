@@ -656,7 +656,7 @@ Useful environment settings in `config/runtime.env`:
 | `MWN_GCS_UPLOAD_ENABLED` | Enables upload after successful runs |
 | `MWN_GCS_BUCKET` | Upload destination bucket |
 | `MWN_HERBIE_CACHE` | Local cache for Herbie GRIB subsets and WindNinja NetCDF files |
-| `MWN_HERBIE_PRIORITY` | Herbie source priority, for example `aws,google,azure,nomads` |
+| `MWN_HERBIE_PRIORITY` | Herbie source priority, for example `aws,google,azure,nomads,ecmwf,msc` |
 | `MWN_SYNOPTIC_TOKEN` | Required for Synoptic validation |
 | `CUSTOM_SRTM_API_KEY` | Required for SRTM DEM downloads |
 
@@ -673,6 +673,8 @@ Do a native smoke test first, then a Herbie opt-in smoke:
 ```bash
 ./deploy/gcp/mwn.sh smoke --keep-temp
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model IFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model NBM --hours 1 --keep-temp --no-upload
 ```
 
 For Herbie model-list changes, treat the VM as the promotion gate. The adapter

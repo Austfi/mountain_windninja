@@ -139,6 +139,29 @@ def test_forecast_hours_for_window_includes_start_and_stop():
     ) == [3, 4, 5, 6]
 
 
+def test_forecast_hours_for_window_brackets_coarse_models():
+    cycle = dt.datetime(2026, 1, 1, 12, 0)
+
+    assert herbie_wx_model.forecast_hours_for_window(
+        cycle,
+        dt.datetime(2026, 1, 1, 17, 0),
+        dt.datetime(2026, 1, 1, 18, 0),
+        interval_hours=3,
+    ) == [3, 6]
+
+
+def test_forecast_hours_for_window_rejects_unavailable_f000():
+    cycle = dt.datetime(2026, 1, 1, 12, 0)
+
+    with pytest.raises(herbie_wx_model.HerbieWeatherError, match="minimum forecast hour"):
+        herbie_wx_model.forecast_hours_for_window(
+            cycle,
+            dt.datetime(2026, 1, 1, 12, 0),
+            dt.datetime(2026, 1, 1, 13, 0),
+            min_forecast_hour=1,
+        )
+
+
 def test_parse_extra_values_coerces_scalars():
     assert herbie_wx_model.parse_extra_values([
         "member=2",
@@ -204,6 +227,165 @@ def test_single_message_fetch_strategy_uses_field_kwargs():
     assert herbie_wx_model._field_fetches(spec, "u10") == (
         (None, {"variable": "UGRD", "level": "TGL_10"}),
     )
+
+
+def test_eccc_specs_use_current_herbie_single_message_templates():
+    rdps = herbie_wx_model.resolve_herbie_model("RDPS")
+    gdps = herbie_wx_model.resolve_herbie_model("GDPS")
+
+    assert rdps.product == "hrdps"
+    assert gdps.product == "15km/grib2/lat_lon"
+
+
+def test_indexed_fetch_can_retry_subset_from_full_grib(tmp_path):
+    class FakeHerbie:
+        model = "rap"
+        date = dt.datetime(2026, 1, 1)
+        grib = "https://example.test/rap.grib2"
+        grib_source = "aws"
+
+        def __init__(self):
+            self.download_calls = []
+
+        def inventory(self, *, search, verbose):
+            assert verbose is False
+            return pd.DataFrame({"search_this": [search], "grib_message": [1]})
+
+        def get_localFilePath(self, search):
+            name = "full.grib2" if search is None else "subset.grib2"
+            return tmp_path / name
+
+        def download(self, search=None, *, save_dir, errors, verbose):
+            assert save_dir == tmp_path
+            assert errors == "raise"
+            assert verbose is False
+            self.download_calls.append((search, self.grib_source))
+            out_dir = tmp_path / self.model / "20260101"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if search is not None and self.grib_source != "local":
+                return out_dir / "missing.grib2"
+            path = out_dir / ("full.grib2" if search is None else "subset.grib2")
+            path.write_bytes(b"GRIB")
+            return path
+
+        def xarray(self, *, search, remove_grib, save_dir, errors, verbose):
+            assert search == r":UGRD:10 m above ground:"
+            assert remove_grib is False
+            assert save_dir == tmp_path
+            assert errors == "raise"
+            assert verbose is False
+            return "dataset"
+
+    spec = HerbieModelSpec(
+        name="RAP",
+        model="rap",
+        allow_full_file_fallback=True,
+        search_patterns={"u10": (r":UGRD:10 m above ground:",)},
+    )
+    herbie = FakeHerbie()
+
+    result = herbie_wx_model._open_herbie_dataset(
+        herbie,
+        spec,
+        "u10",
+        search=r":UGRD:10 m above ground:",
+        cache_root=tmp_path,
+    )
+
+    assert result == "dataset"
+    assert herbie.download_calls == [
+        (r":UGRD:10 m above ground:", "aws"),
+        (None, "aws"),
+        (r":UGRD:10 m above ground:", "local"),
+    ]
+
+
+def test_indexed_fetch_can_open_filtered_full_grib_when_subset_fails(tmp_path):
+    class FakeHerbie:
+        model = "nam"
+        date = dt.datetime(2026, 1, 1)
+        grib = "https://example.test/nam.grib2"
+        grib_source = "aws"
+
+        def inventory(self, *, search, verbose):
+            return pd.DataFrame({"search_this": [search], "grib_message": [1]})
+
+        def get_localFilePath(self, search):
+            name = "full.grib2" if search is None else "subset.grib2"
+            return tmp_path / name
+
+        def download(self, search=None, *, save_dir, errors, verbose):
+            out_dir = tmp_path / self.model / "20260101"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if search is None:
+                path = out_dir / "full.grib2"
+                path.write_bytes(b"GRIB")
+                return path
+            return out_dir / "missing.grib2"
+
+        def xarray(self, *, remove_grib, save_dir, errors, verbose, backend_kwargs):
+            assert backend_kwargs == {
+                "filter_by_keys": {
+                    "typeOfLevel": "heightAboveGround",
+                    "level": 10,
+                    "shortName": "10u",
+                }
+            }
+            return "filtered-full-dataset"
+
+    spec = HerbieModelSpec(
+        name="NAM",
+        model="nam",
+        allow_full_file_fallback=True,
+        search_patterns={"u10": (r":UGRD:10 m above ground:",)},
+    )
+
+    result = herbie_wx_model._open_herbie_dataset(
+        FakeHerbie(),
+        spec,
+        "u10",
+        search=r":UGRD:10 m above ground:",
+        cache_root=tmp_path,
+    )
+
+    assert result == "filtered-full-dataset"
+
+
+def test_gdps_override_uses_wxo_dd_single_message_path():
+    class FakeHerbie:
+        def find_grib(self):
+            return self.SOURCES["msc"], "msc"
+
+        def find_idx(self):
+            return None, None
+
+    herbie = FakeHerbie()
+
+    herbie_wx_model._apply_gdps_wxo_override(
+        herbie,
+        dt.datetime(2026, 5, 30, 0),
+        9,
+        variable="WindU",
+        level="AGL-10m",
+    )
+
+    assert herbie.SOURCES == {
+        "msc": (
+            "https://dd.weather.gc.ca/20260530/WXO-DD/model_gdps/"
+            "15km/00/009/20260530T00Z_MSC_GDPS_WindU_AGL-10m_LatLon0.15_PT009H.grib2"
+        )
+    }
+    assert herbie.grib_source == "msc"
+
+
+def test_speed_direction_to_uv_uses_meteorological_direction():
+    speed = np.array([[10.0, 10.0]], dtype="float32")
+    direction = np.array([[270.0, 180.0]], dtype="float32")
+
+    u, v = herbie_wx_model._speed_direction_to_uv(speed, direction)
+
+    assert np.allclose(u, [[10.0, 0.0]], atol=1e-5)
+    assert np.allclose(v, [[0.0, 10.0]], atol=1e-5)
 
 
 def test_extract_array_selects_requested_valid_time_step():

@@ -235,13 +235,14 @@ Validation:
 Run flags:
   --mode forecast|reanalysis|domain-average
   --model HRRR|NBM|NAM|NAM-CONUS|NAM-ALASKA|RAP|GFS
-          Herbie supports HRRR, GFS, RRFS, and HRRRAK
+          Herbie also supports AIFS, GDPS, GEFS, GEFS-MEAN, HIRESW,
+          HRRRAK, IFS, RDPS, and RRFS
   --weather-source native|herbie
   --herbie-product PRODUCT
   --herbie-member MEMBER
   --herbie-domain DOMAIN
   --herbie-cycle UTC
-  --herbie-priority aws,google,azure,nomads
+  --herbie-priority aws,google,azure,nomads,ecmwf,msc
   --herbie-extra KEY=VALUE
   --hours N
   --start UTC

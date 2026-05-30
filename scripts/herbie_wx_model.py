@@ -147,6 +147,9 @@ def forecast_hours_for_window(
     cycle: dt.datetime,
     start_time: dt.datetime,
     stop_time: dt.datetime,
+    *,
+    interval_hours: int = 1,
+    min_forecast_hour: int = 0,
 ) -> list[int]:
     start_time = _strip_tz(start_time)
     stop_time = _strip_tz(stop_time)
@@ -159,7 +162,17 @@ def forecast_hours_for_window(
         raise HerbieWeatherError(
             f"Resolved Herbie cycle {cycle:%Y-%m-%d %H:%M} UTC is after the run start."
         )
-    return list(range(first, last + 1))
+    if first < min_forecast_hour:
+        raise HerbieWeatherError(
+            f"Resolved Herbie cycle {cycle:%Y-%m-%d %H:%M} UTC needs f{first:03d}, "
+            f"but f{min_forecast_hour:03d} is the minimum forecast hour for this model."
+        )
+    step = max(1, int(interval_hours))
+    first_value = (first // step) * step
+    if first_value < min_forecast_hour:
+        first_value = min_forecast_hour
+    last_value = ((last + step - 1) // step) * step
+    return list(range(first_value, last_value + 1, step))
 
 
 def prepare_herbie_wx_model(
@@ -197,7 +210,13 @@ def prepare_herbie_wx_model(
         explicit_cycle=cycle,
     ):
         try:
-            fxx_values = forecast_hours_for_window(candidate_cycle, start_time, stop_time)
+            fxx_values = forecast_hours_for_window(
+                candidate_cycle,
+                start_time,
+                stop_time,
+                interval_hours=spec.forecast_interval_hours,
+                min_forecast_hour=spec.min_forecast_hour,
+            )
             output_path = _output_path(root, spec, candidate_cycle, domain_config.key)
             if output_path.exists():
                 try:
@@ -275,7 +294,7 @@ def fetch_hour_fields(
 
     datasets: dict[str, Any] = {}
     base_kwargs = spec.herbie_kwargs(product=product, member=member, domain=domain, extra=extra)
-    for field in ("u10", "v10", "t2m", "tcc"):
+    for field in _required_input_fields(spec):
         field_errors: list[str] = []
         fetches = _field_fetches(spec, field)
         for search, field_kwargs in fetches:
@@ -315,6 +334,14 @@ def fetch_hour_fields(
 
     valid_time = cycle + dt.timedelta(hours=fxx)
     return fields_from_datasets(datasets, valid_time=valid_time, spec=spec)
+
+
+def _required_input_fields(spec: HerbieModelSpec) -> tuple[str, ...]:
+    if spec.wind_input == "uv":
+        return ("u10", "v10", "t2m", "tcc")
+    if spec.wind_input == "speed_dir":
+        return ("wind10", "wdir10", "t2m", "tcc")
+    raise HerbieWeatherError(f"Unsupported Herbie wind input type for {spec.name}: {spec.wind_input}")
 
 
 def _field_fetches(
@@ -358,13 +385,40 @@ def _open_herbie_dataset(
         if search is None:
             raise HerbieWeatherError(f"{spec.name} {field}: indexed fetch requires a search regex.")
         _validate_inventory_match(herbie, spec, field, search)
-        downloaded = herbie.download(
-            search=search,
-            save_dir=cache_root,
-            errors="raise",
-            verbose=False,
-        )
-        _validate_downloaded_path(downloaded, spec, field, search)
+        try:
+            _download_indexed_subset(
+                herbie,
+                spec,
+                field,
+                search=search,
+                cache_root=cache_root,
+            )
+        except Exception as exc:
+            if not spec.allow_full_file_fallback:
+                raise
+            logger.warning(
+                f"{spec.name} {field}: indexed subset failed for {search!r}; "
+                f"retrying from a local full GRIB file. Original error: {exc}"
+            )
+            try:
+                _download_indexed_subset_from_full_file(
+                    herbie,
+                    spec,
+                    field,
+                    search=search,
+                    cache_root=cache_root,
+                )
+            except Exception as full_exc:
+                logger.warning(
+                    f"{spec.name} {field}: local full-GRIB subset failed; "
+                    f"opening full file with cfgrib filters. Error: {full_exc}"
+                )
+                return _open_full_file_filtered_dataset(
+                    herbie,
+                    spec,
+                    field,
+                    cache_root=cache_root,
+                )
         return herbie.xarray(
             search=search,
             remove_grib=False,
@@ -384,6 +438,114 @@ def _open_herbie_dataset(
     raise HerbieWeatherError(
         f"Unsupported Herbie fetch strategy for {spec.name}: {spec.fetch_strategy}"
     )
+
+
+def _download_indexed_subset(
+    herbie,
+    spec: HerbieModelSpec,
+    field: str,
+    *,
+    search: str,
+    cache_root: Path,
+) -> Path:
+    downloaded = herbie.download(
+        search=search,
+        save_dir=cache_root,
+        errors="raise",
+        verbose=False,
+    )
+    return _validate_downloaded_path(downloaded, spec, field, search)
+
+
+def _download_indexed_subset_from_full_file(
+    herbie,
+    spec: HerbieModelSpec,
+    field: str,
+    *,
+    search: str,
+    cache_root: Path,
+) -> Path:
+    full_file = herbie.download(
+        save_dir=cache_root,
+        errors="raise",
+        verbose=False,
+    )
+    full_path = _validate_downloaded_path(full_file, spec, field, "full GRIB")
+    herbie.grib = full_path
+    herbie.grib_source = "local"
+
+    subset_path = _local_download_path(herbie, search=search, cache_root=cache_root)
+    if subset_path.exists() and subset_path.stat().st_size == 0:
+        subset_path.unlink()
+    downloaded = herbie.download(
+        search=search,
+        save_dir=cache_root,
+        errors="raise",
+        verbose=False,
+    )
+    return _validate_downloaded_path(downloaded, spec, field, f"{search!r} from full GRIB")
+
+
+def _local_download_path(herbie, *, search: str | None, cache_root: Path) -> Path:
+    path = herbie.get_localFilePath(search)
+    return Path(cache_root).expanduser() / herbie.model / f"{herbie.date:%Y%m%d}" / path.name
+
+
+def _open_full_file_filtered_dataset(
+    herbie,
+    spec: HerbieModelSpec,
+    field: str,
+    *,
+    cache_root: Path,
+):
+    filters = _full_file_filter_keys(spec, field)
+    if not filters:
+        raise HerbieWeatherError(
+            f"{spec.name} {field}: no full-file cfgrib filters are configured."
+        )
+    last_error: Exception | None = None
+    for filter_keys in filters:
+        try:
+            return herbie.xarray(
+                remove_grib=False,
+                save_dir=cache_root,
+                errors="raise",
+                verbose=False,
+                backend_kwargs={"filter_by_keys": filter_keys},
+            )
+        except Exception as exc:
+            last_error = exc
+    raise HerbieWeatherError(
+        f"{spec.name} {field}: full-file cfgrib filters failed: {last_error}"
+    )
+
+
+def _full_file_filter_keys(spec: HerbieModelSpec, field: str) -> tuple[dict[str, Any], ...]:
+    if field == "u10":
+        return (
+            {"typeOfLevel": "heightAboveGround", "level": 10, "shortName": "10u"},
+            {"typeOfLevel": "heightAboveGround", "level": 10, "shortName": "u"},
+        )
+    if field == "v10":
+        return (
+            {"typeOfLevel": "heightAboveGround", "level": 10, "shortName": "10v"},
+            {"typeOfLevel": "heightAboveGround", "level": 10, "shortName": "v"},
+        )
+    if field == "t2m":
+        filters = [
+            {"typeOfLevel": "heightAboveGround", "level": 2, "shortName": "2t"},
+            {"typeOfLevel": "heightAboveGround", "level": 2, "shortName": "t"},
+        ]
+        if spec.name == "HIRESW":
+            filters.append({"typeOfLevel": "heightAboveGround", "level": 80, "shortName": "t"})
+        return tuple(filters)
+    if field == "tcc":
+        return (
+            {"shortName": "tcc", "typeOfLevel": "atmosphere"},
+            {"shortName": "tcc", "typeOfLevel": "surface"},
+            {"shortName": "tcc"},
+        )
+    return ()
 
 
 def _validate_inventory_match(herbie, spec: HerbieModelSpec, field: str, search: str) -> None:
@@ -416,7 +578,7 @@ def _validate_downloaded_path(
     spec: HerbieModelSpec,
     field: str,
     search: str,
-) -> None:
+) -> Path:
     if downloaded is None:
         raise HerbieWeatherError(
             f"{spec.name} {field}: Herbie did not return a downloaded file for {search!r}."
@@ -426,6 +588,17 @@ def _validate_downloaded_path(
         raise HerbieWeatherError(
             f"{spec.name} {field}: downloaded subset is missing for {search!r}: {path}"
         )
+    if path.stat().st_size == 0:
+        raise HerbieWeatherError(
+            f"{spec.name} {field}: downloaded subset is empty for {search!r}: {path}"
+        )
+    return path
+
+
+def _refresh_herbie_sources(herbie) -> None:
+    herbie.grib, herbie.grib_source = herbie.find_grib()
+    herbie.idx, herbie.idx_source = herbie.find_idx()
+    herbie.__dict__.pop("index_as_dataframe", None)
 
 
 def _apply_source_overrides(
@@ -435,6 +608,13 @@ def _apply_source_overrides(
     fxx: int,
     kwargs: dict[str, str | int | float | bool],
 ) -> None:
+    if spec.name == "GDPS":
+        variable = str(kwargs.get("variable") or "")
+        level = str(kwargs.get("level") or "")
+        if variable and level:
+            _apply_gdps_wxo_override(herbie, cycle, fxx, variable=variable, level=level)
+        return
+
     if spec.name != "RRFS":
         return
 
@@ -443,9 +623,29 @@ def _apply_source_overrides(
     herbie.product = "2dfld"
     herbie.SOURCES = {"aws": url}
     herbie.LOCALFILE = f"{cycle:%Y%m%d%H}/rrfs.t{cycle:%H}z.2dfld.{_rrfs_grid_label(domain)}.f{fxx:03d}.{_rrfs_domain_label(domain)}.grib2"
-    herbie.grib, herbie.grib_source = herbie.find_grib()
-    herbie.idx, herbie.idx_source = herbie.find_idx()
-    herbie.__dict__.pop("index_as_dataframe", None)
+    _refresh_herbie_sources(herbie)
+
+
+def _apply_gdps_wxo_override(
+    herbie,
+    cycle: dt.datetime,
+    fxx: int,
+    *,
+    variable: str,
+    level: str,
+) -> None:
+    filename = (
+        f"{cycle:%Y%m%dT%HZ}_MSC_GDPS_{variable}_{level}_"
+        f"LatLon0.15_PT{fxx:03d}H.grib2"
+    )
+    herbie.SOURCES = {
+        "msc": (
+            f"https://dd.weather.gc.ca/{cycle:%Y%m%d}/WXO-DD/model_gdps/"
+            f"15km/{cycle:%H}/{fxx:03d}/{filename}"
+        )
+    }
+    herbie.LOCALFILE = f"{cycle:%Y%m%d%H}/gdps.{filename}"
+    _refresh_herbie_sources(herbie)
 
 
 def _current_rrfs_aws_url(cycle: dt.datetime, fxx: int, *, domain: str = "conus") -> str:
@@ -545,8 +745,23 @@ def fields_from_datasets(
 ) -> dict[str, Any]:
     import numpy as np
 
-    u = _extract_array(datasets["u10"], spec, "u10", valid_time=valid_time)
-    v = _extract_array(datasets["v10"], spec, "v10", valid_time=valid_time)
+    if spec.wind_input == "speed_dir":
+        speed = _extract_array(datasets["wind10"], spec, "wind10", valid_time=valid_time)
+        direction = _extract_array(datasets["wdir10"], spec, "wdir10", valid_time=valid_time)
+        u_values, v_values = _speed_direction_to_uv(speed["values"], direction["values"])
+        u = {
+            "values": u_values,
+            "latitude": speed["latitude"],
+            "longitude": speed["longitude"],
+        }
+        v = {
+            "values": v_values,
+            "latitude": speed["latitude"],
+            "longitude": speed["longitude"],
+        }
+    else:
+        u = _extract_array(datasets["u10"], spec, "u10", valid_time=valid_time)
+        v = _extract_array(datasets["v10"], spec, "v10", valid_time=valid_time)
     t = _extract_array(datasets["t2m"], spec, "t2m", valid_time=valid_time)
     if datasets["tcc"] is None:
         cloud = np.zeros_like(u["values"], dtype="float32")
@@ -569,6 +784,16 @@ def fields_from_datasets(
         "latitude": lat.astype("float32"),
         "longitude": lon.astype("float32"),
     }
+
+
+def _speed_direction_to_uv(speed, direction_degrees):
+    import numpy as np
+
+    speed_values = np.asarray(speed, dtype="float32")
+    direction_radians = np.deg2rad(np.asarray(direction_degrees, dtype="float32"))
+    u = -speed_values * np.sin(direction_radians)
+    v = -speed_values * np.cos(direction_radians)
+    return u.astype("float32"), v.astype("float32")
 
 
 def _extract_array(

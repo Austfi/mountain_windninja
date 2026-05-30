@@ -85,7 +85,7 @@ TEMP_DIR = RUNTIME_DIR / "temp"
 ARCHIVE_DIR = RUNTIME_DIR / "archives"
 LOGS_DIR = RUNTIME_DIR / "logs"
 HERBIE_CACHE_DIR = _resolve(os.getenv("MWN_HERBIE_CACHE", "runtime/weather/herbie"))
-HERBIE_PRIORITY = os.getenv("MWN_HERBIE_PRIORITY", "aws,google,azure,nomads")
+HERBIE_PRIORITY = os.getenv("MWN_HERBIE_PRIORITY", "aws,google,azure,nomads,ecmwf,msc")
 try:
     HERBIE_MAX_CYCLE_REWIND = max(0, int(os.getenv("MWN_HERBIE_MAX_CYCLE_REWIND", "4")))
 except ValueError:

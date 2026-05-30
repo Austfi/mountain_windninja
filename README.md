@@ -211,12 +211,16 @@ Forecast runs can also opt into a Herbie-prepared parent-model file:
 
 ```bash
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model IFS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source herbie --model AIFS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model RRFS --hours 1 --keep-temp --no-upload
 ```
 
 This path keeps WindNinja in `wxModelInitialization` and passes a local
 `forecast_filename`. It requires the Docker image with Herbie/ecCodes
-dependencies; rebuild after pulling those changes with `./deploy/gcp/mwn.sh build-local`.
+dependencies; rebuild after pulling image-level dependency changes with
+`./deploy/gcp/mwn.sh build-local`. Normal `scripts/`, `config/`, and `docs/`
+updates are bind-mounted and take effect on the next container run.
 
 `MWN_NUM_THREADS=6` is the current high-thread setting for a 6-physical /
 12-logical CPU machine. OpenFOAM momentum runs should stay at or below physical
