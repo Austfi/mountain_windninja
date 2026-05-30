@@ -277,10 +277,11 @@ def fetch_hour_fields(
     base_kwargs = spec.herbie_kwargs(product=product, member=member, domain=domain, extra=extra)
     for field in ("u10", "v10", "t2m", "tcc"):
         field_errors: list[str] = []
-        for search in _search_patterns(spec, field):
+        fetches = _field_fetches(spec, field)
+        for search, field_kwargs in fetches:
             try:
                 kwargs = dict(base_kwargs)
-                kwargs.update((spec.field_extra or {}).get(field, {}))
+                kwargs.update(field_kwargs)
                 herbie = Herbie(
                     cycle,
                     fxx=fxx,
@@ -290,17 +291,18 @@ def fetch_hour_fields(
                     **kwargs,
                 )
                 _apply_source_overrides(herbie, spec, cycle, fxx, kwargs)
-                ds = herbie.xarray(
+                ds = _open_herbie_dataset(
+                    herbie,
+                    spec,
+                    field,
                     search=search,
-                    remove_grib=False,
-                    save_dir=cache_root,
-                    errors="raise",
-                    verbose=False,
+                    cache_root=cache_root,
                 )
                 datasets[field] = clip_dataset_to_bbox(ds, bbox)
                 break
             except Exception as exc:
-                field_errors.append(f"{search}: {exc}")
+                label = search if search is not None else _field_fetch_label(field_kwargs)
+                field_errors.append(f"{label}: {exc}")
 
         if field not in datasets and field == "tcc":
             logger.warning(
@@ -315,11 +317,115 @@ def fetch_hour_fields(
     return fields_from_datasets(datasets, valid_time=valid_time, spec=spec)
 
 
+def _field_fetches(
+    spec: HerbieModelSpec,
+    field: str,
+) -> tuple[tuple[str | None, dict[str, str | int | float | bool]], ...]:
+    if spec.fetch_strategy == "indexed":
+        return tuple((search, {}) for search in _search_patterns(spec, field))
+    if spec.fetch_strategy == "single_message":
+        field_kwargs = (spec.field_extra or {}).get(field)
+        if not field_kwargs:
+            return ((None, {}),)
+        return ((None, dict(field_kwargs)),)
+    raise HerbieWeatherError(
+        f"Unsupported Herbie fetch strategy for {spec.name}: {spec.fetch_strategy}"
+    )
+
+
+def _field_fetch_label(field_kwargs: dict[str, str | int | float | bool]) -> str:
+    if not field_kwargs:
+        return "full-field file"
+    return ",".join(f"{key}={value}" for key, value in sorted(field_kwargs.items()))
+
+
 def _search_patterns(spec: HerbieModelSpec, field: str) -> tuple[str | None, ...]:
     patterns = (spec.search_patterns or {}).get(field)
     if not patterns:
         raise HerbieWeatherError(f"No Herbie search pattern configured for {spec.name} {field}")
     return patterns
+
+
+def _open_herbie_dataset(
+    herbie,
+    spec: HerbieModelSpec,
+    field: str,
+    *,
+    search: str | None,
+    cache_root: Path,
+):
+    if spec.fetch_strategy == "indexed":
+        if search is None:
+            raise HerbieWeatherError(f"{spec.name} {field}: indexed fetch requires a search regex.")
+        _validate_inventory_match(herbie, spec, field, search)
+        downloaded = herbie.download(
+            search=search,
+            save_dir=cache_root,
+            errors="raise",
+            verbose=False,
+        )
+        _validate_downloaded_path(downloaded, spec, field, search)
+        return herbie.xarray(
+            search=search,
+            remove_grib=False,
+            save_dir=cache_root,
+            errors="raise",
+            verbose=False,
+        )
+
+    if spec.fetch_strategy == "single_message":
+        return herbie.xarray(
+            remove_grib=False,
+            save_dir=cache_root,
+            errors="raise",
+            verbose=False,
+        )
+
+    raise HerbieWeatherError(
+        f"Unsupported Herbie fetch strategy for {spec.name}: {spec.fetch_strategy}"
+    )
+
+
+def _validate_inventory_match(herbie, spec: HerbieModelSpec, field: str, search: str) -> None:
+    inventory = herbie.inventory(search=search, verbose=False)
+    count = len(inventory)
+    if count < 1:
+        raise HerbieWeatherError(
+            f"{spec.name} {field}: inventory had no matches for regex {search!r}."
+        )
+    if count > 1:
+        logger.warning(
+            f"{spec.name} {field}: inventory regex {search!r} matched {count} messages: "
+            f"{'; '.join(_inventory_search_samples(inventory))}"
+        )
+
+
+def _inventory_search_samples(inventory, limit: int = 5) -> list[str]:
+    columns = getattr(inventory, "columns", ())
+    if "search_this" not in columns:
+        return []
+    try:
+        values = inventory["search_this"].head(limit).tolist()
+    except AttributeError:
+        values = list(inventory["search_this"])[:limit]
+    return [str(value) for value in values]
+
+
+def _validate_downloaded_path(
+    downloaded: Any,
+    spec: HerbieModelSpec,
+    field: str,
+    search: str,
+) -> None:
+    if downloaded is None:
+        raise HerbieWeatherError(
+            f"{spec.name} {field}: Herbie did not return a downloaded file for {search!r}."
+        )
+    path = Path(str(downloaded))
+    if not path.exists():
+        raise HerbieWeatherError(
+            f"{spec.name} {field}: downloaded subset is missing for {search!r}: {path}"
+        )
 
 
 def _apply_source_overrides(
@@ -391,7 +497,10 @@ def clip_dataset_to_bbox(ds, bbox: tuple[float, float, float, float]):
         if y_idx and x_idx:
             return ds.isel({lat.dims[0]: slice(min(y_idx), max(y_idx) + 1),
                             lon.dims[0]: slice(min(x_idx), max(x_idx) + 1)})
-        return ds
+        raise HerbieWeatherError(
+            "Herbie source grid does not overlap the domain bbox "
+            f"west={west:.4f}, south={south:.4f}, east={east:.4f}, north={north:.4f}."
+        )
 
     if lat.ndim == 2 and lon.ndim == 2:
         import numpy as np
@@ -410,6 +519,10 @@ def clip_dataset_to_bbox(ds, bbox: tuple[float, float, float, float]):
                 y_dim: slice(int(rows.min()), int(rows.max()) + 1),
                 x_dim: slice(int(cols.min()), int(cols.max()) + 1),
             })
+        raise HerbieWeatherError(
+            "Herbie source grid does not overlap the domain bbox "
+            f"west={west:.4f}, south={south:.4f}, east={east:.4f}, north={north:.4f}."
+        )
     return ds
 
 
@@ -432,15 +545,15 @@ def fields_from_datasets(
 ) -> dict[str, Any]:
     import numpy as np
 
-    u = _extract_array(datasets["u10"], spec, "u10")
-    v = _extract_array(datasets["v10"], spec, "v10")
-    t = _extract_array(datasets["t2m"], spec, "t2m")
+    u = _extract_array(datasets["u10"], spec, "u10", valid_time=valid_time)
+    v = _extract_array(datasets["v10"], spec, "v10", valid_time=valid_time)
+    t = _extract_array(datasets["t2m"], spec, "t2m", valid_time=valid_time)
     if datasets["tcc"] is None:
         cloud = np.zeros_like(u["values"], dtype="float32")
         lat = u["latitude"]
         lon = u["longitude"]
     else:
-        cloud_values = _extract_array(datasets["tcc"], spec, "tcc")
+        cloud_values = _extract_array(datasets["tcc"], spec, "tcc", valid_time=valid_time)
         cloud = cloud_values["values"]
         lat = cloud_values["latitude"]
         lon = cloud_values["longitude"]
@@ -458,15 +571,116 @@ def fields_from_datasets(
     }
 
 
-def _extract_array(ds, spec: HerbieModelSpec, field: str) -> dict[str, Any]:
+def _extract_array(
+    ds,
+    spec: HerbieModelSpec,
+    field: str,
+    *,
+    valid_time: dt.datetime | None = None,
+) -> dict[str, Any]:
     if ds is None:
         raise HerbieWeatherError(f"{field} dataset is missing")
     data_var = _select_data_var(ds, (spec.variable_aliases or {}).get(field, (field,)))
-    arr = data_var.squeeze(drop=True)
-    dims = arr.dims[-2:]
+    arr = _select_spatial_slice(data_var, ds, field, valid_time=valid_time)
+    dims = _spatial_dims_for(arr, ds)
     values = arr.transpose(*dims).values
     lat, lon = _latitude_longitude_for(ds, dims)
     return {"values": values, "latitude": lat, "longitude": lon}
+
+
+def _select_spatial_slice(arr, ds, field: str, *, valid_time: dt.datetime | None):
+    arr = arr.squeeze(drop=True)
+    spatial_dims = set(_spatial_dims_for(arr, ds))
+    for dim in list(arr.dims):
+        if dim in spatial_dims:
+            continue
+        size = int(arr.sizes[dim])
+        if size == 1:
+            arr = arr.isel({dim: 0}, drop=True)
+            spatial_dims = set(_spatial_dims_for(arr, ds))
+            continue
+        index = _valid_time_index(ds, dim, valid_time)
+        if index is not None:
+            arr = arr.isel({dim: index}, drop=True)
+            spatial_dims = set(_spatial_dims_for(arr, ds))
+            continue
+        raise HerbieWeatherError(
+            f"{field} dataset has non-spatial dimension {dim!r} with {size} values "
+            "and no matching valid_time coordinate."
+        )
+
+    arr = arr.squeeze(drop=True)
+    dims = _spatial_dims_for(arr, ds)
+    if any(dim not in arr.dims for dim in dims) or len(arr.dims) != 2:
+        raise HerbieWeatherError(
+            f"{field} dataset could not be reduced to one spatial grid. Dims: {arr.dims}"
+        )
+    return arr
+
+
+def _spatial_dims_for(arr, ds) -> tuple[str, str]:
+    if "latitude" in ds.coords and "longitude" in ds.coords:
+        lat = ds["latitude"]
+        lon = ds["longitude"]
+        if lat.ndim == 2 and lon.ndim == 2 and set(lat.dims).issubset(arr.dims):
+            return lat.dims
+        if lat.ndim == 1 and lon.ndim == 1:
+            dims = (lat.dims[0], lon.dims[0])
+            if set(dims).issubset(arr.dims):
+                return dims
+    return arr.dims[-2:]
+
+
+def _valid_time_index(ds, dim: str, valid_time: dt.datetime | None) -> int | None:
+    if valid_time is None:
+        return None
+    if "valid_time" in ds.coords:
+        coord = ds["valid_time"]
+        if dim in coord.dims and int(coord.sizes[dim]) > 1:
+            index = _datetime_index(coord.values, valid_time)
+            if index is not None:
+                return index
+    if dim in ds.coords:
+        coord = ds[dim]
+        index = _datetime_index(coord.values, valid_time)
+        if index is not None:
+            return index
+    if dim == "step" and "time" in ds.coords and dim in ds.coords:
+        return _step_index(ds, dim, valid_time)
+    return None
+
+
+def _datetime_index(values, valid_time: dt.datetime) -> int | None:
+    import numpy as np
+
+    arr = np.asarray(values)
+    if not np.issubdtype(arr.dtype, np.datetime64):
+        return None
+    target = np.datetime64(_strip_tz(valid_time), "s")
+    flattened = arr.astype("datetime64[s]").reshape(-1)
+    matches = np.where(flattened == target)[0]
+    if matches.size:
+        return int(matches[0])
+    return None
+
+
+def _step_index(ds, dim: str, valid_time: dt.datetime) -> int | None:
+    import numpy as np
+
+    steps = np.asarray(ds[dim].values)
+    if not np.issubdtype(steps.dtype, np.timedelta64):
+        return None
+    reference_values = np.asarray(ds["time"].values)
+    if not np.issubdtype(reference_values.dtype, np.datetime64):
+        return None
+    reference = reference_values.reshape(-1)[0].astype("datetime64[s]")
+    target = np.datetime64(_strip_tz(valid_time), "s")
+    wanted_step = target - reference
+    flattened = steps.astype("timedelta64[s]").reshape(-1)
+    matches = np.where(flattened == wanted_step.astype("timedelta64[s]"))[0]
+    if matches.size:
+        return int(matches[0])
+    return None
 
 
 def _select_data_var(ds, aliases: tuple[str, ...]):

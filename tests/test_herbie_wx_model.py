@@ -3,10 +3,12 @@ from __future__ import annotations
 import datetime as dt
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
 from scripts import herbie_wx_model
+from scripts.weather_models import HerbieModelSpec
 
 
 def _hour(valid_time: dt.datetime, offset: float = 0.0) -> dict:
@@ -149,3 +151,119 @@ def test_parse_extra_values_coerces_scalars():
         "flag": True,
         "name": "control",
     }
+
+
+def test_ncep_search_patterns_are_inventory_regexes():
+    spec = herbie_wx_model.resolve_herbie_model("HRRR")
+
+    assert spec.search_patterns["u10"][0] == r":UGRD:10 m above ground:"
+    assert spec.search_patterns["v10"][0] == r":VGRD:10 m above ground:"
+    assert spec.search_patterns["t2m"][0] == r":TMP:2 m above ground:"
+    assert spec.search_patterns["tcc"][0] == r":TCDC:entire atmosphere[^:]*:(?!.*ave)"
+
+
+def test_inventory_validation_rejects_zero_matches():
+    class FakeHerbie:
+        def inventory(self, *, search, verbose):
+            assert search == r":UGRD:10 m above ground:"
+            assert verbose is False
+            return pd.DataFrame({"search_this": []})
+
+    spec = herbie_wx_model.resolve_herbie_model("HRRR")
+
+    with pytest.raises(herbie_wx_model.HerbieWeatherError, match="inventory had no matches"):
+        herbie_wx_model._validate_inventory_match(
+            FakeHerbie(),
+            spec,
+            "u10",
+            r":UGRD:10 m above ground:",
+        )
+
+
+def test_downloaded_subset_validation_rejects_missing_path(tmp_path):
+    spec = herbie_wx_model.resolve_herbie_model("HRRR")
+
+    with pytest.raises(herbie_wx_model.HerbieWeatherError, match="downloaded subset is missing"):
+        herbie_wx_model._validate_downloaded_path(
+            tmp_path / "missing.grib2",
+            spec,
+            "u10",
+            r":UGRD:10 m above ground:",
+        )
+
+
+def test_single_message_fetch_strategy_uses_field_kwargs():
+    spec = HerbieModelSpec(
+        name="TEST-ECCC",
+        model="gdps",
+        product="15km/grib2/lat_lon",
+        fetch_strategy="single_message",
+        field_extra={"u10": {"variable": "UGRD", "level": "TGL_10"}},
+    )
+
+    assert herbie_wx_model._field_fetches(spec, "u10") == (
+        (None, {"variable": "UGRD", "level": "TGL_10"}),
+    )
+
+
+def test_extract_array_selects_requested_valid_time_step():
+    spec = herbie_wx_model.resolve_herbie_model("HRRR")
+    values = np.stack([
+        np.full((2, 3), 1.0, dtype="float32"),
+        np.full((2, 3), 2.0, dtype="float32"),
+    ])
+    ds = xr.Dataset(
+        data_vars={"u10": (("step", "y", "x"), values)},
+        coords={
+            "step": ("step", np.array([0, 1], dtype="timedelta64[h]")),
+            "valid_time": (
+                "step",
+                np.array(["2026-01-01T00:00:00", "2026-01-01T01:00:00"], dtype="datetime64[s]"),
+            ),
+            "latitude": (("y", "x"), np.full((2, 3), 39.0, dtype="float32")),
+            "longitude": (("y", "x"), np.full((2, 3), -106.0, dtype="float32")),
+        },
+    )
+
+    result = herbie_wx_model._extract_array(
+        ds,
+        spec,
+        "u10",
+        valid_time=dt.datetime(2026, 1, 1, 1),
+    )
+
+    assert result["values"].shape == (2, 3)
+    assert np.all(result["values"] == 2.0)
+
+
+def test_extract_array_rejects_ambiguous_extra_dimension():
+    spec = herbie_wx_model.resolve_herbie_model("HRRR")
+    ds = xr.Dataset(
+        data_vars={"u10": (("step", "y", "x"), np.ones((2, 2, 3), dtype="float32"))},
+        coords={
+            "step": ("step", np.array([0, 1], dtype="timedelta64[h]")),
+            "latitude": (("y", "x"), np.full((2, 3), 39.0, dtype="float32")),
+            "longitude": (("y", "x"), np.full((2, 3), -106.0, dtype="float32")),
+        },
+    )
+
+    with pytest.raises(herbie_wx_model.HerbieWeatherError, match="non-spatial dimension"):
+        herbie_wx_model._extract_array(
+            ds,
+            spec,
+            "u10",
+            valid_time=dt.datetime(2026, 1, 1, 1),
+        )
+
+
+def test_clip_dataset_to_bbox_rejects_no_overlap():
+    ds = xr.Dataset(
+        data_vars={"u10": (("latitude", "longitude"), np.ones((2, 2), dtype="float32"))},
+        coords={
+            "latitude": ("latitude", np.array([60.0, 61.0], dtype="float32")),
+            "longitude": ("longitude", np.array([-150.0, -149.0], dtype="float32")),
+        },
+    )
+
+    with pytest.raises(herbie_wx_model.HerbieWeatherError, match="does not overlap"):
+        herbie_wx_model.clip_dataset_to_bbox(ds, (-107.0, 39.0, -106.0, 40.0))

@@ -675,6 +675,13 @@ Do a native smoke test first, then a Herbie opt-in smoke:
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
 ```
 
+For Herbie model-list changes, treat the VM as the promotion gate. The adapter
+must first prove the exact Herbie inventory/search behavior for the needed
+surface fields; NCEP-style sources use regex against `H.inventory().search_this`,
+while ECCC sources use `variable` and `level` kwargs because they do not publish
+index files. After every newly enabled model passes source prep and a one-hour
+run, publish a new GHCR image tag and update the default image references.
+
 ## Step 9: Get Your Output
 
 Output files are in `runtime/` on the VM:
