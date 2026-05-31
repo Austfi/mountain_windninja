@@ -27,7 +27,7 @@ cd /opt/mountain_windninja
 git pull --ff-only
 docker ps
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
 ./deploy/gcp/mwn.sh check
 ./deploy/gcp/mwn.sh smoke
 ```
@@ -208,11 +208,11 @@ Options:
 
 ## pull
 
-Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2`.
+Pull a published image and record it in `config/runtime.env` as `MWN_DOCKER_IMAGE`. The default is `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3`.
 
 ```bash
 ./deploy/gcp/mwn.sh pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
 ```
 
 ## check

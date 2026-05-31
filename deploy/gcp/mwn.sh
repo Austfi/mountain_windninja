@@ -8,7 +8,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$REPO_DIR"
 
 HOST_PYTHON="${PYTHON:-python3}"
-DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2"
+DEFAULT_REMOTE_IMAGE="ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3"
 
 if [ -f "$REPO_DIR/config/runtime.env" ]; then
   set -a
