@@ -313,46 +313,45 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/residual_unet_code.zi
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/06_train_site_specific_9p6_colab.ipynb
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
 ```
 
 Latest site-specific held-out results:
 
 ```text
-Breck/Tenmile HRRR:
+Breck/Tenmile V2 HRRR:
   mass vector RMSE: 3.697 m/s
-  ML vector RMSE:   0.626 m/s
-  improvement:      83.1%
+  ML vector RMSE:   0.577 m/s
+  improvement:      84.4%
   ML better pixels: 95.6%
 
-Breck/Tenmile controlled 15-degree:
+Breck/Tenmile V2 controlled 15-degree:
   mass vector RMSE: 12.409 m/s
-  ML vector RMSE:    2.392 m/s
-  improvement:       80.7%
+  ML vector RMSE:    2.881 m/s
+  improvement:       76.8%
 
-Keystone HRRR:
+Keystone V2 HRRR:
   mass vector RMSE: 2.815 m/s
-  ML vector RMSE:   0.452 m/s
-  improvement:      83.9%
-  ML better pixels: 96.4%
+  ML vector RMSE:   0.421 m/s
+  improvement:      85.0%
+  ML better pixels: 96.5%
 
-Keystone controlled 15-degree:
+Keystone V2 controlled 15-degree:
   mass vector RMSE: 10.871 m/s
-  ML vector RMSE:    2.897 m/s
-  improvement:       73.4%
+  ML vector RMSE:    3.543 m/s
+  improvement:       67.4%
 ```
 
 The package used 362 good full-year HRRR days and skipped three repeatedly
 failing HRRR dates: `2025-06-27`, `2025-11-20`, and `2025-12-14`. The
-7.5-degree midpoint controlled matrix was included as train-only in this
-package; it helps fitting but is not independently evaluated yet. The
-site-specific builder now supports explicit midpoint validation/test direction
-holdouts for the next rebuild.
-
-The next rebuild is V2 and should not overwrite the current V1 baseline:
+V2 package independently evaluates held-out 7.5-degree midpoint controlled
+directions. The next Colab ablation keeps the V2 datasets and writes separate
+gradloss result folders:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2
-keystone_9p6_specific_lcp_canopy_v2
+breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
+keystone_9p6_specific_lcp_canopy_v2_gradloss
 ```
 
 Read `docs/ml_residual_unet.md` for current ML status, result interpretation,

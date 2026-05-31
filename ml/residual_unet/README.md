@@ -52,22 +52,23 @@ Latest site-specific held-out test results:
 
 | Model | Mass RMSE | ML RMSE | Improvement | ML better pixels |
 |---|---:|---:|---:|---:|
-| Breck/Tenmile overall | 4.524 m/s | 0.806 m/s | 82.2% | 95.4% |
-| Breck/Tenmile HRRR only | 3.697 m/s | 0.626 m/s | 83.1% | 95.6% |
-| Keystone overall | 3.642 m/s | 0.775 m/s | 78.7% | 96.2% |
-| Keystone HRRR only | 2.815 m/s | 0.452 m/s | 83.9% | 96.4% |
+| Breck/Tenmile V2 overall | 5.181 m/s | 1.054 m/s | 79.7% | 95.1% |
+| Breck/Tenmile V2 HRRR only | 3.697 m/s | 0.577 m/s | 84.4% | 95.6% |
+| Keystone V2 overall | 4.271 m/s | 1.164 m/s | 72.7% | 95.7% |
+| Keystone V2 HRRR only | 2.815 m/s | 0.421 m/s | 85.0% | 96.5% |
 
 Controlled 15-degree stress tests improve strongly but remain harder:
 
 | Model | Controlled mass RMSE | Controlled ML RMSE | Improvement |
 |---|---:|---:|---:|
-| Breck/Tenmile | 12.409 m/s | 2.392 m/s | 80.7% |
-| Keystone | 10.871 m/s | 2.897 m/s | 73.4% |
+| Breck/Tenmile V2 15-degree | 12.409 m/s | 2.881 m/s | 76.8% |
+| Breck/Tenmile V2 midpoint | 12.589 m/s | 3.034 m/s | 75.9% |
+| Keystone V2 15-degree | 10.871 m/s | 3.543 m/s | 67.4% |
+| Keystone V2 midpoint | 10.993 m/s | 3.645 m/s | 66.8% |
 
-The 7.5-degree midpoint controlled set was included as train-only in this
-package, so it helps fitting but is not independently evaluated yet. Current
-builder code can reserve midpoint validation/test directions for the next
-dataset rebuild.
+V2 independently evaluates held-out 7.5-degree midpoint directions. The HRRR
+operational score improved slightly versus V1, while controlled/high-wind stress
+cases are the remaining gap.
 
 ## Folder Layout
 
@@ -92,8 +93,10 @@ Use the site-specific notebook for current Breck/Keystone work:
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
-The notebook now targets V2 packages by default so V1 remains available as the
-comparison baseline.
+The notebook can reproduce the completed V2 baseline, but now defaults to the
+`v2_gradloss` ablation. That ablation uses the same V2 datasets and adds a small
+spatial-gradient loss to test whether local wind-field structure improves
+controlled/high-wind stress cases without hurting HRRR.
 
 Current GCS handoff artifacts:
 
@@ -104,11 +107,19 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_spe
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
 ```
 
-The next stricter rebuild writes V2 artifacts:
+The current stricter package writes V2 artifacts:
 
 ```text
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
+```
+
+The next Colab ablation keeps those V2 datasets and writes separate gradloss
+result folders:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
+keystone_9p6_specific_lcp_canopy_v2_gradloss
 ```
 
 Results sync back to:
@@ -199,15 +210,12 @@ Package a processed dataset and notebook for Colab:
 
 ```bash
 .venv/bin/python -m ml.residual_unet.prepare_colab_upload \
-  --processed-dir ml/residual_unet/data/processed/breck_tenmile_9p6_specific_lcp_canopy_v1 \
+  --processed-dir ml/residual_unet/data/processed/breck_tenmile_9p6_specific_lcp_canopy_v2 \
   --skip-build \
   --force \
   --gcs-bucket mwn-ml-general-9p6-spring-nova-475120-r0 \
   --notebook ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
-
-For the next V2 package, use the corresponding V2 processed directory after the
-build completes.
 
 The tracked GCP wrapper for the full Breck/Keystone data build is:
 

@@ -57,8 +57,8 @@ one training set.
 
 ## Latest Site-Specific Results
 
-The latest completed site-specific Colab run trained both Breck/Tenmile and
-Keystone for 100 epochs and synced results to:
+The latest completed site-specific Colab run trained the stricter V2
+Breck/Tenmile and Keystone packages for 100 epochs and synced results to:
 
 ```text
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/
@@ -68,19 +68,22 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/colab_results/
 
 | Model | Best validation epoch | Validation ML vector RMSE | Validation mass vector RMSE |
 |---|---:|---:|---:|
-| Breck/Tenmile site-specific | 97 | 0.641 m/s | 3.964 m/s |
-| Keystone site-specific | 97 | 0.552 m/s | 3.066 m/s |
+| Breck/Tenmile V2 site-specific | 98 | 0.765 m/s | 4.416 m/s |
+| Keystone V2 site-specific | 96 | 0.669 m/s | 3.478 m/s |
 
 ### Held-Out Test Summary
 
 | Model | Sources | Mass RMSE | ML RMSE | Improvement | ML better pixels |
 |---|---:|---:|---:|---:|---:|
-| Breck/Tenmile site-specific | 3 | 4.524 m/s | 0.806 m/s | 82.2% | 95.4% |
-| Keystone site-specific | 3 | 3.642 m/s | 0.775 m/s | 78.7% | 96.2% |
+| Breck/Tenmile V2 site-specific | 3 | 5.181 m/s | 1.054 m/s | 79.7% | 95.1% |
+| Keystone V2 site-specific | 3 | 4.271 m/s | 1.164 m/s | 72.7% | 95.7% |
+| Breck/Tenmile V1 site-specific | 3 | 4.524 m/s | 0.806 m/s | 82.2% | 95.4% |
+| Keystone V1 site-specific | 3 | 3.642 m/s | 0.775 m/s | 78.7% | 96.2% |
 | Mountain-general LCP-canopy all-domain | 8 | 5.587 m/s | 1.511 m/s | 73.0% | 95.2% |
 
-The site-specific models are now the best current models for Breck and Keystone
-same-terrain emulation.
+V2 is the current stricter benchmark because it independently evaluates
+midpoint controlled directions. V1 aggregate controlled metrics are easier to
+over-read because the midpoint controlled set was train-only there.
 
 ### HRRR-Only Operational Score
 
@@ -89,8 +92,8 @@ realistic weather cases for the same terrain.
 
 | Model | HRRR mass RMSE | HRRR ML RMSE | Improvement | ML better pixels | ML <=1 m/s | ML <=2 m/s |
 |---|---:|---:|---:|---:|---:|---:|
-| Breck/Tenmile | 3.697 m/s | 0.626 m/s | 83.1% | 95.6% | 93.1% | 99.2% |
-| Keystone | 2.815 m/s | 0.452 m/s | 83.9% | 96.4% | 97.0% | 99.8% |
+| Breck/Tenmile V2 | 3.697 m/s | 0.577 m/s | 84.4% | 95.6% | 93.5% | 99.5% |
+| Keystone V2 | 2.815 m/s | 0.421 m/s | 85.0% | 96.5% | 97.6% | 99.8% |
 
 Interpretation: on realistic same-terrain HRRR cases, the ML field is usually
 about 1.0-1.4 mph vector error away from the full momentum solve.
@@ -102,8 +105,10 @@ harder than typical HRRR weather.
 
 | Model | Controlled mass RMSE | Controlled ML RMSE | Improvement | ML better pixels | ML <=1 m/s | ML <=2 m/s |
 |---|---:|---:|---:|---:|---:|---:|
-| Breck/Tenmile | 12.409 m/s | 2.392 m/s | 80.7% | 91.1% | 48.3% | 75.7% |
-| Keystone | 10.871 m/s | 2.897 m/s | 73.4% | 91.0% | 44.0% | 72.2% |
+| Breck/Tenmile V2 15-degree | 12.409 m/s | 2.881 m/s | 76.8% | 89.1% | 43.9% | 70.6% |
+| Breck/Tenmile V2 midpoint | 12.589 m/s | 3.034 m/s | 75.9% | 89.8% | 44.1% | 70.6% |
+| Keystone V2 15-degree | 10.871 m/s | 3.543 m/s | 67.4% | 87.5% | 36.7% | 65.0% |
+| Keystone V2 midpoint | 10.993 m/s | 3.645 m/s | 66.8% | 88.0% | 36.6% | 65.3% |
 
 Interpretation: the models strongly improve controlled cases, but controlled
 edge cases are still not as close as HRRR cases. Treat them as stress tests for
@@ -111,18 +116,8 @@ weak directions and high speeds.
 
 ### Important Midpoint-Controlled Caveat
 
-The 7.5-degree midpoint controlled matrix was included in training, but the
-current packaged split has it as train-only:
-
-```text
-controlled_9p6_7p5_midpoints: train=264, val=0, test=0 per domain
-```
-
-That data can help the model learn between the 15-degree directions, but the
-latest results do not independently evaluate midpoint controlled cases. The next
-dataset version should reserve midpoint controlled cases for validation/test.
-The builder now supports this explicitly through configurable controlled
-direction holdouts; the default site-specific spec holds out midpoint directions
+The 7.5-degree midpoint controlled matrix is now independently evaluated in V2.
+The default site-specific spec holds out midpoint directions
 `37.5, 127.5, 217.5, 307.5` for validation and `67.5, 157.5, 247.5, 337.5`
 for test when those midpoint raw cases are rebuilt.
 
@@ -137,8 +132,8 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_spe
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
 ```
 
-The next validation-quality rebuild should write separate V2 artifacts so the
-current V1 results remain comparable:
+The current validation-quality package writes separate V2 artifacts so the V1
+results remain comparable:
 
 ```text
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
@@ -174,11 +169,14 @@ Use this notebook for the current site-specific training path:
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
-The notebook now targets the V2 package by default:
+The notebook can reproduce the V2 baseline, but now defaults to the
+`v2_gradloss` ablation. This uses the same V2 datasets and adds a small
+spatial-gradient loss to test whether controlled/high-wind stress cases improve
+without harming HRRR performance:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2
-keystone_9p6_specific_lcp_canopy_v2
+breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
+keystone_9p6_specific_lcp_canopy_v2_gradloss
 ```
 
 In Colab, use a GPU runtime. L4 is sufficient; A100/H100 is faster but not
@@ -219,6 +217,7 @@ batch size: 32
 DataLoader workers: 2
 prefetch factor: 4
 progress print: every 100 batches
+gradient loss weight: 0.05 for v2_gradloss, 0.0 for baseline
 ```
 
 If Colab runs out of GPU memory, lower `TRAIN_BATCH_SIZE` to 16 and rerun the
@@ -453,19 +452,16 @@ is supplied.
 
 Priority next steps:
 
-1. Rebuild the site-specific datasets with stricter day/event-level splits.
-   Current HRRR splits are day-blocked, but the deterministic 10-day cycle can
-   still be optimistic for weather events that span adjacent days.
-2. Reserve some 7.5-degree midpoint controlled cases for validation/test so the
-   midpoint matrix has an independent score. The builder now has this support;
-   the remaining step is to rebuild/package the datasets.
-3. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
+1. Run the `v2_gradloss` ablation and compare it against the completed V2
+   baseline. Accept it only if HRRR stays near the V2 score while
+   controlled/high-wind bins improve.
+2. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
    or direction-sector rows show weakness.
-4. Test practical inference on fresh mass-solver runs and compare against a
+3. Test practical inference on fresh mass-solver runs and compare against a
    paired momentum solve before treating the model as operational.
-5. Only after stricter splits, consider larger `base_channels` or architecture
-   changes. Do not chase model complexity before the split/evaluation design is
-   sound.
+4. Only after the loss ablation, consider larger `base_channels` or architecture
+   changes. Do not chase model complexity while the current U-Net is already
+   strong on HRRR same-terrain cases.
 
 Potential code improvement: make the GCP data-build wrapper tolerate a small
 number of known-bad HRRR days and continue packaging automatically, instead of

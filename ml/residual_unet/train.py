@@ -45,6 +45,7 @@ def run_epoch(
     *,
     optimizer=None,
     speed_weight: float = 0.1,
+    gradient_weight: float = 0.0,
     phase: str,
     progress_every: int = 0,
 ) -> dict[str, float]:
@@ -54,6 +55,7 @@ def run_epoch(
         "loss": 0.0,
         "vec_loss": 0.0,
         "speed_loss": 0.0,
+        "gradient_loss": 0.0,
         "ml_vector_rmse": 0.0,
         "mass_vector_rmse": 0.0,
         "ml_speed_mae": 0.0,
@@ -74,6 +76,7 @@ def run_epoch(
                 batch["mom_uv"],
                 batch["valid_mask"],
                 speed_weight=speed_weight,
+                gradient_weight=gradient_weight,
             )
             if train_mode:
                 optimizer.zero_grad(set_to_none=True)
@@ -85,6 +88,7 @@ def run_epoch(
             totals["loss"] += float(loss.detach().cpu()) * batch_size
             totals["vec_loss"] += parts["vec_loss"] * batch_size
             totals["speed_loss"] += parts["speed_loss"] * batch_size
+            totals["gradient_loss"] += parts["gradient_loss"] * batch_size
             totals["ml_vector_rmse"] += vector_rmse_torch(
                 pred_uv,
                 batch["mom_uv"],
@@ -234,6 +238,7 @@ def train(config: dict, *, resume: Path | None = None) -> dict:
     log_csv = Path(train_cfg["log_csv"])
     epochs = int(train_cfg.get("epochs", 30))
     speed_weight = float(train_cfg.get("speed_loss_weight", 0.1))
+    gradient_weight = float(train_cfg.get("gradient_loss_weight", 0.0))
     progress_every = int(train_cfg.get("progress_every", 0))
 
     latest_metrics = {}
@@ -246,6 +251,7 @@ def train(config: dict, *, resume: Path | None = None) -> dict:
             device,
             optimizer=optimizer,
             speed_weight=speed_weight,
+            gradient_weight=gradient_weight,
             phase="train",
             progress_every=progress_every,
         )
@@ -254,6 +260,7 @@ def train(config: dict, *, resume: Path | None = None) -> dict:
             val_loader,
             device,
             speed_weight=speed_weight,
+            gradient_weight=gradient_weight,
             phase="val",
             progress_every=progress_every,
         )
@@ -301,6 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-dir", help="Override checkpoint directory.")
     parser.add_argument("--log-csv", help="Override training log CSV path.")
     parser.add_argument("--epochs", type=int, help="Override configured epoch count.")
+    parser.add_argument("--gradient-loss-weight", type=float, help="Override spatial gradient loss weight.")
     parser.add_argument("--batch-size", type=int, help="Override configured batch size.")
     parser.add_argument("--num-workers", type=int, help="Override configured DataLoader workers.")
     parser.add_argument("--progress-every", type=int, help="Print every N batches within each phase.")
@@ -327,6 +335,8 @@ def main() -> int:
         overrides["training.log_csv"] = args.log_csv
     if args.epochs is not None:
         overrides["training.epochs"] = args.epochs
+    if args.gradient_loss_weight is not None:
+        overrides["training.gradient_loss_weight"] = args.gradient_loss_weight
     if args.batch_size is not None:
         overrides["data.batch_size"] = args.batch_size
     if args.num_workers is not None:

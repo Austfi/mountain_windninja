@@ -99,35 +99,38 @@ bucket: gs://mwn-ml-general-9p6-spring-nova-475120-r0
 datasets:
   drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v1_dataset.zip
   drive_upload/keystone_9p6_specific_lcp_canopy_v1_dataset.zip
+  drive_upload/breck_tenmile_9p6_specific_lcp_canopy_v2_dataset.zip
+  drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
 notebook:
   drive_upload/06_train_site_specific_9p6_colab.ipynb
 results:
   colab_results/breck_tenmile_9p6_specific_lcp_canopy_v1/
   colab_results/keystone_9p6_specific_lcp_canopy_v1/
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2/
+  colab_results/keystone_9p6_specific_lcp_canopy_v2/
   colab_results/_comparison/
 ```
 
 Latest held-out same-terrain results:
 
 ```text
-Breck/Tenmile HRRR: mass RMSE 3.697 m/s, ML RMSE 0.626 m/s, 83.1% improvement, 95.6% better pixels
-Breck/Tenmile controlled 15-degree: mass RMSE 12.409 m/s, ML RMSE 2.392 m/s, 80.7% improvement
-Keystone HRRR: mass RMSE 2.815 m/s, ML RMSE 0.452 m/s, 83.9% improvement, 96.4% better pixels
-Keystone controlled 15-degree: mass RMSE 10.871 m/s, ML RMSE 2.897 m/s, 73.4% improvement
+Breck/Tenmile V2 HRRR: mass RMSE 3.697 m/s, ML RMSE 0.577 m/s, 84.4% improvement, 95.6% better pixels
+Breck/Tenmile V2 controlled 15-degree: mass RMSE 12.409 m/s, ML RMSE 2.881 m/s, 76.8% improvement
+Breck/Tenmile V2 controlled midpoint: mass RMSE 12.589 m/s, ML RMSE 3.034 m/s, 75.9% improvement
+Keystone V2 HRRR: mass RMSE 2.815 m/s, ML RMSE 0.421 m/s, 85.0% improvement, 96.5% better pixels
+Keystone V2 controlled 15-degree: mass RMSE 10.871 m/s, ML RMSE 3.543 m/s, 67.4% improvement
+Keystone V2 controlled midpoint: mass RMSE 10.993 m/s, ML RMSE 3.645 m/s, 66.8% improvement
 ```
 
 The Breck/Keystone data package used 362 good full-year HRRR days and skipped
 three repeatedly failing HRRR dates: 2025-06-27, 2025-11-20, and 2025-12-14.
-The 7.5-degree midpoint controlled set was included as train-only in this
-package, so it helps training but is not independently evaluated yet. The
-site-specific builder now supports explicit midpoint validation/test direction
-holdouts for the next rebuild.
-
-The next rebuild should use separate V2 dataset/result names:
+The V2 package independently evaluates held-out 7.5-degree midpoint controlled
+directions. The next ablation uses the same V2 data and separate gradloss result
+names:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2
-keystone_9p6_specific_lcp_canopy_v2
+breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
+keystone_9p6_specific_lcp_canopy_v2_gradloss
 ```
 
 The VM `mwn-ml-general-9p6` was terminated after packaging/training handoff.

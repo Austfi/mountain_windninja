@@ -332,6 +332,46 @@ def test_load_config_reads_simple_nested_yaml():
     assert config["training"]["speed_loss_weight"] == 0.1
 
 
+def test_corrected_loss_can_include_spatial_gradient_penalty():
+    torch = pytest.importorskip("torch")
+    from ml.residual_unet.losses import corrected_loss
+
+    mass_uv = torch.zeros((1, 2, 3, 3), dtype=torch.float32)
+    mom_uv = torch.zeros((1, 2, 3, 3), dtype=torch.float32)
+    mom_uv[:, 0, :, 2] = 2.0
+    pred_delta = torch.zeros_like(mass_uv)
+    valid_mask = torch.ones((1, 3, 3), dtype=torch.float32)
+
+    base_loss, base_parts = corrected_loss(
+        pred_delta,
+        mass_uv,
+        mom_uv,
+        valid_mask,
+        speed_weight=0.0,
+        gradient_weight=0.0,
+    )
+    grad_loss, grad_parts = corrected_loss(
+        pred_delta,
+        mass_uv,
+        mom_uv,
+        valid_mask,
+        speed_weight=0.0,
+        gradient_weight=0.5,
+    )
+
+    assert base_parts["gradient_loss"] > 0.0
+    assert grad_parts["gradient_loss"] == pytest.approx(base_parts["gradient_loss"])
+    assert grad_loss.item() > base_loss.item()
+
+
+def test_site_specific_gradloss_configs_are_opt_in_ablation():
+    config = load_config("ml/residual_unet/configs/breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss.yaml")
+
+    assert config["data"]["processed_dir"].endswith("breck_tenmile_9p6_specific_lcp_canopy_v2")
+    assert config["training"]["gradient_loss_weight"] == 0.05
+    assert config["training"]["checkpoint_dir"].endswith("_v2_gradloss_checkpoints")
+
+
 def test_analyze_results_summarizes_training_and_sample_spread():
     training = summarize_training([
         {
