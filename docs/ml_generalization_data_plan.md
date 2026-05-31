@@ -475,7 +475,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r ml/residual_unet/requirements.txt
 
 ./deploy/gcp/mwn.sh init --image pull
-./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
 docker ps
 ```
 
