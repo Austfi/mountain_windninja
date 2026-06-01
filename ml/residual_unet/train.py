@@ -214,6 +214,7 @@ def train(config: dict, *, resume: Path | None = None) -> dict:
         in_channels=resolve_model_in_channels(model_cfg, normalization),
         out_channels=int(model_cfg.get("out_channels", 2)),
         base_channels=int(model_cfg.get("base_channels", 32)),
+        block_type=str(model_cfg.get("block_type", "conv")),
     ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -308,6 +309,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-dir", help="Override checkpoint directory.")
     parser.add_argument("--log-csv", help="Override training log CSV path.")
     parser.add_argument("--epochs", type=int, help="Override configured epoch count.")
+    parser.add_argument(
+        "--base-channels",
+        type=int,
+        help="Override configured U-Net base channel count.",
+    )
+    parser.add_argument(
+        "--model-block-type",
+        choices=("conv", "residual"),
+        help="Override U-Net block type.",
+    )
     parser.add_argument("--gradient-loss-weight", type=float, help="Override spatial gradient loss weight.")
     parser.add_argument("--batch-size", type=int, help="Override configured batch size.")
     parser.add_argument("--num-workers", type=int, help="Override configured DataLoader workers.")
@@ -335,6 +346,10 @@ def main() -> int:
         overrides["training.log_csv"] = args.log_csv
     if args.epochs is not None:
         overrides["training.epochs"] = args.epochs
+    if args.base_channels is not None:
+        overrides["model.base_channels"] = args.base_channels
+    if args.model_block_type is not None:
+        overrides["model.block_type"] = args.model_block_type
     if args.gradient_loss_weight is not None:
         overrides["training.gradient_loss_weight"] = args.gradient_loss_weight
     if args.batch_size is not None:

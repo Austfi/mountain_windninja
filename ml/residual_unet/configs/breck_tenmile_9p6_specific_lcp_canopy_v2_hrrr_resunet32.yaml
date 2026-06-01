@@ -1,0 +1,24 @@
+data:
+  processed_dir: ml/residual_unet/data/processed/breck_tenmile_9p6_specific_lcp_canopy_v2
+  train_source_datasets: breck_tenmile_9p6_hrrr_specific_lcp_canopy_v2
+  val_source_datasets: breck_tenmile_9p6_hrrr_specific_lcp_canopy_v2
+  batch_size: 32
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+
+model:
+  in_channels: 6
+  out_channels: 2
+  base_channels: 32
+  block_type: residual
+
+training:
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 0.000001
+  speed_loss_weight: 0.1
+  progress_every: 100
+  checkpoint_dir: ml/residual_unet/outputs/breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32_checkpoints
+  log_csv: ml/residual_unet/outputs/breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32_train_log.csv

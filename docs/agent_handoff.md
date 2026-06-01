@@ -108,6 +108,8 @@ results:
   colab_results/keystone_9p6_specific_lcp_canopy_v1/
   colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2/
   colab_results/keystone_9p6_specific_lcp_canopy_v2/
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss/
+  colab_results/keystone_9p6_specific_lcp_canopy_v2_gradloss/
   colab_results/_comparison/
 ```
 
@@ -125,12 +127,19 @@ Keystone V2 controlled midpoint: mass RMSE 10.993 m/s, ML RMSE 3.645 m/s, 66.8% 
 The Breck/Keystone data package used 362 good full-year HRRR days and skipped
 three repeatedly failing HRRR dates: 2025-06-27, 2025-11-20, and 2025-12-14.
 The V2 package independently evaluates held-out 7.5-degree midpoint controlled
-directions. The next ablation uses the same V2 data and separate gradloss result
-names:
+directions. The completed gradloss ablation did not beat the V2 champion:
+Breck worsened slightly and Keystone improved only marginally. Keep V2 as the
+practical baseline while testing HRRR-priority architecture ablations.
+
+Next HRRR-priority architecture result names:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
-keystone_9p6_specific_lcp_canopy_v2_gradloss
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+keystone_9p6_specific_lcp_canopy_v2_hrrr_only
+keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64
+keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32
 ```
 
 The VM `mwn-ml-general-9p6` was terminated after packaging/training handoff.
@@ -141,10 +150,10 @@ Generated ML data/checkpoints are ignored. Preserve `best.pt`, `metrics.json`,
 `sample_metrics.csv`, `train_log.csv`, scorecards, and comparison reports unless
 the user explicitly wants to discard returned Colab artifacts.
 
-Next ML work should focus on stricter day/event-level splits, reserving some
-7.5-degree midpoint controlled cases for validation/test, and practical
-inference checks against fresh paired mass/momentum runs before changing model
-architecture.
+Next ML work should focus on HRRR-priority same-terrain quality, practical
+inference checks against fresh paired mass/momentum runs, and only then more
+data generation for weak real-weather high-wind/direction sectors. Controlled
+rows are outlier diagnostics, not the main optimization target.
 
 Site-specific package definitions live in:
 

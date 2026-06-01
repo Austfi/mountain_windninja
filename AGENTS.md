@@ -346,12 +346,26 @@ Keystone V2 controlled 15-degree:
 The package used 362 good full-year HRRR days and skipped three repeatedly
 failing HRRR dates: `2025-06-27`, `2025-11-20`, and `2025-12-14`. The
 V2 package independently evaluates held-out 7.5-degree midpoint controlled
-directions. The next Colab ablation keeps the V2 datasets and writes separate
-gradloss result folders:
+directions. The completed `v2_gradloss` ablation did not beat the V2 champion:
+Breck worsened slightly and Keystone improved only marginally. Keep V2 as the
+practical baseline while testing HRRR-priority architecture ablations.
+
+Completed gradloss result folders:
 
 ```text
 breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
 keystone_9p6_specific_lcp_canopy_v2_gradloss
+```
+
+Next HRRR-priority architecture result folders:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+keystone_9p6_specific_lcp_canopy_v2_hrrr_only
+keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64
+keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32
 ```
 
 Read `docs/ml_residual_unet.md` for current ML status, result interpretation,

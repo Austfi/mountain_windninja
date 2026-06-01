@@ -372,6 +372,37 @@ def test_site_specific_gradloss_configs_are_opt_in_ablation():
     assert config["training"]["checkpoint_dir"].endswith("_v2_gradloss_checkpoints")
 
 
+def test_unet_supports_residual_block_ablation():
+    torch = pytest.importorskip("torch")
+    from ml.residual_unet.model_unet import build_unet
+
+    model = build_unet(in_channels=6, out_channels=2, base_channels=4, block_type="residual")
+    out = model(torch.zeros((2, 6, 96, 96), dtype=torch.float32))
+
+    assert out.shape == (2, 2, 96, 96)
+
+
+def test_site_specific_hrrr_architecture_configs_filter_training_sources():
+    cases = {
+        "breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only.yaml": ("breck", 32, "conv"),
+        "breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64.yaml": ("breck", 64, "conv"),
+        "breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32.yaml": ("breck", 32, "residual"),
+        "keystone_9p6_specific_lcp_canopy_v2_hrrr_only.yaml": ("keystone", 32, "conv"),
+        "keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64.yaml": ("keystone", 64, "conv"),
+        "keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32.yaml": ("keystone", 32, "residual"),
+    }
+
+    for filename, (domain, base_channels, block_type) in cases.items():
+        config = load_config(f"ml/residual_unet/configs/{filename}")
+        train_source = config["data"]["train_source_datasets"]
+
+        assert train_source == config["data"]["val_source_datasets"]
+        assert "hrrr_specific_lcp_canopy_v2" in train_source
+        assert train_source.startswith(domain)
+        assert config["model"]["base_channels"] == base_channels
+        assert config["model"]["block_type"] == block_type
+
+
 def test_analyze_results_summarizes_training_and_sample_spread():
     training = summarize_training([
         {

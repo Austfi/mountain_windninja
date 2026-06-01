@@ -432,6 +432,7 @@ def write_emulator_scorecard(
         in_channels=resolve_model_in_channels(model_cfg, normalization),
         out_channels=int(model_cfg.get("out_channels", 2)),
         base_channels=int(model_cfg.get("base_channels", 32)),
+        block_type=str(model_cfg.get("block_type", "conv")),
     ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()

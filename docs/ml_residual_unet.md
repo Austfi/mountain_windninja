@@ -15,8 +15,8 @@ As of the latest completed Colab/GCS results, use the site-specific Breck and
 Keystone models as the leading experiment:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v1
-keystone_9p6_specific_lcp_canopy_v1
+breck_tenmile_9p6_specific_lcp_canopy_v2
+keystone_9p6_specific_lcp_canopy_v2
 ```
 
 Primary question:
@@ -98,6 +98,13 @@ realistic weather cases for the same terrain.
 Interpretation: on realistic same-terrain HRRR cases, the ML field is usually
 about 1.0-1.4 mph vector error away from the full momentum solve.
 
+The completed `v2_gradloss` ablation did not materially improve the champion
+models. Breck worsened on HRRR (`0.577 -> 0.641 m/s`) and overall
+(`1.054 -> 1.105 m/s`). Keystone was essentially unchanged on HRRR
+(`0.421 -> 0.421 m/s`) and only marginally better overall (`1.164 -> 1.157
+m/s`). Keep V2 as the practical champion unless a later architecture ablation
+beats it.
+
 ### Controlled 15-Degree Stress Test
 
 Controlled cases force a broad speed/direction matrix and are intentionally
@@ -169,14 +176,18 @@ Use this notebook for the current site-specific training path:
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
-The notebook can reproduce the V2 baseline, but now defaults to the
-`v2_gradloss` ablation. This uses the same V2 datasets and adds a small
-spatial-gradient loss to test whether controlled/high-wind stress cases improve
-without harming HRRR performance:
+The notebook can reproduce the V2 baseline and completed `v2_gradloss`
+ablation, but now defaults to HRRR-priority architecture ablations. These
+train/validate only on HRRR rows, then evaluate both HRRR and controlled stress
+sources:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
-keystone_9p6_specific_lcp_canopy_v2_gradloss
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+keystone_9p6_specific_lcp_canopy_v2_hrrr_only
+keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64
+keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32
 ```
 
 In Colab, use a GPU runtime. L4 is sufficient; A100/H100 is faster but not
@@ -217,7 +228,9 @@ batch size: 32
 DataLoader workers: 2
 prefetch factor: 4
 progress print: every 100 batches
-gradient loss weight: 0.05 for v2_gradloss, 0.0 for baseline
+architecture variants: HRRR-only base32 U-Net, HRRR-only base64 U-Net,
+  HRRR-only residual-block base32 U-Net
+gradient loss weight: 0.0 for the current HRRR-priority ablations
 ```
 
 If Colab runs out of GPU memory, lower `TRAIN_BATCH_SIZE` to 16 and rerun the
@@ -452,16 +465,19 @@ is supplied.
 
 Priority next steps:
 
-1. Run the `v2_gradloss` ablation and compare it against the completed V2
-   baseline. Accept it only if HRRR stays near the V2 score while
-   controlled/high-wind bins improve.
-2. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
+1. Run the HRRR-priority architecture ablations from
+   `06_train_site_specific_9p6_colab.ipynb` and compare them against the
+   completed V2 champion. Accept a new model only if HRRR RMSE improves or stays
+   essentially tied while pixel-level scorecards do not show obvious regressions.
+2. Keep controlled-only rows as outlier diagnostics, not the main training
+   objective. Controlled stress results should not displace real HRRR quality
+   unless the intended deployment includes those regimes.
+3. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
    or direction-sector rows show weakness.
-3. Test practical inference on fresh mass-solver runs and compare against a
+4. Test practical inference on fresh mass-solver runs and compare against a
    paired momentum solve before treating the model as operational.
-4. Only after the loss ablation, consider larger `base_channels` or architecture
-   changes. Do not chase model complexity while the current U-Net is already
-   strong on HRRR same-terrain cases.
+5. If none of the architecture ablations beat V2, keep the simple V2 model and
+   spend effort on additional realistic HRRR cases rather than model complexity.
 
 Potential code improvement: make the GCP data-build wrapper tolerate a small
 number of known-bad HRRR days and continue packaging automatically, instead of

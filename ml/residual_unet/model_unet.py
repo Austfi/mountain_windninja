@@ -35,27 +35,72 @@ class ConvBlock:
         )
 
 
-def build_unet(in_channels: int = 5, out_channels: int = 2, base_channels: int = 32):
+class ResidualConvBlock:
+    """Small residual block for architecture ablations."""
+
+    def __new__(cls, in_channels: int, out_channels: int):
+        _torch_module, nn = _torch()
+
+        class Block(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.main = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                    nn.GroupNorm(_group_count(out_channels), out_channels),
+                    nn.ReLU(inplace=True),
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+                    nn.GroupNorm(_group_count(out_channels), out_channels),
+                )
+                self.skip = (
+                    nn.Identity()
+                    if in_channels == out_channels
+                    else nn.Conv2d(in_channels, out_channels, kernel_size=1)
+                )
+                self.out = nn.ReLU(inplace=True)
+
+            def forward(self, x):
+                return self.out(self.main(x) + self.skip(x))
+
+        return Block()
+
+
+def _block(in_channels: int, out_channels: int, block_type: str):
+    if block_type == "conv":
+        return ConvBlock(in_channels, out_channels)
+    if block_type == "residual":
+        return ResidualConvBlock(in_channels, out_channels)
+    raise ValueError(
+        f"Unsupported U-Net block_type {block_type!r}; expected 'conv' or 'residual'."
+    )
+
+
+def build_unet(
+    in_channels: int = 5,
+    out_channels: int = 2,
+    base_channels: int = 32,
+    block_type: str = "conv",
+):
     torch, nn = _torch()
+    block_type = block_type.strip().lower()
 
     class ResidualUNet(nn.Module):
         def __init__(self) -> None:
             super().__init__()
             c = base_channels
-            self.enc1 = ConvBlock(in_channels, c)
-            self.enc2 = ConvBlock(c, c * 2)
-            self.enc3 = ConvBlock(c * 2, c * 4)
-            self.enc4 = ConvBlock(c * 4, c * 8)
+            self.enc1 = _block(in_channels, c, block_type)
+            self.enc2 = _block(c, c * 2, block_type)
+            self.enc3 = _block(c * 2, c * 4, block_type)
+            self.enc4 = _block(c * 4, c * 8, block_type)
             self.pool = nn.MaxPool2d(2)
-            self.bottleneck = ConvBlock(c * 8, c * 16)
+            self.bottleneck = _block(c * 8, c * 16, block_type)
             self.up4 = nn.ConvTranspose2d(c * 16, c * 8, kernel_size=2, stride=2)
-            self.dec4 = ConvBlock(c * 16, c * 8)
+            self.dec4 = _block(c * 16, c * 8, block_type)
             self.up3 = nn.ConvTranspose2d(c * 8, c * 4, kernel_size=2, stride=2)
-            self.dec3 = ConvBlock(c * 8, c * 4)
+            self.dec3 = _block(c * 8, c * 4, block_type)
             self.up2 = nn.ConvTranspose2d(c * 4, c * 2, kernel_size=2, stride=2)
-            self.dec2 = ConvBlock(c * 4, c * 2)
+            self.dec2 = _block(c * 4, c * 2, block_type)
             self.up1 = nn.ConvTranspose2d(c * 2, c, kernel_size=2, stride=2)
-            self.dec1 = ConvBlock(c * 2, c)
+            self.dec1 = _block(c * 2, c, block_type)
             self.out = nn.Conv2d(c, out_channels, kernel_size=1)
 
         def forward(self, x):
@@ -71,4 +116,3 @@ def build_unet(in_channels: int = 5, out_channels: int = 2, base_channels: int =
             return self.out(d1)
 
     return ResidualUNet()
-

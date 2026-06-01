@@ -14,8 +14,8 @@ The leading practical experiment is terrain-specific momentum emulation for
 fixed 9.6 km boxes:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v1
-keystone_9p6_specific_lcp_canopy_v1
+breck_tenmile_9p6_specific_lcp_canopy_v2
+keystone_9p6_specific_lcp_canopy_v2
 ```
 
 The model learns:
@@ -70,6 +70,11 @@ V2 independently evaluates held-out 7.5-degree midpoint directions. The HRRR
 operational score improved slightly versus V1, while controlled/high-wind stress
 cases are the remaining gap.
 
+The completed `v2_gradloss` ablation did not replace V2 as the champion. It was
+slightly worse for Breck overall and only marginally better for Keystone
+overall, so the next experiment prioritizes real HRRR rows and architecture
+capacity instead of optimizing controlled outliers.
+
 ## Folder Layout
 
 Keep source code and generated experiment artifacts separate:
@@ -93,10 +98,9 @@ Use the site-specific notebook for current Breck/Keystone work:
 ml/residual_unet/notebooks/06_train_site_specific_9p6_colab.ipynb
 ```
 
-The notebook can reproduce the completed V2 baseline, but now defaults to the
-`v2_gradloss` ablation. That ablation uses the same V2 datasets and adds a small
-spatial-gradient loss to test whether local wind-field structure improves
-controlled/high-wind stress cases without hurting HRRR.
+The notebook can reproduce the completed V2 baseline and gradloss ablation, but
+now defaults to HRRR-priority architecture ablations. These runs train/validate
+on HRRR rows only, then still evaluate controlled rows as stress tests.
 
 Current GCS handoff artifacts:
 
@@ -114,12 +118,22 @@ gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/breck_tenmile_9p6_spe
 gs://mwn-ml-general-9p6-spring-nova-475120-r0/drive_upload/keystone_9p6_specific_lcp_canopy_v2_dataset.zip
 ```
 
-The next Colab ablation keeps those V2 datasets and writes separate gradloss
-result folders:
+The completed gradloss ablation wrote:
 
 ```text
 breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
 keystone_9p6_specific_lcp_canopy_v2_gradloss
+```
+
+The next HRRR-priority architecture ablations write:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+keystone_9p6_specific_lcp_canopy_v2_hrrr_only
+keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64
+keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32
 ```
 
 Results sync back to:
