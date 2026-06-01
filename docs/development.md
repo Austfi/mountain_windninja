@@ -44,7 +44,13 @@ Rebuild after changes to:
 ```
 
 Herbie support changes the Docker image because it adds Herbie, cfgrib, xarray,
-netCDF4, and ecCodes. Before publishing a GHCR image for a Herbie change:
+netCDF4, and ecCodes. The current promoted Herbie-capable image is:
+
+```bash
+ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
+```
+
+Before publishing a GHCR image for a Herbie change:
 
 1. Run the Python test suite.
 2. Rebuild locally with `./deploy/gcp/mwn.sh build-local`.
@@ -65,10 +71,12 @@ netCDF4, and ecCodes. Before publishing a GHCR image for a Herbie change:
 ```
 
 Publish a new `ghcr.io/austfi/mountain-windninja:<version>` only after those
-pass. Before making Herbie the default, also compare native HRRR against Herbie
-HRRR on a small domain and confirm the output is close enough for operations.
-Then update `DEFAULT_REMOTE_IMAGE` and operator docs to reference the new
-version where they use a published GHCR image.
+pass. After the GitHub Actions publish completes, pull the new tag from GHCR
+and verify it is accessible before updating user-facing defaults. Before making
+Herbie the default, also compare native HRRR against Herbie HRRR on a small
+domain and confirm the output is close enough for operations. Then update
+`DEFAULT_REMOTE_IMAGE` and operator docs to reference the new version where they
+use a published GHCR image.
 
 The full Herbie registry currently also includes `GEFS`, `GEFS-MEAN`,
 `HIRESW`, `HRRRAK`, `NAM-CONUS`, and `NAM-ALASKA`; include those in the live

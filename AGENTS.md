@@ -17,7 +17,7 @@ WindNinja/HRRR workflow.
 Host (GCP VM or any Linux box)
   └── mwn.sh ← user-facing CLI, runs on host
         └── docker compose run --rm shell ← spins up container per command
-              └── ghcr.io/austfi/mountain-windninja:3.12.2-herbie.2 or local image
+              └── ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3 or local image
                     ├── WindNinja CLI (compiled C++)
                     ├── OpenFOAM 9 (momentum solver)
                     ├── GDAL 3.4 / PROJ 8.2

@@ -241,8 +241,15 @@ Downloads live weather data from NOAA and simulates future wind:
 ```
 
 Native WindNinja weather downloads remain the default. Herbie is available as an
-explicit forecast source when the Docker image has been rebuilt with the Herbie
-dependencies:
+explicit forecast source when the Docker image includes the Herbie dependencies.
+The current promoted image, `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3`,
+has those dependencies and can be recorded in `config/runtime.env` with:
+
+```bash
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
+```
+
+Then run Herbie forecasts explicitly:
 
 ```bash
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
@@ -376,6 +383,10 @@ their Herbie templates use one GRIB file per variable/level and have no index,
 so they are wired with `variable`/`level` kwargs instead of regex searches.
 GDPS also uses a current WXO-DD URL override because the bundled template still
 points at an older path.
+
+When this table changes, publish a new GHCR image tag and update the default
+image references in the same PR. A workflow publish alone is not enough; pull
+the new tag from GHCR before promoting it in user-facing docs.
 
 **Which model should I use?**
 - For US mountain terrain with short forecasts: **HRRR** (default, best resolution)

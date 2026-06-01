@@ -90,7 +90,14 @@ on `smoke` or `run` when you want raw output left under `runtime/temp/`.
 ./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
 ```
 
-If the pull fails or you are changing image-level dependencies, build locally:
+That is the current promoted image. It includes the Herbie/ecCodes runtime
+dependencies used by `--weather-source herbie`, and it is the default image
+recorded by `mwn.sh init --image pull` on new checkouts. On an existing VM or
+local checkout, run the pull command above once to update `MWN_DOCKER_IMAGE` in
+`config/runtime.env`.
+
+If the pull fails or you are changing unpublished image-level dependencies,
+build locally:
 
 ```bash
 ./deploy/gcp/mwn.sh build-local
@@ -218,9 +225,11 @@ Forecast runs can also opt into a Herbie-prepared parent-model file:
 
 This path keeps WindNinja in `wxModelInitialization` and passes a local
 `forecast_filename`. It requires the Docker image with Herbie/ecCodes
-dependencies; rebuild after pulling image-level dependency changes with
-`./deploy/gcp/mwn.sh build-local`. Normal `scripts/`, `config/`, and `docs/`
-updates are bind-mounted and take effect on the next container run.
+dependencies. The promoted GHCR image already includes those dependencies; use
+`./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3`
+on existing hosts. Rebuild with `./deploy/gcp/mwn.sh build-local` only when
+testing unpublished image-level changes. Normal `scripts/`, `config/`, and
+`docs/` updates are bind-mounted and take effect on the next container run.
 
 `MWN_NUM_THREADS=6` is the current high-thread setting for a 6-physical /
 12-logical CPU machine. OpenFOAM momentum runs should stay at or below physical

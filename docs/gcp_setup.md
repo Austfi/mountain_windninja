@@ -635,7 +635,7 @@ Common `run` options:
 | `--model RAP` | Forecast-only rapid-refresh guidance |
 | `--model GFS` | Forecast-only long-range global guidance |
 | `--weather-source native` | Default WindNinja NOMADS/GCP weather path |
-| `--weather-source herbie` | Opt-in Herbie forecast-file path; requires rebuilt image |
+| `--weather-source herbie` | Opt-in Herbie forecast-file path; requires Herbie-capable image |
 | `--hours N` | Forecast/reanalysis duration when not using exact start/end |
 | `--start UTC --end UTC` | Exact reanalysis window; both must be hour-aligned UTC |
 | `--domain KEY` | Domain from `config/domains.json` |
@@ -661,8 +661,14 @@ Useful environment settings in `config/runtime.env`:
 | `CUSTOM_SRTM_API_KEY` | Required for SRTM DEM downloads |
 
 Herbie forecast support is image-level because it adds `herbie-data`, `xarray`,
-`cfgrib`, `netCDF4`, and the ecCodes runtime library. After pulling code that
-adds or changes that path, rebuild with:
+`cfgrib`, `netCDF4`, and the ecCodes runtime library. The current promoted GHCR
+image already includes those dependencies:
+
+```bash
+./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
+```
+
+Rebuild locally only when testing unpublished image-level changes:
 
 ```bash
 ./deploy/gcp/mwn.sh build-local
@@ -683,6 +689,8 @@ surface fields; NCEP-style sources use regex against `H.inventory().search_this`
 while ECCC sources use `variable` and `level` kwargs because they do not publish
 index files. After every newly enabled model passes source prep and a one-hour
 run, publish a new GHCR image tag and update the default image references.
+Before promoting that tag in docs, pull it from GHCR on a clean host or VM to
+verify the registry image is actually available.
 
 ## Step 9: Get Your Output
 
