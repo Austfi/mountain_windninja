@@ -36,9 +36,10 @@ runtime/ml/residual_unet/hrrr_pairs/loveland_abasin_9p6_smoke/loveland_abasin_9p
 ## Repo And Branch Organization
 
 The original generalization work used a separate branch from the older K0CO
-validation branch. Current ML documentation and site-specific notebooks are now
-tracked on `main`; check `git branch --show-current` before assuming an old
-branch name applies.
+validation branch. Current ML documentation, site-specific notebooks, and
+training configs are now tracked on `main`; check `git branch --show-current`
+before assuming an old branch name applies. Treat the old branch below as a
+merged historical reference, not the place to continue current ML work.
 
 ```text
 ml-generalization-data-build

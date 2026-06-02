@@ -4,6 +4,9 @@ This document is the quickest orientation point for another agent or operator pi
 
 ## Current State
 
+- Last ML documentation/branch review: 2026-06-02. Current ML work should stay on
+  `main`; older feature branch names are historical unless a fresh branch is
+  created for a new isolated change.
 - Last local cleanup: 2026-05-10. `runtime/temp/`, stale public-HRRR weather
   caches, and repo-level Python/test caches were cleaned. Local terrain inputs
   were kept. A newly created `static_data/NINJAFOAM_berthoud_pass_*` mesh cache
@@ -55,6 +58,13 @@ This document is the quickest orientation point for another agent or operator pi
 - A residual U-Net HRRR-pair process may run outside `mwn.sh` and launch
   short-lived Docker reanalysis chunks. Always include
   `ml.residual_unet.hrrr_pair_runs` in active-process checks before cleanup.
+- Branch cleanup candidates as of the 2026-06-02 review:
+  `codex-herbie-forecast-source`, `codex-herbie-regex-inventory-fix`,
+  `codex-herbie-tested-suite`, `codex/expand-herbie-model-suite`,
+  `codex/publish-herbie-image-tag`, `k0co-validation-mass-solver`, and
+  `ml-generalization-data-build`. The Codex/Herbie branches are
+  patch-equivalent to `main`; the K0CO and ML generalization branches are merged
+  ancestors. Do not resume new ML work from those branch names.
 
 ## Critical Operational Notes
 
@@ -110,6 +120,12 @@ results:
   colab_results/keystone_9p6_specific_lcp_canopy_v2/
   colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss/
   colab_results/keystone_9p6_specific_lcp_canopy_v2_gradloss/
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only/
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64/
+  colab_results/breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32/
+  colab_results/keystone_9p6_specific_lcp_canopy_v2_hrrr_only/
+  colab_results/keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64/
+  colab_results/keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32/
   colab_results/_comparison/
 ```
 
