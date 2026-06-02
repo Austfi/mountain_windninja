@@ -58,7 +58,7 @@ This document is the quickest orientation point for another agent or operator pi
 - A residual U-Net HRRR-pair process may run outside `mwn.sh` and launch
   short-lived Docker reanalysis chunks. Always include
   `ml.residual_unet.hrrr_pair_runs` in active-process checks before cleanup.
-- Branch cleanup candidates as of the 2026-06-02 review:
+- Stale branch refs pruned locally and remotely on 2026-06-02:
   `codex-herbie-forecast-source`, `codex-herbie-regex-inventory-fix`,
   `codex-herbie-tested-suite`, `codex/expand-herbie-model-suite`,
   `codex/publish-herbie-image-tag`, `k0co-validation-mass-solver`, and
