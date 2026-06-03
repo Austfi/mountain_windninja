@@ -19,6 +19,24 @@ breck_tenmile_9p6_specific_lcp_canopy_v2
 keystone_9p6_specific_lcp_canopy_v2
 ```
 
+Current Breck status: pause new training and architecture ablation work. Freeze
+the current Breck/Tenmile candidate set and validate it against point
+observations before spending more compute. The validation question now has two
+parts:
+
+```text
+1. Does ML still emulate WindNinja momentum at station points?
+2. How do HRRR, mass solver, momentum solver, and ML compare to observed station winds?
+```
+
+The Breck candidates to compare first are:
+
+```text
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2
+```
+
 Primary question:
 
 ```text
@@ -459,25 +477,94 @@ When a paired momentum run exists, include it for direct comparison:
 Current inference writes the trained `96 x 96` center crop, not a full-domain
 raster. Outputs include corrected speed/direction rasters, corrected `u/v`,
 predicted residuals, `metadata.json`, and comparison metrics when a momentum run
-is supplied.
+is supplied. Inference also copies projection sidecars from the source
+WindNinja raster to the cropped ML rasters so GDAL station sampling can use the
+same CRS.
+
+## Breck Synoptic Validation
+
+The Breck point validation runner is ML-only and does not go through `mwn.sh`.
+It inventories existing GCS mass/momentum HRRR pairs, skips incomplete days,
+downloads and processes one paired day at a time, applies the selected ML
+checkpoints, samples stations, appends compact CSV rows, and removes transient
+raw copies unless `--keep-work` is set.
+
+Station manifest:
+
+```text
+config/stations/breck_tenmile_ml_validation_manifest.csv
+```
+
+Stations and first-pass height handling:
+
+| Station | Validation window from Synoptic metadata | Height |
+|---|---|---:|
+| CABP6 | 2021-11-10 18:00 UTC to 2026-04-05 17:00 UTC | 10.0 m |
+| CABP8 | 2014-12-08 21:34 UTC to 2026-04-13 16:00 UTC | 10.0 m |
+| CAHSB | 2021-04-20 22:06 UTC to 2026-04-20 16:00 UTC | 10.0 m |
+
+Caveat: Synoptic does not expose usable wind sensor heights for these stations,
+so this first pass uses the explicit 10.0 m common height. CABP8 has a known
+reported-vs-DEM elevation mismatch; read station-level metrics before pooled
+metrics.
+
+Inventory and coverage only:
+
+```bash
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --inventory-only \
+  --label breck_synoptic_inventory
+```
+
+One-day smoke after checkpoints are available locally or downloadable from GCS:
+
+```bash
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --start 202601010000 \
+  --end 202601020000 \
+  --max-pairs 1 \
+  --max-timestamps 2 \
+  --download-checkpoints \
+  --label breck_synoptic_smoke
+```
+
+Full validation uses the same command without `--max-pairs`, after the smoke
+writes non-empty samples. Add `--sync-gcs` to copy compact outputs to:
+
+```text
+gs://mwn-ml-general-9p6-spring-nova-475120-r0/validation/breck_synoptic/<label>/
+```
+
+Primary outputs:
+
+```text
+gcs_pair_inventory.csv
+station_metadata.json
+coverage_report.csv
+samples.csv
+model_summary.csv
+station_summary.csv
+emulator_summary.csv
+report.md
+```
 
 ## Next Work
 
 Priority next steps:
 
-1. Run the HRRR-priority architecture ablations from
-   `06_train_site_specific_9p6_colab.ipynb` and compare them against the
-   completed V2 champion. Accept a new model only if HRRR RMSE improves or stays
-   essentially tied while pixel-level scorecards do not show obvious regressions.
-2. Keep controlled-only rows as outlier diagnostics, not the main training
+1. Run the one-day Breck Synoptic smoke and confirm non-empty matched samples
+   for HRRR, mass, momentum, and all selected ML candidates.
+2. Use `emulator_summary.csv` to answer whether each ML candidate still matches
+   momentum at station points.
+3. Use `model_summary.csv` and `station_summary.csv` to compare HRRR, mass,
+   momentum, and ML against observed station winds.
+4. Keep controlled-only rows as outlier diagnostics, not the main training
    objective. Controlled stress results should not displace real HRRR quality
    unless the intended deployment includes those regimes.
-3. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
+5. Add more high-wind HRRR cases for Breck and Keystone if scorecard high-wind
    or direction-sector rows show weakness.
-4. Test practical inference on fresh mass-solver runs and compare against a
-   paired momentum solve before treating the model as operational.
-5. If none of the architecture ablations beat V2, keep the simple V2 model and
-   spend effort on additional realistic HRRR cases rather than model complexity.
+6. Do not start more Breck architecture work until the Synoptic validation
+   report has been reviewed.
 
 Potential code improvement: make the GCP data-build wrapper tolerate a small
 number of known-bad HRRR days and continue packaging automatically, instead of

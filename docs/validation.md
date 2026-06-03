@@ -64,6 +64,54 @@ was paused after two daily chunks in the current local workspace, so do not use
 that output root as a complete Jan-Apr result unless it has been rerun to 90
 chunks.
 
+## Breck ML Synoptic Validation
+
+The Breck/Tenmile residual U-Net validation is separate from the operational
+`validate-study` workflow. It does not launch new WindNinja runs. It compares
+existing GCS HRRR mass/momentum pairs against Synoptic observations, then adds
+ML-corrected momentum candidates from the residual U-Net offshoot.
+
+Manifest:
+
+```text
+config/stations/breck_tenmile_ml_validation_manifest.csv
+```
+
+Stations:
+
+| Station | Label | Height handling |
+|---------|-------|-----------------|
+| CABP6 | Breckenridge Peak 6 CAIC | Explicit 10.0 m override |
+| CABP8 | Breckenridge Peak 8 CAIC | Explicit 10.0 m override; reported-vs-DEM elevation caveat |
+| CAHSB | Hoosier Pass CAIC | Explicit 10.0 m override |
+
+Runner:
+
+```bash
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --inventory-only \
+  --label breck_synoptic_inventory
+```
+
+After inventory coverage looks complete and checkpoints are available:
+
+```bash
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --start 202601010000 \
+  --end 202601020000 \
+  --max-pairs 1 \
+  --max-timestamps 2 \
+  --download-checkpoints \
+  --label breck_synoptic_smoke
+```
+
+The smoke must produce non-empty `samples.csv` rows before scaling to the full
+overlapping GCS window. Outputs are written under
+`runtime/ml/residual_unet/validation/breck_synoptic/<label>/` and include
+`gcs_pair_inventory.csv`, `coverage_report.csv`, `station_metadata.json`,
+`samples.csv`, `model_summary.csv`, `station_summary.csv`,
+`emulator_summary.csv`, and `report.md`.
+
 ## Berthoud Sampling Points
 
 ![Berthoud validation sampling points](assets/berthoud_validation_points.png)

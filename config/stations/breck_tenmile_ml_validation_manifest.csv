@@ -1,0 +1,4 @@
+station_id,label,group,height_m_override,provider
+CABP6,Breckenridge Peak 6 CAIC,ridge,10.0,synoptic
+CABP8,Breckenridge Peak 8 CAIC,ridge,10.0,synoptic
+CAHSB,Hoosier Pass CAIC,pass,10.0,synoptic

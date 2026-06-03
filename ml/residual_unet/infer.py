@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import math
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -266,6 +267,15 @@ def _write_prediction_outputs(
     return {key: path.as_posix() for key, path in outputs.items()}
 
 
+def _copy_projection_sidecars(reference_path: Path, output_paths: list[Path]) -> None:
+    """Copy the source AAIGrid projection sidecar to cropped ML rasters when available."""
+    reference_prj = reference_path.with_suffix(".prj")
+    if not reference_prj.exists():
+        return
+    for output_path in output_paths:
+        shutil.copyfile(reference_prj, output_path.with_suffix(".prj"))
+
+
 def _write_sample_metrics(path: Path, rows: list[dict[str, object]]) -> None:
     if not rows:
         return
@@ -377,6 +387,10 @@ def infer(
                 valid_mask,
                 crop_size=crop_size,
                 output_speed_units=output_speed_units,
+            )
+            _copy_projection_sidecars(
+                pair.speed_path,
+                [Path(value) for value in outputs.values()],
             )
 
             row: dict[str, object] = {

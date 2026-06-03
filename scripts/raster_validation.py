@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import synoptic_validation as sv
 
 
 UTC = dt.timezone.utc
+GDALLOCATIONINFO_TIMEOUT_SECONDS = float(os.getenv("MWN_GDALLOCATIONINFO_TIMEOUT_SECONDS", "30"))
 
 RUN_LABEL_RE = r"(?:\d{2}-\d{2}-\d{4}|\d{8})_\d{4}"
 WINDNINJA_RASTER_RE = re.compile(
@@ -37,19 +39,25 @@ def parse_run_label(label: str) -> dt.datetime:
 
 
 def sample_raster_value(path: Path, lon: float, lat: float) -> float | None:
-    result = subprocess.run(
-        [
-            "gdallocationinfo",
-            "-wgs84",
-            "-valonly",
-            str(path),
-            str(lon),
-            str(lat),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "gdallocationinfo",
+                "-wgs84",
+                "-valonly",
+                str(path),
+                str(lon),
+                str(lat),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=GDALLOCATIONINFO_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"gdallocationinfo timed out after {GDALLOCATIONINFO_TIMEOUT_SECONDS:g}s for {path}"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(
             f"gdallocationinfo failed for {path}: {result.stderr.strip() or result.stdout.strip()}"

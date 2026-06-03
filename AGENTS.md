@@ -348,7 +348,7 @@ failing HRRR dates: `2025-06-27`, `2025-11-20`, and `2025-12-14`. The
 V2 package independently evaluates held-out 7.5-degree midpoint controlled
 directions. The completed `v2_gradloss` ablation did not beat the V2 champion:
 Breck worsened slightly and Keystone improved only marginally. Keep V2 as the
-practical baseline while testing HRRR-priority architecture ablations.
+practical baseline.
 
 Completed gradloss result folders:
 
@@ -357,16 +357,42 @@ breck_tenmile_9p6_specific_lcp_canopy_v2_gradloss
 keystone_9p6_specific_lcp_canopy_v2_gradloss
 ```
 
-Next HRRR-priority architecture result folders:
+Current Breck validation candidate folders:
 
 ```text
-breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_only
-breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
 breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_resunet32
-keystone_9p6_specific_lcp_canopy_v2_hrrr_only
-keystone_9p6_specific_lcp_canopy_v2_hrrr_unet64
-keystone_9p6_specific_lcp_canopy_v2_hrrr_resunet32
+breck_tenmile_9p6_specific_lcp_canopy_v2_hrrr_unet64
+breck_tenmile_9p6_specific_lcp_canopy_v2
 ```
+
+Pause new Breck training for now. Validate the frozen Breck candidates against
+Synoptic observations first using the ML-only runner:
+
+```bash
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --inventory-only \
+  --label breck_synoptic_inventory
+
+.venv/bin/python -m ml.residual_unet.breck_synoptic_validation \
+  --start 202601010000 \
+  --end 202601020000 \
+  --max-pairs 1 \
+  --max-timestamps 2 \
+  --download-checkpoints \
+  --label breck_synoptic_smoke
+```
+
+The Breck station manifest is
+`config/stations/breck_tenmile_ml_validation_manifest.csv` with `CABP6`,
+`CABP8`, and `CAHSB`, all using explicit `height_m_override=10.0` because
+Synoptic does not expose usable wind sensor heights for these stations. CABP8's
+reported-vs-DEM elevation mismatch is a known caveat. The validation compares
+nearest parent HRRR, mass solver, momentum solver, and each ML candidate at
+matched station-hours, then writes `gcs_pair_inventory.csv`,
+`station_metadata.json`, `coverage_report.csv`, `samples.csv`,
+`model_summary.csv`, `station_summary.csv`, `emulator_summary.csv`, and
+`report.md`. It uses existing GCS paired outputs only; do not launch new
+WindNinja compute for this first validation pass.
 
 Read `docs/ml_residual_unet.md` for current ML status, result interpretation,
 Colab steps, and cleanup boundaries. For returned Colab artifacts, read:
@@ -557,6 +583,7 @@ Current placeholders: `{elevation_file}`, `{start_year}`, `{start_month}`, `{sta
 | `docker/patch_windninja_public_pastcast.py` | Patches upstream WindNinja pastcast auth gate at build time |
 | `docker/patch_windninja_generic_warp.py` | Patches upstream WindNinja generic NetCDF warping for GDAL band arrays |
 | `ml/residual_unet/` | Isolated ML offshoot for mass-to-momentum residual U-Net experiments |
+| `ml/residual_unet/breck_synoptic_validation.py` | ML-only Breck station validation runner for existing GCS mass/momentum pairs |
 | `docs/ml_residual_unet.md` | Current ML workflow, results, and cleanup boundary |
 
 ## Testing

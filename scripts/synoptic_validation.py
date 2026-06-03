@@ -24,6 +24,7 @@ logger = utils.setup_logging("synoptic_validation")
 API_BASE = "https://api.synopticdata.com/v2/stations"
 USGS_API_BASE = "https://api.waterdata.usgs.gov/ogcapi/v0"
 UTC = dt.timezone.utc
+HTTP_TIMEOUT_SECONDS = float(os.getenv("MWN_HTTP_TIMEOUT_SECONDS", "60"))
 
 
 def parse_utc_timestamp(raw_value: str) -> dt.datetime:
@@ -80,7 +81,7 @@ def get_synoptic_token(explicit_token: str | None = None) -> str:
 def fetch_synoptic_json(service: str, params: dict[str, str], token: str) -> dict:
     query = {"token": token, **params}
     url = f"{API_BASE}/{service}?{urllib.parse.urlencode(query)}"
-    with urllib.request.urlopen(url) as response:
+    with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
         payload = json.load(response)
 
     summary = payload.get("SUMMARY", {})
@@ -93,7 +94,7 @@ def fetch_synoptic_json(service: str, params: dict[str, str], token: str) -> dic
 
 
 def fetch_json_url(url: str) -> dict:
-    with urllib.request.urlopen(url) as response:
+    with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
         return json.load(response)
 
 
