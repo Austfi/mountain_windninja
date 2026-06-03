@@ -144,7 +144,7 @@ MWN_NUM_THREADS=6 ./deploy/gcp/mwn.sh validate-study berthoud_pass_k0co \
 |----------|----------|
 | Setup/images | `init`, `pull`, `build`, `build-local`, `update`, `demo-smoke` |
 | Terrain/domains | `fetch-terrain`, `fetch-dem`, `fetch-lcp`, `lcp-build`, `domain create`, `check` |
-| Simulations | `run`, `smoke`, `run-grid`, `forcing-from-grib`, `shell` |
+| Simulations | `run`, `smoke`, `run-grid`, `forcing-from-grib`, `hrrrcast-status`, `shell` |
 | Validation | `synoptic-points`, `validate`, `validate-rasters`, `validate-study`, `validate-k0co-height-hrrr`, `plot-validation` |
 | Operations | `upload`, `schedule`, `stop`, `logs`, `clean` |
 
@@ -240,10 +240,9 @@ Downloads live weather data from NOAA and simulates future wind:
 ./deploy/gcp/mwn.sh run --domain summit_county
 ```
 
-Native WindNinja weather downloads remain the default. Herbie is available as an
-explicit forecast source when the Docker image includes the Herbie dependencies.
-The current promoted image, `ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3`,
-has those dependencies and can be recorded in `config/runtime.env` with:
+Native WindNinja weather downloads remain the default. Herbie and HRRRCast are
+available as explicit forecast sources when the Docker image includes the
+Herbie/cfgrib/xarray dependencies. The current published Herbie-capable image is:
 
 ```bash
 ./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
@@ -266,6 +265,34 @@ and passes that file to WindNinja with `forecast_filename` while keeping
 `griddedInitialization` ASCII forcing path. The `GFS` suffix is a WindNinja
 generic-NetCDF reader compatibility filename; it does not mean the source model
 was changed to GFS.
+
+HRRRCast has no automatic fallback to native HRRR if a cycle, member, or forecast
+hour is missing. Check the newest complete source cycle before spending solver
+time:
+
+```bash
+./deploy/gcp/mwn.sh hrrrcast-status --member avg --hours 1
+./deploy/gcp/mwn.sh hrrrcast-status --members m00,m01,m02 --hours 1
+```
+
+Deterministic use should start with the ensemble mean member:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-member avg --hours 1 --keep-temp --no-upload
+```
+
+Probabilistic use runs each listed HRRRCast member as a separate WindNinja run,
+then writes `hrrrcast_ensemble_summary.json` plus compatible speed mean, p10,
+p50, p90, and spread rasters:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-members m00,m01,m02 --hours 1 --keep-temp --no-upload
+```
+
+The bucket layout is
+`HRRRCast/YYYYMMDD/HH/hrrrcast.<member>.tHHz.pgrb2.fFF[.idx]`. Auto cycle
+selection lists real day/hour prefixes, then validates the requested member and
+forecast-hour `.idx` files before preparing the local NetCDF.
 
 ### Reanalysis Mode (Historical)
 
@@ -303,14 +330,17 @@ Wind direction is in degrees: 0 = North, 90 = East, 180 = South, 270 = West.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--mode forecast\|reanalysis\|domain-average` | Run mode | `forecast` |
-| `--model MODEL` | Weather model; native forecast supports the native table below, Herbie supports the expanded table below, and reanalysis currently supports HRRR only | `HRRR` |
-| `--weather-source native\|herbie` | Use WindNinja native weather downloads or a Herbie-prepared local file | `native` |
+| `--model MODEL` | Weather model; native forecast supports the native table below, Herbie supports the expanded table below, HRRRCast supports `HRRRCAST`, and reanalysis currently supports HRRR only | `HRRR` |
+| `--weather-source native\|herbie\|hrrrcast` | Use WindNinja native weather downloads, a Herbie-prepared local file, or an HRRRCast-prepared local file | `native` |
 | `--herbie-cycle UTC` | Pin the Herbie model cycle for forecast mode | auto |
 | `--herbie-product PRODUCT` | Override the default Herbie product for a model | model default |
 | `--herbie-member MEMBER` | Override ensemble member for models such as RRFS | model default |
 | `--herbie-domain DOMAIN` | Override regional Herbie domain where supported | model default |
 | `--herbie-priority LIST` | Comma-separated Herbie source priority | `MWN_HERBIE_PRIORITY` |
 | `--herbie-extra KEY=VALUE` | Advanced Herbie template argument; repeat as needed | none |
+| `--hrrrcast-cycle UTC` | Pin the HRRRCast cycle for forecast mode | auto, with bucket discovery and rewind |
+| `--hrrrcast-member avg\|m00..m08` | Run one HRRRCast member | `avg` |
+| `--hrrrcast-members LIST\|all` | Run multiple HRRRCast members and write ensemble products; mutually exclusive with `--hrrrcast-member` | none |
 | `--hours N` | Number of hours to simulate | `18` |
 | `--start UTC` | Fixed reanalysis start time | none |
 | `--end UTC` | Fixed reanalysis end time | none |
@@ -339,6 +369,7 @@ WindNinja rejects `input_points_file` when `momentum_flag = true`. For Synoptic 
 | `NAM-ALASKA` | `NOMADS-NAM-ALASKA-11.25-KM` | 11.25 km | Alaska | Alaska coverage |
 | `RAP` | `NOMADS-RAP-CONUS-13-KM` | 13 km | CONUS (US) | Rapid refresh, hourly, 21h range |
 | `GFS` | `NOMADS-GFS-GLOBAL-0.25-DEG` | ~25 km | Global | Worldwide, long-range up to 16 days |
+| `HRRRCAST` | HRRRCast local `forecast_filename` file | 3 km | CONUS (US) | AI ensemble mean/member checks through `--weather-source hrrrcast` |
 
 Additional Herbie forecast models are opt-in with `--weather-source herbie`.
 The current Docker-tested Herbie set includes every Herbie template in this

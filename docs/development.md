@@ -43,8 +43,8 @@ Rebuild after changes to:
 ./deploy/gcp/mwn.sh build-local
 ```
 
-Herbie support changes the Docker image because it adds Herbie, cfgrib, xarray,
-netCDF4, and ecCodes. The current promoted Herbie-capable image is:
+Herbie/HRRRCast support uses the Herbie-capable Docker dependency layer:
+Herbie, cfgrib, xarray, netCDF4, and ecCodes. The current published image tag is:
 
 ```bash
 ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
@@ -68,6 +68,10 @@ Before publishing a GHCR image for a Herbie change:
 ./deploy/gcp/mwn.sh run --weather-source herbie --model AIFS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model RDPS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model GDPS --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh hrrrcast-status --member avg --hours 1
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-member avg --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-member m00 --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-members m00,m01,m02 --hours 1 --keep-temp --no-upload
 ```
 
 Publish a new `ghcr.io/austfi/mountain-windninja:<version>` only after those
@@ -77,6 +81,14 @@ Herbie the default, also compare native HRRR against Herbie HRRR on a small
 domain and confirm the output is close enough for operations. Then update
 `DEFAULT_REMOTE_IMAGE` and operator docs to reference the new version where they
 use a published GHCR image.
+
+HRRRCast is opt-in. Keep it on `wxModelInitialization` with a local
+`forecast_filename`; do not add a native HRRRCast WindNinja C++ fork or a
+`griddedInitialization` ASCII forcing path for this source. Cycle selection must
+list real bucket day/hour prefixes, probe public `.idx` files, and reject
+incomplete cycle/member/hour sets. The deterministic default is member `avg`;
+`--hrrrcast-members` runs separate member simulations and postprocesses
+compatible speed rasters into mean, p10, p50, p90, and spread products.
 
 The full Herbie registry currently also includes `GEFS`, `GEFS-MEAN`,
 `HIRESW`, `HRRRAK`, `NAM-CONUS`, and `NAM-ALASKA`; include those in the live

@@ -18,7 +18,11 @@ PASTCAST_MODEL_MAP = {
     "HRRR": "PASTCAST-GCP-HRRR-CONUS-3-KM",
 }
 
-WEATHER_SOURCES = ("native", "herbie")
+HRRRCAST_MODEL_MAP = {
+    "HRRRCAST": "HRRRCast",
+}
+
+WEATHER_SOURCES = ("native", "herbie", "hrrrcast")
 
 
 @dataclass(frozen=True)
@@ -279,7 +283,12 @@ HERBIE_MODEL_MAP = {
 }
 
 ALL_MODEL_NAMES = sorted(
-    set(list(FORECAST_MODEL_MAP) + list(PASTCAST_MODEL_MAP) + list(HERBIE_MODEL_MAP))
+    set(
+        list(FORECAST_MODEL_MAP)
+        + list(PASTCAST_MODEL_MAP)
+        + list(HERBIE_MODEL_MAP)
+        + list(HRRRCAST_MODEL_MAP)
+    )
 )
 
 
@@ -305,11 +314,17 @@ def resolve_weather_model(model: str, run_type: str, weather_source: str = "nati
     if weather_source == "herbie":
         spec = resolve_herbie_model(model)
         return f"Herbie {spec.name}"
+    if weather_source == "hrrrcast":
+        if run_type != "forecast":
+            raise ValueError("HRRRCast weather source is supported for forecast runs only.")
+        if model not in HRRRCAST_MODEL_MAP:
+            raise ValueError("HRRRCast weather source only supports --model HRRRCAST.")
+        return HRRRCAST_MODEL_MAP[model]
 
     if run_type == "forecast":
         if model not in FORECAST_MODEL_MAP:
             raise ValueError(
-                f"{model} is only available with --weather-source herbie."
+                f"{model} is only available with --weather-source herbie or hrrrcast."
             )
         return FORECAST_MODEL_MAP[model]
     if run_type == "reanalysis":

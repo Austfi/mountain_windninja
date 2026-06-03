@@ -177,8 +177,8 @@ Beginner commands:
 Common run flags:
   --hours N            Forecast window
   --domain KEY         Use a registered domain
-  --weather-source native|herbie
-                      Use WindNinja native weather downloads or Herbie
+  --weather-source native|herbie|hrrrcast
+                      Use WindNinja native weather, Herbie, or HRRRCast
   --keep-temp          Keep raw output in runtime/temp/
   --mode reanalysis    Run historical HRRR reanalysis
 
@@ -218,6 +218,7 @@ Runtime:
   shell                Open a bash shell inside the container
   run-grid             Run one timestep from speed/direction .asc grids
   forcing-from-grib    Convert one GRIB/NetCDF wind timestep to .asc grids
+  hrrrcast-status      Check latest usable HRRRCast cycle/member availability
   upload               Upload latest results to GCS bucket
   schedule             Start the automatic scheduler
   stop                 Stop the scheduler
@@ -234,16 +235,19 @@ Validation:
 
 Run flags:
   --mode forecast|reanalysis|domain-average
-  --model HRRR|NBM|NAM|NAM-CONUS|NAM-ALASKA|RAP|GFS
+  --model HRRR|NBM|NAM|NAM-CONUS|NAM-ALASKA|RAP|GFS|HRRRCAST
           Herbie also supports AIFS, GDPS, GEFS, GEFS-MEAN, HIRESW,
           HRRRAK, IFS, RDPS, and RRFS
-  --weather-source native|herbie
+  --weather-source native|herbie|hrrrcast
   --herbie-product PRODUCT
   --herbie-member MEMBER
   --herbie-domain DOMAIN
   --herbie-cycle UTC
   --herbie-priority aws,google,azure,nomads,ecmwf,msc
   --herbie-extra KEY=VALUE
+  --hrrrcast-cycle UTC
+  --hrrrcast-member avg|m00..m08
+  --hrrrcast-members LIST|all
   --hours N
   --start UTC
   --end UTC
@@ -504,6 +508,11 @@ cmd_run_grid() {
 cmd_forcing_from_grib() {
   pick_docker
   compose run --rm shell python ./scripts/forcing_from_grib.py "$@"
+}
+
+cmd_hrrrcast_status() {
+  pick_docker
+  compose run --rm shell python /opt/mountain_windninja/scripts/hrrrcast_status.py "$@"
 }
 
 cmd_smoke() {
@@ -1831,6 +1840,7 @@ case "$COMMAND" in
   validate-k0co-height-hrrr) cmd_validate_k0co_height_hrrr "$@" ;;
   plot-validation) cmd_plot_validation "$@" ;;
   forcing-from-grib) cmd_forcing_from_grib "$@" ;;
+  hrrrcast-status) cmd_hrrrcast_status "$@" ;;
   clean)           cmd_clean ;;
   fetch-terrain)   cmd_fetch_terrain "$@" ;;
   fetch-dem)       cmd_fetch_dem "$@" ;;

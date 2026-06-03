@@ -26,6 +26,7 @@ try:
         ALL_MODEL_NAMES,
         FORECAST_MODEL_MAP,
         HERBIE_MODEL_MAP,
+        HRRRCAST_MODEL_MAP,
         PASTCAST_MODEL_MAP,
         WEATHER_SOURCES,
         resolve_weather_model,
@@ -58,6 +59,7 @@ except ImportError:
         ALL_MODEL_NAMES,
         FORECAST_MODEL_MAP,
         HERBIE_MODEL_MAP,
+        HRRRCAST_MODEL_MAP,
         PASTCAST_MODEL_MAP,
         WEATHER_SOURCES,
         resolve_weather_model,
@@ -74,6 +76,7 @@ __all__ = [
     "ALL_MODEL_NAMES",
     "FORECAST_MODEL_MAP",
     "HERBIE_MODEL_MAP",
+    "HRRRCAST_MODEL_MAP",
     "PASTCAST_MODEL_MAP",
     "WEATHER_SOURCES",
     "archive_results",
@@ -186,6 +189,45 @@ def _parse_herbie_member(raw_member):
         return raw_member
 
 
+def _hrrrcast_model_label(member: str | None = None) -> str:
+    if member:
+        return f"HRRRCAST_{member}"
+    return "HRRRCAST"
+
+
+def _member_output_dir(domain_key, start_time, run_label, member: str) -> str:
+    return os.path.join(
+        config_loader.TEMP_DIR,
+        build_output_dir_name(
+            domain_key,
+            start_time,
+            run_label,
+            _hrrrcast_model_label(member),
+        ),
+    )
+
+
+def _ensemble_output_dir(domain_key, start_time, run_label, members: list[str]) -> str:
+    member_label = _hrrrcast_ensemble_member_label(members)
+    return os.path.join(
+        config_loader.TEMP_DIR,
+        build_output_dir_name(
+            domain_key,
+            start_time,
+            run_label,
+            f"HRRRCAST_ensemble_{member_label}",
+        ),
+    )
+
+
+def _hrrrcast_ensemble_member_label(members: list[str]) -> str:
+    return "all" if members == [f"m{idx:02d}" for idx in range(9)] else "_".join(members)
+
+
+def _hrrrcast_ensemble_model_label(members: list[str]) -> str:
+    return f"HRRRCAST_ensemble_{_hrrrcast_ensemble_member_label(members)}"
+
+
 def _extract_domain_average_start_label(domain_key: str, output_dir: str) -> str:
     dirname = Path(output_dir).name
     prefix = f"{domain_key}_domavg_"
@@ -242,6 +284,13 @@ def main():
                         help="Comma-separated Herbie source priority (default: MWN_HERBIE_PRIORITY)")
     parser.add_argument("--herbie-extra", action="append",
                         help="Advanced Herbie template option as KEY=VALUE; repeat as needed")
+    hrrrcast_group = parser.add_mutually_exclusive_group()
+    hrrrcast_group.add_argument("--hrrrcast-member",
+                                help="HRRRCast member for one run: avg or m00..m08 (default: avg)")
+    hrrrcast_group.add_argument("--hrrrcast-members",
+                                help="Comma-separated HRRRCast members for ensemble runs, or all")
+    parser.add_argument("--hrrrcast-cycle",
+                        help="UTC HRRRCast cycle to use (YYYYMMDDHHMM or YYYY-MM-DDTHH:MM)")
     parser.add_argument("--speed", type=float, default=None,
                         help="Wind speed for domain-average mode (in --speed-units)")
     parser.add_argument("--direction", type=float, default=None,
@@ -348,12 +397,49 @@ def main():
 
     if args.weather_source == "herbie" and run_params["type"] != "forecast":
         parser.error("--weather-source herbie is currently supported for forecast runs only.")
+    if args.weather_source == "hrrrcast" and run_params["type"] != "forecast":
+        parser.error("--weather-source hrrrcast is currently supported for forecast runs only.")
+    if (
+        args.weather_source != "hrrrcast"
+        and (args.hrrrcast_cycle or args.hrrrcast_member or args.hrrrcast_members)
+    ):
+        parser.error("--hrrrcast-* options require --weather-source hrrrcast.")
+    if args.hrrrcast_members and args.points_output:
+        parser.error("--points-output is not supported with --hrrrcast-members.")
+
+    hrrrcast_members = None
+    hrrrcast_single_member = None
+    if args.weather_source == "hrrrcast":
+        try:
+            from .hrrrcast_wx_model import (
+                HrrrCastWeatherError,
+                expand_hrrrcast_members,
+                normalize_hrrrcast_member,
+            )
+        except ImportError:
+            from hrrrcast_wx_model import (
+                HrrrCastWeatherError,
+                expand_hrrrcast_members,
+                normalize_hrrrcast_member,
+            )
+        try:
+            if args.hrrrcast_members:
+                hrrrcast_members = expand_hrrrcast_members(args.hrrrcast_members)
+            else:
+                hrrrcast_single_member = normalize_hrrrcast_member(args.hrrrcast_member)
+        except HrrrCastWeatherError as exc:
+            parser.error(str(exc))
 
     date_str = run_params["start"].strftime("%Y%m%d")
+    output_model_label = (
+        _hrrrcast_model_label(hrrrcast_single_member)
+        if hrrrcast_single_member
+        else args.model
+    )
     output_dir = os.path.join(
         config_loader.TEMP_DIR,
         build_output_dir_name(
-            domain_config.key, run_params["start"], run_params["label"], args.model,
+            domain_config.key, run_params["start"], run_params["label"], output_model_label,
         ),
     )
 
@@ -367,6 +453,120 @@ def main():
         gcs.upload_status(run_params["label"], args.model, "running")
 
     try:
+        if hrrrcast_members:
+            try:
+                from .hrrrcast_ensemble import write_ensemble_summary
+                from .hrrrcast_wx_model import prepare_hrrrcast_wx_model
+            except ImportError:
+                from hrrrcast_ensemble import write_ensemble_summary
+                from hrrrcast_wx_model import prepare_hrrrcast_wx_model
+
+            hrrrcast_cycle = (
+                parse_utc_timestamp(args.hrrrcast_cycle)
+                if args.hrrrcast_cycle
+                else None
+            )
+            member_output_dirs: dict[str, str] = {}
+            for member in hrrrcast_members:
+                member_dir = _member_output_dir(
+                    domain_config.key,
+                    run_params["start"],
+                    run_params["label"],
+                    member,
+                )
+                utils.ensure_dir(member_dir)
+                forecast_filename = prepare_hrrrcast_wx_model(
+                    model_name=args.model,
+                    start_time=run_params["start"],
+                    stop_time=run_params["stop"],
+                    domain_config=domain_config,
+                    cycle=hrrrcast_cycle,
+                    member=member,
+                )
+                config_path, _ = generate_config(
+                    date_str, run_params["start"], run_params["stop"],
+                    domain_config,
+                    wx_model_type_override=None,
+                    surface_vegetation=config_loader.SURFACE_VEGETATION,
+                    sub_dir=member_dir,
+                    output_wind_height=args.height,
+                    input_points_file=str(points_input_path) if points_input_path else None,
+                    output_points_file=None,
+                    run_type=run_params["type"],
+                    forecast_filename=str(forecast_filename),
+                )
+
+                if args.dry_run:
+                    logger.info(f"Generated config: {config_path}")
+                else:
+                    run_windninja(config_path, run_type=run_params["type"])
+
+                    output_name = build_archive_name_base(
+                        domain_config.key,
+                        run_params["start"],
+                        run_params["label"],
+                        _hrrrcast_model_label(member),
+                    )
+                    try:
+                        playable_kmz = create_time_series.create_playable_kmz(
+                            member_dir,
+                            output_name,
+                            domain_label=domain_config.label,
+                        )
+                        if playable_kmz:
+                            logger.info(f"Playable KMZ: {playable_kmz}")
+                    except Exception as exc:
+                        logger.error(f"Playable KMZ failed for {member}: {exc}")
+
+                member_output_dirs[member] = member_dir
+
+            ensemble_dir = _ensemble_output_dir(
+                domain_config.key,
+                run_params["start"],
+                run_params["label"],
+                hrrrcast_members,
+            )
+            write_ensemble_summary(
+                member_output_dirs=member_output_dirs,
+                summary_dir=ensemble_dir,
+                domain_key=domain_config.key,
+                start_time=run_params["start"],
+                stop_time=run_params["stop"],
+                dry_run=args.dry_run,
+            )
+            if not args.dry_run and not args.keep_temp:
+                for member, member_dir in member_output_dirs.items():
+                    output_name = build_archive_name_base(
+                        domain_config.key,
+                        run_params["start"],
+                        run_params["label"],
+                        _hrrrcast_model_label(member),
+                    )
+                    archive_path = archive_results(member_dir, output_name)
+                    if do_upload and os.path.exists(archive_path):
+                        dest = f"archives/{date_str}/{os.path.basename(archive_path)}"
+                        gcs.upload_file(archive_path, dest)
+                        gcs.cleanup_old_forecasts()
+
+                ensemble_archive_name = build_archive_name_base(
+                    domain_config.key,
+                    run_params["start"],
+                    run_params["label"],
+                    _hrrrcast_ensemble_model_label(hrrrcast_members),
+                )
+                archive_path = archive_results(ensemble_dir, ensemble_archive_name)
+                if do_upload and os.path.exists(archive_path):
+                    dest = f"archives/{date_str}/{os.path.basename(archive_path)}"
+                    gcs.upload_file(archive_path, dest)
+
+            if do_upload:
+                gcs.upload_status(run_params["label"], args.model, "success")
+                gcs.update_index()
+
+            enforce_retention()
+            logger.info("Done.")
+            return
+
         utils.ensure_dir(output_dir)
 
         forecast_filename = None
@@ -392,6 +592,26 @@ def main():
                 extra=parse_extra_values(args.herbie_extra),
             )
             wx_model_type_override = None
+        elif args.weather_source == "hrrrcast":
+            try:
+                from .hrrrcast_wx_model import prepare_hrrrcast_wx_model
+            except ImportError:
+                from hrrrcast_wx_model import prepare_hrrrcast_wx_model
+
+            hrrrcast_cycle = (
+                parse_utc_timestamp(args.hrrrcast_cycle)
+                if args.hrrrcast_cycle
+                else None
+            )
+            forecast_filename = prepare_hrrrcast_wx_model(
+                model_name=args.model,
+                start_time=run_params["start"],
+                stop_time=run_params["stop"],
+                domain_config=domain_config,
+                cycle=hrrrcast_cycle,
+                member=hrrrcast_single_member,
+            )
+            wx_model_type_override = None
 
         config_path, _ = generate_config(
             date_str, run_params["start"], run_params["stop"],
@@ -414,7 +634,7 @@ def main():
 
         if not args.dry_run:
             output_name = build_archive_name_base(
-                domain_config.key, run_params["start"], run_params["label"], args.model,
+                domain_config.key, run_params["start"], run_params["label"], output_model_label,
             )
 
             playable_kmz = None

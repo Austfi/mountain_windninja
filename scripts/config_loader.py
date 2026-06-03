@@ -90,6 +90,15 @@ try:
     HERBIE_MAX_CYCLE_REWIND = max(0, int(os.getenv("MWN_HERBIE_MAX_CYCLE_REWIND", "4")))
 except ValueError:
     HERBIE_MAX_CYCLE_REWIND = 4
+HRRRCAST_CACHE_DIR = _resolve(os.getenv("MWN_HRRRCAST_CACHE", "runtime/weather/hrrrcast"))
+HRRRCAST_BASE_URL = os.getenv(
+    "MWN_HRRRCAST_BASE_URL",
+    "https://noaa-gsl-experimental-pds.s3.amazonaws.com",
+)
+try:
+    HRRRCAST_MAX_CYCLE_REWIND = max(0, int(os.getenv("MWN_HRRRCAST_MAX_CYCLE_REWIND", "48")))
+except ValueError:
+    HRRRCAST_MAX_CYCLE_REWIND = 48
 
 WINDNINJA_CLI = os.getenv("MWN_WINDNINJA_CLI",
                           os.getenv("WINDNINJA_CLI", "/usr/local/bin/WindNinja_cli"))
@@ -134,5 +143,13 @@ def get_gridded_domain_config(domain_key: str | None = None) -> DomainConfig:
 
 
 def init_directories() -> None:
-    for d in (RUNTIME_DIR, STATIC_DATA_DIR, TEMP_DIR, ARCHIVE_DIR, LOGS_DIR, HERBIE_CACHE_DIR):
+    for d in (
+        RUNTIME_DIR,
+        STATIC_DATA_DIR,
+        TEMP_DIR,
+        ARCHIVE_DIR,
+        LOGS_DIR,
+        HERBIE_CACHE_DIR,
+        HRRRCAST_CACHE_DIR,
+    ):
         d.mkdir(parents=True, exist_ok=True)

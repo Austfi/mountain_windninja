@@ -506,6 +506,41 @@ fixed. Do not list wave-only, storm-specific, climate, reforecast,
 single-variable archive, or full-file-only global templates as normal
 `mwn.sh run --model` choices.
 
+### 18. HRRRCast forecast source is opt-in
+
+The default forecast path remains WindNinja's native `wxModelInitialization`.
+HRRRCast runs are explicit and use a local generic NetCDF passed through
+`forecast_filename`, not `griddedInitialization` and not a WindNinja C++ fork:
+
+```bash
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-member avg --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-members m00,m01,m02 --hours 1 --keep-temp --no-upload
+```
+
+Use `./deploy/gcp/mwn.sh hrrrcast-status --member avg --hours 1` to check the
+newest usable source cycle before spending solver time. The adapter must list
+real public bucket prefixes and probe `.idx` files for the requested
+cycle/member/hour set; do not silently fall back to native HRRR. The bucket
+layout is `HRRRCast/YYYYMMDD/HH/hrrrcast.<member>.tHHz.pgrb2.fFF[.idx]`. The
+deterministic default is `avg`; live checks currently support ensemble members
+`m00` through `m08`, and `all` expands to those members. Probabilistic runs
+execute each requested member as a separate WindNinja run and then write
+`hrrrcast_ensemble_summary.json` plus compatible speed mean, p10, p50, p90, and
+spread rasters.
+
+Runtime defaults:
+
+```text
+MWN_HRRRCAST_CACHE=runtime/weather/hrrrcast
+MWN_HRRRCAST_BASE_URL=https://noaa-gsl-experimental-pds.s3.amazonaws.com
+MWN_HRRRCAST_MAX_CYCLE_REWIND=48
+```
+
+This currently uses the Herbie-capable image dependency layer (`xarray`,
+`cfgrib`, `netCDF4`, ecCodes). Before promoting a new GHCR image tag, run the
+local tests plus VM smokes for HRRRCast `avg`, one member such as `m00`, and a
+small member list such as `m00,m01,m02`.
+
 ## DEM Data Sources
 
 | Source | Resolution | Coverage | API Key | mwn.sh arg |

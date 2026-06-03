@@ -1091,7 +1091,7 @@ def write_windninja_generic_netcdf(hourly: list[dict[str, Any]], output_path: Pa
         encoding[coord_name] = {"_FillValue": None}
     ds.to_netcdf(output_path, encoding=encoding)
     validate_windninja_generic_netcdf(output_path)
-    logger.info(f"Wrote Herbie WindNinja file: {output_path}")
+    logger.info(f"Wrote WindNinja generic weather file: {output_path}")
     return output_path
 
 

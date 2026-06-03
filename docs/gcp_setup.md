@@ -636,6 +636,7 @@ Common `run` options:
 | `--model GFS` | Forecast-only long-range global guidance |
 | `--weather-source native` | Default WindNinja NOMADS/GCP weather path |
 | `--weather-source herbie` | Opt-in Herbie forecast-file path; requires Herbie-capable image |
+| `--weather-source hrrrcast` | Opt-in HRRRCast forecast-file path for `--model HRRRCAST` |
 | `--hours N` | Forecast/reanalysis duration when not using exact start/end |
 | `--start UTC --end UTC` | Exact reanalysis window; both must be hour-aligned UTC |
 | `--domain KEY` | Domain from `config/domains.json` |
@@ -657,12 +658,15 @@ Useful environment settings in `config/runtime.env`:
 | `MWN_GCS_BUCKET` | Upload destination bucket |
 | `MWN_HERBIE_CACHE` | Local cache for Herbie GRIB subsets and WindNinja NetCDF files |
 | `MWN_HERBIE_PRIORITY` | Herbie source priority, for example `aws,google,azure,nomads,ecmwf,msc` |
+| `MWN_HRRRCAST_CACHE` | Local cache for HRRRCast GRIB subsets and WindNinja NetCDF files |
+| `MWN_HRRRCAST_BASE_URL` | Public HRRRCast object-store base URL |
+| `MWN_HRRRCAST_MAX_CYCLE_REWIND` | Maximum hours to rewind while selecting the newest complete HRRRCast cycle |
 | `MWN_SYNOPTIC_TOKEN` | Required for Synoptic validation |
 | `CUSTOM_SRTM_API_KEY` | Required for SRTM DEM downloads |
 
-Herbie forecast support is image-level because it adds `herbie-data`, `xarray`,
-`cfgrib`, `netCDF4`, and the ecCodes runtime library. The current promoted GHCR
-image already includes those dependencies:
+Herbie and HRRRCast forecast support need the Herbie-capable image dependency
+layer: `herbie-data`, `xarray`, `cfgrib`, `netCDF4`, and the ecCodes runtime
+library. The current published tag is:
 
 ```bash
 ./deploy/gcp/mwn.sh pull ghcr.io/austfi/mountain-windninja:3.12.2-herbie.3
@@ -681,14 +685,22 @@ Do a native smoke test first, then a Herbie opt-in smoke:
 ./deploy/gcp/mwn.sh run --weather-source herbie --model HRRR --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model IFS --hours 1 --keep-temp --no-upload
 ./deploy/gcp/mwn.sh run --weather-source herbie --model NBM --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh hrrrcast-status --member avg --hours 1
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-member avg --hours 1 --keep-temp --no-upload
+./deploy/gcp/mwn.sh run --weather-source hrrrcast --model HRRRCAST --hrrrcast-members m00,m01,m02 --hours 1 --keep-temp --no-upload
 ```
 
-For Herbie model-list changes, treat the VM as the promotion gate. The adapter
-must first prove the exact Herbie inventory/search behavior for the needed
-surface fields; NCEP-style sources use regex against `H.inventory().search_this`,
-while ECCC sources use `variable` and `level` kwargs because they do not publish
-index files. After every newly enabled model passes source prep and a one-hour
-run, publish a new GHCR image tag and update the default image references.
+For Herbie or HRRRCast source changes, treat the VM as the promotion gate. The
+adapter must first prove the exact field access behavior for the needed surface
+fields. HRRRCast fetches public `.idx` inventories, downloads byte ranges for
+`UGRD:10 m`, `VGRD:10 m`, `TMP:2 m`, and `TCDC:entire atmosphere`, and passes a
+local generic NetCDF to WindNinja with `forecast_filename`. Cycle selection lists
+real bucket prefixes such as
+`HRRRCast/YYYYMMDD/HH/hrrrcast.<member>.tHHz.pgrb2.fFF.idx`, then rejects
+incomplete cycle/member/hour sets instead of falling back to native HRRR. After
+every newly enabled source passes source prep and a one-hour run, publish a new
+GHCR image tag only when baked image contents changed, then update the default
+image references.
 Before promoting that tag in docs, pull it from GHCR on a clean host or VM to
 verify the registry image is actually available.
 

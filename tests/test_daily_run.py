@@ -28,9 +28,26 @@ def test_resolve_weather_model_supports_opt_in_herbie_models():
         )
 
 
+def test_resolve_weather_model_supports_opt_in_hrrrcast_model():
+    assert (
+        daily_run.resolve_weather_model("HRRRCAST", "forecast", weather_source="hrrrcast")
+        == "HRRRCast"
+    )
+
+
 def test_resolve_weather_model_rejects_herbie_only_models_on_native_source():
-    with pytest.raises(ValueError, match="only available with --weather-source herbie"):
+    with pytest.raises(ValueError, match="only available with --weather-source herbie or hrrrcast"):
         daily_run.resolve_weather_model("RRFS", "forecast")
+
+
+def test_resolve_weather_model_rejects_hrrrcast_without_hrrrcast_source():
+    with pytest.raises(ValueError, match="only available with --weather-source"):
+        daily_run.resolve_weather_model("HRRRCAST", "forecast")
+
+
+def test_resolve_weather_model_rejects_non_hrrrcast_model_on_hrrrcast_source():
+    with pytest.raises(ValueError, match="only supports --model HRRRCAST"):
+        daily_run.resolve_weather_model("HRRR", "forecast", weather_source="hrrrcast")
 
 
 def test_herbie_model_registry_only_lists_windninja_sensible_templates():
@@ -219,6 +236,158 @@ def test_main_herbie_dry_run_uses_forecast_filename(tmp_path, monkeypatch):
     contents = configs[0].read_text(encoding="utf-8")
     assert f"forecast_filename = {weather_file.as_posix()}" in contents
     assert "wx_model_type =" not in contents
+
+
+def test_main_hrrrcast_dry_run_uses_forecast_filename(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    weather_file = tmp_path / "weather" / "windninja_generic_GFS.nc"
+    weather_file.parent.mkdir()
+    weather_file.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(daily_run.config_loader, "init_directories", lambda: None)
+    monkeypatch.setattr(daily_run.config_loader, "list_domains", lambda: ["test"])
+    monkeypatch.setattr(daily_run.config_loader, "DEFAULT_DOMAIN", "test")
+    monkeypatch.setattr(daily_run.config_loader, "get_domain_config", lambda key: domain)
+    monkeypatch.setattr(daily_run.config_loader, "TEMP_DIR", tmp_path / "temp")
+    monkeypatch.setattr(daily_run.config_loader, "GCS_UPLOAD_ENABLED", False)
+
+    import scripts.hrrrcast_wx_model as hrrrcast_wx_model
+
+    calls = []
+
+    def fake_prepare(**kwargs):
+        calls.append(kwargs)
+        return weather_file
+
+    monkeypatch.setattr(hrrrcast_wx_model, "prepare_hrrrcast_wx_model", fake_prepare)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily_run.py",
+            "--domain",
+            "test",
+            "--weather-source",
+            "hrrrcast",
+            "--model",
+            "HRRRCAST",
+            "--hrrrcast-member",
+            "m00",
+            "--hours",
+            "1",
+            "--dry-run",
+            "--no-upload",
+        ],
+    )
+
+    daily_run.main()
+
+    assert calls[0]["member"] == "m00"
+    configs = list((tmp_path / "temp").glob("test_*_forecast_1h_HRRRCAST_m00/*.cfg"))
+    assert len(configs) == 1
+    contents = configs[0].read_text(encoding="utf-8")
+    assert f"forecast_filename = {weather_file.as_posix()}" in contents
+    assert "wx_model_type =" not in contents
+
+
+def test_main_hrrrcast_members_dry_run_generates_member_configs(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+    weather_file = tmp_path / "weather" / "windninja_generic_GFS.nc"
+    weather_file.parent.mkdir()
+    weather_file.write_text("placeholder", encoding="utf-8")
+
+    monkeypatch.setattr(daily_run.config_loader, "init_directories", lambda: None)
+    monkeypatch.setattr(daily_run.config_loader, "list_domains", lambda: ["test"])
+    monkeypatch.setattr(daily_run.config_loader, "DEFAULT_DOMAIN", "test")
+    monkeypatch.setattr(daily_run.config_loader, "get_domain_config", lambda key: domain)
+    monkeypatch.setattr(daily_run.config_loader, "TEMP_DIR", tmp_path / "temp")
+    monkeypatch.setattr(daily_run.config_loader, "GCS_UPLOAD_ENABLED", False)
+
+    import scripts.hrrrcast_ensemble as hrrrcast_ensemble
+    import scripts.hrrrcast_wx_model as hrrrcast_wx_model
+
+    calls = []
+    summaries = []
+
+    def fake_prepare(**kwargs):
+        calls.append(kwargs)
+        return weather_file
+
+    def fake_summary(**kwargs):
+        summaries.append(kwargs)
+        return Path(kwargs["summary_dir"]) / "hrrrcast_ensemble_summary.json"
+
+    monkeypatch.setattr(hrrrcast_wx_model, "prepare_hrrrcast_wx_model", fake_prepare)
+    monkeypatch.setattr(hrrrcast_ensemble, "write_ensemble_summary", fake_summary)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily_run.py",
+            "--domain",
+            "test",
+            "--weather-source",
+            "hrrrcast",
+            "--model",
+            "HRRRCAST",
+            "--hrrrcast-members",
+            "m00,m01",
+            "--hours",
+            "1",
+            "--dry-run",
+            "--no-upload",
+        ],
+    )
+
+    daily_run.main()
+
+    assert [call["member"] for call in calls] == ["m00", "m01"]
+    assert summaries[0]["dry_run"] is True
+    assert set(summaries[0]["member_output_dirs"]) == {"m00", "m01"}
+    assert len(list((tmp_path / "temp").glob("test_*_forecast_1h_HRRRCAST_m00/*.cfg"))) == 1
+    assert len(list((tmp_path / "temp").glob("test_*_forecast_1h_HRRRCAST_m01/*.cfg"))) == 1
+
+
+def test_main_rejects_hrrrcast_member_without_hrrrcast_source(tmp_path, monkeypatch):
+    template = _make_template(tmp_path)
+    domain = DomainConfig(
+        key="test", label="Test",
+        template_path=template,
+        elevation_file=Path("/tmp/test_dem.tif"),
+    )
+
+    monkeypatch.setattr(daily_run.config_loader, "init_directories", lambda: None)
+    monkeypatch.setattr(daily_run.config_loader, "list_domains", lambda: ["test"])
+    monkeypatch.setattr(daily_run.config_loader, "DEFAULT_DOMAIN", "test")
+    monkeypatch.setattr(daily_run.config_loader, "get_domain_config", lambda key: domain)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily_run.py",
+            "--domain",
+            "test",
+            "--weather-source",
+            "native",
+            "--model",
+            "HRRR",
+            "--hrrrcast-member",
+            "m00",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        daily_run.main()
 
 
 def test_generate_config_allows_env_thread_override(tmp_path, monkeypatch):
@@ -457,6 +626,7 @@ def test_all_model_names_is_sorted_union():
         list(daily_run.FORECAST_MODEL_MAP)
         + list(daily_run.PASTCAST_MODEL_MAP)
         + list(daily_run.HERBIE_MODEL_MAP)
+        + list(daily_run.HRRRCAST_MODEL_MAP)
     ))
     assert daily_run.ALL_MODEL_NAMES == expected
 
