@@ -9,15 +9,23 @@ import pytest
 from ml.residual_unet.breck_synoptic_validation import (
     GcsPair,
     RasterSource,
+    ascii_grid_indices,
     build_station_sample_rows,
     collect_raster_inventory,
     coverage_for_pair,
     emulator_summary_rows,
     model_summary_rows,
+    observation_coverage_rows,
+    pair_observation_counts,
+    pair_observed_timestamps,
     pair_gcs_runs,
+    parent_hrrr_raster_base,
     parse_gcs_run_uri,
+    raster_timestamp_label,
     run_listing_patterns,
+    sample_ascii_grid,
     safe_source_name,
+    solver_raster_base,
     token_from_runtime_env,
 )
 from ml.residual_unet.infer import _copy_projection_sidecars
@@ -80,6 +88,41 @@ def test_run_listing_patterns_use_date_prefix_for_narrow_window():
     ]
 
 
+def test_run_listing_patterns_use_month_prefix_for_long_window():
+    patterns = run_listing_patterns(
+        "gs://bucket/runtime_temp",
+        "breck_tenmile_9p6_mass",
+        "HRRR",
+        dt.datetime(2025, 1, 15, tzinfo=UTC),
+        dt.datetime(2025, 4, 2, tzinfo=UTC),
+    )
+
+    assert patterns == [
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_mass_202501*_reanalysis_*h_HRRR",
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_mass_202502*_reanalysis_*h_HRRR",
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_mass_202503*_reanalysis_*h_HRRR",
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_mass_202504*_reanalysis_*h_HRRR",
+    ]
+
+
+def test_exact_download_raster_names_for_observed_timestamp():
+    timestamp = dt.datetime(2025, 9, 17, 17, 0, tzinfo=UTC)
+
+    assert raster_timestamp_label(timestamp) == "09-17-2025_1700"
+    assert (
+        solver_raster_base("breck_tenmile_9p6_mass", timestamp)
+        == "breck_tenmile_9p6_09-17-2025_1700_100m"
+    )
+    assert (
+        solver_raster_base("breck_tenmile_9p6", timestamp)
+        == "breck_tenmile_9p6_09-17-2025_1700_100m"
+    )
+    assert (
+        parent_hrrr_raster_base(timestamp)
+        == "PASTCAST-GCP-HRRR-CONUS-3-KM-09-17-2025_1700"
+    )
+
+
 def test_token_from_runtime_env_reads_without_printing(monkeypatch, tmp_path):
     monkeypatch.delenv("MWN_SYNOPTIC_TOKEN", raising=False)
     monkeypatch.delenv("CUSTOM_API_KEY", raising=False)
@@ -136,6 +179,34 @@ def test_coverage_for_pair_flags_incomplete_parent_hrrr():
     assert coverage.status == "incomplete"
     assert "parent_hrrr" in coverage.reason
     assert coverage.paired_timestamp_count == 1
+
+
+def test_pair_observation_coverage_counts_matched_station_hours():
+    mass = parse_gcs_run_uri(
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_mass_20260101_0000_reanalysis_2h_HRRR/"
+    )
+    momentum = parse_gcs_run_uri(
+        "gs://bucket/runtime_temp/breck_tenmile_9p6_20260101_0000_reanalysis_2h_HRRR/"
+    )
+    pair = GcsPair(mass=mass, momentum=momentum)
+    observations = {
+        "CABP6": [
+            {"datetime": dt.datetime(2026, 1, 1, 0, 10, tzinfo=UTC)},
+            {"datetime": dt.datetime(2026, 1, 1, 2, 45, tzinfo=UTC)},
+        ],
+        "CAHSB": [],
+    }
+
+    counts = pair_observation_counts(pair, observations, tolerance_minutes=30)
+    observed_timestamps = pair_observed_timestamps(pair, observations, tolerance_minutes=30)
+    rows = observation_coverage_rows([pair], observations, tolerance_minutes=30)
+
+    assert counts == {"CABP6": 1, "CAHSB": 0}
+    assert observed_timestamps == {dt.datetime(2026, 1, 1, 0, 0, tzinfo=UTC)}
+    assert rows[0]["matched_station_hour_count"] == 1
+    assert rows[0]["status"] == "has_observations"
+    assert rows[0]["CABP6_matched_station_hours"] == 1
+    assert rows[0]["CAHSB_matched_station_hours"] == 0
 
 
 def test_station_sampling_and_metric_aggregation_with_fake_rasters():
@@ -202,6 +273,47 @@ def test_station_sampling_and_metric_aggregation_with_fake_rasters():
     assert next(row for row in model_rows if row["source"] == "hrrr")["vector_rmse"] == pytest.approx(3.0)
     assert ml_emulator["vector_rmse_vs_momentum"] == pytest.approx(0.5)
     assert ml_emulator["vector_rmse_improvement_vs_mass_percent"] == pytest.approx(83.333333)
+
+
+def test_sample_ascii_grid_uses_nearest_cell_center(tmp_path):
+    raster = tmp_path / "grid.asc"
+    raster.write_text(
+        "\n".join([
+            "ncols 3",
+            "nrows 2",
+            "xllcorner 0",
+            "yllcorner 0",
+            "cellsize 1",
+            "NODATA_value -9999",
+            "1 2 3",
+            "4 -9999 6",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    header = {
+        "ncols": 3,
+        "nrows": 2,
+        "xllcorner": 0,
+        "yllcorner": 0,
+        "cellsize": 1,
+    }
+
+    assert ascii_grid_indices(header, 0.5, 1.5) == (0, 0)
+    samples = sample_ascii_grid(
+        raster,
+        [
+            ("top_left", 0.5, 1.5),
+            ("bottom_middle_nodata", 1.5, 0.5),
+            ("outside", 4.0, 0.5),
+        ],
+    )
+
+    assert samples == {
+        "top_left": 1.0,
+        "bottom_middle_nodata": None,
+        "outside": None,
+    }
 
 
 def test_copy_projection_sidecars_to_ml_outputs(tmp_path):

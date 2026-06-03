@@ -39,6 +39,13 @@ def parse_run_label(label: str) -> dt.datetime:
 
 
 def sample_raster_value(path: Path, lon: float, lat: float) -> float | None:
+    return sample_raster_values(path, [(lon, lat)])[0]
+
+
+def sample_raster_values(path: Path, points: list[tuple[float, float]]) -> list[float | None]:
+    if not points:
+        return []
+    input_text = "".join(f"{lon} {lat}\n" for lon, lat in points)
     try:
         result = subprocess.run(
             [
@@ -46,11 +53,10 @@ def sample_raster_value(path: Path, lon: float, lat: float) -> float | None:
                 "-wgs84",
                 "-valonly",
                 str(path),
-                str(lon),
-                str(lat),
             ],
             check=False,
             capture_output=True,
+            input=input_text,
             text=True,
             timeout=GDALLOCATIONINFO_TIMEOUT_SECONDS,
         )
@@ -62,13 +68,18 @@ def sample_raster_value(path: Path, lon: float, lat: float) -> float | None:
         raise RuntimeError(
             f"gdallocationinfo failed for {path}: {result.stderr.strip() or result.stdout.strip()}"
         )
-    value = result.stdout.strip()
-    if not value:
-        return None
-    sampled = float(value)
-    if sampled <= -9990:
-        return None
-    return sampled
+    lines = result.stdout.splitlines()
+    if len(lines) < len(points):
+        lines.extend([""] * (len(points) - len(lines)))
+    values = []
+    for line in lines[: len(points)]:
+        value = line.strip()
+        if not value:
+            values.append(None)
+            continue
+        sampled = float(value.split()[0])
+        values.append(None if sampled <= -9990 else sampled)
+    return values
 
 
 def collect_raster_sets(run_dir: Path) -> dict[dt.datetime, dict[str, Path]]:

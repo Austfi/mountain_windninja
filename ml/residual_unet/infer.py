@@ -33,6 +33,7 @@ SPEED_UNITS = ("mps", "mph", "kph", "kts")
 EXCLUDED_RASTER_PREFIXES = ("PASTCAST", "NOMADS", "HEIGHT-HRRR")
 TIMESTAMP_RE = re.compile(r"(?P<label>(?:\d{2}-\d{2}-\d{4}|\d{8})_\d{4})")
 RUN_DIR_DOMAIN_RE = re.compile(r"^(?P<domain>.+)_\d{8}_\d{4}_reanalysis_\d+h_[A-Za-z0-9_-]+$")
+_MODEL_CACHE: dict[tuple[str, str], tuple] = {}
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,16 @@ def _load_model(checkpoint_path: Path, device_name: str):
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     return torch, model, normalization, config, device
+
+
+def _load_model_cached(checkpoint_path: Path, device_name: str):
+    cache_key = (checkpoint_path.resolve().as_posix(), device_name)
+    cached = _MODEL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    loaded = _load_model(checkpoint_path, device_name)
+    _MODEL_CACHE[cache_key] = loaded
+    return loaded
 
 
 def _timestamp_from_base(base: str) -> dt.datetime | None:
@@ -241,25 +252,31 @@ def _write_prediction_outputs(
     *,
     crop_size: int,
     output_speed_units: SpeedUnits,
+    write_diagnostics: bool = True,
 ) -> dict[str, str]:
     nodata = reference_grid.nodata
     speed, direction = uv_to_speed_direction(pred_uv[0], pred_uv[1], units=output_speed_units)
     outputs = {
         "corrected_speed_path": out_dir / "corrected" / f"{sample_id}_ml_vel.asc",
         "corrected_direction_path": out_dir / "corrected" / f"{sample_id}_ml_ang.asc",
-        "u_path": out_dir / "uv" / f"{sample_id}_ml_u.asc",
-        "v_path": out_dir / "uv" / f"{sample_id}_ml_v.asc",
-        "delta_u_path": out_dir / "residual" / f"{sample_id}_delta_u.asc",
-        "delta_v_path": out_dir / "residual" / f"{sample_id}_delta_v.asc",
     }
     arrays = {
         "corrected_speed_path": speed,
         "corrected_direction_path": direction,
-        "u_path": pred_uv[0],
-        "v_path": pred_uv[1],
-        "delta_u_path": pred_delta[0],
-        "delta_v_path": pred_delta[1],
     }
+    if write_diagnostics:
+        outputs.update({
+            "u_path": out_dir / "uv" / f"{sample_id}_ml_u.asc",
+            "v_path": out_dir / "uv" / f"{sample_id}_ml_v.asc",
+            "delta_u_path": out_dir / "residual" / f"{sample_id}_delta_u.asc",
+            "delta_v_path": out_dir / "residual" / f"{sample_id}_delta_v.asc",
+        })
+        arrays.update({
+            "u_path": pred_uv[0],
+            "v_path": pred_uv[1],
+            "delta_u_path": pred_delta[0],
+            "delta_v_path": pred_delta[1],
+        })
     for key, path in outputs.items():
         values = _masked(arrays[key], valid_mask, nodata)
         output_grid = crop_grid_metadata(reference_grid, crop_size, data=values)
@@ -299,6 +316,8 @@ def infer(
     terrain_domain: str | None = None,
     momentum_run: Path | None = None,
     max_samples: int | None = None,
+    include_timestamps: set[dt.datetime] | None = None,
+    write_diagnostics: bool = True,
     device_name: str = "auto",
 ) -> dict:
     import numpy as np
@@ -309,6 +328,15 @@ def infer(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     mass_pairs = collect_inference_rasters(mass_run)
+    if include_timestamps is not None:
+        include_utc = {
+            timestamp.astimezone(dt.timezone.utc)
+            for timestamp in include_timestamps
+        }
+        mass_pairs = [
+            pair for pair in mass_pairs
+            if pair.timestamp is not None and pair.timestamp.astimezone(dt.timezone.utc) in include_utc
+        ]
     if max_samples is not None:
         mass_pairs = mass_pairs[:max_samples]
     if not mass_pairs:
@@ -317,7 +345,7 @@ def infer(
     reference_grid = read_ascii_grid(mass_pairs[0].speed_path)
     resolved_terrain_domain = terrain_domain or _terrain_domain_from_run_dir(mass_run)
 
-    torch, model, normalization, config, device = _load_model(checkpoint_path, device_name)
+    torch, model, normalization, config, device = _load_model_cached(checkpoint_path, device_name)
     input_mean, input_std = _normalization_arrays(normalization)
     input_channels = normalization.get("input_channels", CHANNELS)
     terrain_features = terrain_features_from_input_channels(input_channels)
@@ -350,82 +378,103 @@ def infer(
     sample_metric_rows: list[dict[str, object]] = []
     metadata_rows: list[dict[str, object]] = []
 
+    prepared_samples = []
+    batch_inputs = []
+    for pair in mass_pairs:
+        mass_uv_full, mass_mask_full, mass_grid = read_uv(
+            pair.speed_path,
+            pair.direction_path,
+            units=speed_units,
+        )
+        if not same_grid(reference_grid, mass_grid, tolerance=1e-3):
+            raise ValueError(f"Mass raster grid changed within run: {pair.speed_path}")
+
+        mass_uv = center_crop(mass_uv_full, crop_size)
+        mass_mask = center_crop(mass_mask_full, crop_size)
+        valid_mask = terrain_mask & mass_mask
+
+        x = np.concatenate([terrain_channels, mass_uv], axis=0).astype(np.float32)
+        if x.shape[0] != input_mean.shape[0]:
+            raise ValueError(
+                f"Checkpoint expects {input_mean.shape[0]} input channels, but inference built {x.shape[0]}."
+            )
+        x[:, ~valid_mask] = 0.0
+        x = (x - input_mean) / input_std
+        batch_inputs.append(x)
+        prepared_samples.append({
+            "pair": pair,
+            "mass_uv": mass_uv,
+            "mass_grid": mass_grid,
+            "valid_mask": valid_mask,
+        })
+
     with torch.no_grad():
-        for pair in mass_pairs:
-            mass_uv_full, mass_mask_full, mass_grid = read_uv(
-                pair.speed_path,
-                pair.direction_path,
+        pred_deltas = (
+            model(torch.from_numpy(np.stack(batch_inputs)).to(device))
+            .detach()
+            .cpu()
+            .numpy()
+            .astype(np.float32)
+        )
+
+    for item, pred_delta in zip(prepared_samples, pred_deltas, strict=True):
+        pair = item["pair"]
+        mass_uv = item["mass_uv"]
+        mass_grid = item["mass_grid"]
+        valid_mask = item["valid_mask"]
+        pred_delta[:, ~valid_mask] = 0.0
+        pred_uv = (mass_uv + pred_delta).astype(np.float32)
+        pred_uv[:, ~valid_mask] = 0.0
+
+        outputs = _write_prediction_outputs(
+            out_dir,
+            pair.sample_id,
+            mass_grid,
+            pred_uv,
+            pred_delta,
+            valid_mask,
+            crop_size=crop_size,
+            output_speed_units=output_speed_units,
+            write_diagnostics=write_diagnostics,
+        )
+        _copy_projection_sidecars(
+            pair.speed_path,
+            [Path(value) for value in outputs.values()],
+        )
+
+        row: dict[str, object] = {
+            "sample_id": pair.sample_id,
+            "timestamp_utc": pair.timestamp.isoformat() if pair.timestamp else "",
+            "mass_speed_path": pair.speed_path.as_posix(),
+            "mass_direction_path": pair.direction_path.as_posix(),
+            "valid_pixel_count": int(valid_mask.sum()),
+            **outputs,
+        }
+
+        momentum_pair = _match_pair(pair, momentum_lookup) if momentum_lookup else None
+        if momentum_pair is not None:
+            mom_uv_full, mom_mask_full, mom_grid = read_uv(
+                momentum_pair.speed_path,
+                momentum_pair.direction_path,
                 units=speed_units,
             )
-            if not same_grid(reference_grid, mass_grid, tolerance=1e-3):
-                raise ValueError(f"Mass raster grid changed within run: {pair.speed_path}")
-
-            mass_uv = center_crop(mass_uv_full, crop_size)
-            mass_mask = center_crop(mass_mask_full, crop_size)
-            valid_mask = terrain_mask & mass_mask
-
-            x = np.concatenate([terrain_channels, mass_uv], axis=0).astype(np.float32)
-            if x.shape[0] != input_mean.shape[0]:
-                raise ValueError(
-                    f"Checkpoint expects {input_mean.shape[0]} input channels, but inference built {x.shape[0]}."
-                )
-            x[:, ~valid_mask] = 0.0
-            x = (x - input_mean) / input_std
-
-            tensor = torch.from_numpy(x[None, ...]).to(device)
-            pred_delta = model(tensor).detach().cpu().numpy()[0].astype(np.float32)
-            pred_delta[:, ~valid_mask] = 0.0
-            pred_uv = (mass_uv + pred_delta).astype(np.float32)
-            pred_uv[:, ~valid_mask] = 0.0
-
-            outputs = _write_prediction_outputs(
-                out_dir,
-                pair.sample_id,
-                mass_grid,
-                pred_uv,
-                pred_delta,
-                valid_mask,
-                crop_size=crop_size,
-                output_speed_units=output_speed_units,
-            )
-            _copy_projection_sidecars(
-                pair.speed_path,
-                [Path(value) for value in outputs.values()],
-            )
-
-            row: dict[str, object] = {
+            if not same_grid(mass_grid, mom_grid, tolerance=1e-3):
+                raise ValueError(f"Mass/momentum grids do not match for {pair.sample_id}")
+            mom_uv = center_crop(mom_uv_full, crop_size)
+            mom_mask = center_crop(mom_mask_full, crop_size)
+            compare_mask = valid_mask & mom_mask
+            sums = _metric_sums(pred_uv, mass_uv, mom_uv, compare_mask)
+            _add_metric_sums(totals, sums)
+            item_metrics = _finalize_metrics(sums)
+            sample_metric_rows.append({
                 "sample_id": pair.sample_id,
-                "timestamp_utc": pair.timestamp.isoformat() if pair.timestamp else "",
-                "mass_speed_path": pair.speed_path.as_posix(),
-                "mass_direction_path": pair.direction_path.as_posix(),
-                "valid_pixel_count": int(valid_mask.sum()),
-                **outputs,
-            }
-
-            momentum_pair = _match_pair(pair, momentum_lookup) if momentum_lookup else None
-            if momentum_pair is not None:
-                mom_uv_full, mom_mask_full, mom_grid = read_uv(
-                    momentum_pair.speed_path,
-                    momentum_pair.direction_path,
-                    units=speed_units,
-                )
-                if not same_grid(mass_grid, mom_grid, tolerance=1e-3):
-                    raise ValueError(f"Mass/momentum grids do not match for {pair.sample_id}")
-                mom_uv = center_crop(mom_uv_full, crop_size)
-                mom_mask = center_crop(mom_mask_full, crop_size)
-                compare_mask = valid_mask & mom_mask
-                sums = _metric_sums(pred_uv, mass_uv, mom_uv, compare_mask)
-                _add_metric_sums(totals, sums)
-                item_metrics = _finalize_metrics(sums)
-                sample_metric_rows.append({
-                    "sample_id": pair.sample_id,
-                    "timestamp_utc": row["timestamp_utc"],
-                    "momentum_speed_path": momentum_pair.speed_path.as_posix(),
-                    **item_metrics,
-                })
-                row["momentum_speed_path"] = momentum_pair.speed_path.as_posix()
-                row["momentum_direction_path"] = momentum_pair.direction_path.as_posix()
-            metadata_rows.append(row)
+                "timestamp_utc": row["timestamp_utc"],
+                "momentum_speed_path": momentum_pair.speed_path.as_posix(),
+                **item_metrics,
+            })
+            row["momentum_speed_path"] = momentum_pair.speed_path.as_posix()
+            row["momentum_direction_path"] = momentum_pair.direction_path.as_posix()
+        metadata_rows.append(row)
 
     metadata = {
         "created_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -483,6 +532,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--crop-size", type=int, default=96)
     parser.add_argument("--momentum-run", help="Optional momentum-solver output directory for comparison metrics.")
     parser.add_argument("--max-samples", type=int, help="Limit the number of raster pairs for smoke tests.")
+    parser.add_argument("--no-diagnostics", action="store_true", help="Write only corrected speed/direction rasters.")
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     return parser
 
@@ -501,6 +551,7 @@ def main() -> int:
         terrain_domain=args.terrain_domain,
         momentum_run=Path(args.momentum_run) if args.momentum_run else None,
         max_samples=args.max_samples,
+        write_diagnostics=not args.no_diagnostics,
         device_name=args.device,
     )
     print(json.dumps(summary, indent=2))
